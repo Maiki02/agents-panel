@@ -1,4 +1,4 @@
-# CLAUDE.md — agent-panel
+# CLAUDE.md — agents-panel
 
 Reglas generales del repo. Valen para cualquier agente (Claude Code, Cowork) y para cualquier persona que trabaje acá.
 

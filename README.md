@@ -1,4 +1,4 @@
-# agent-panel
+# agents-panel
 
 Panel web para mandar pedidos a Claude Code desde cualquier dispositivo y seguir cada feature (scope o work de Kyro) de punta a punta: planificación, ejecución, QA y PR a `dev`. Corre en la VM `vm-ia` (Oracle) y se publica con Tailscale Funnel.
 

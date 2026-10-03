@@ -1,4 +1,4 @@
-# agent-panel — Plan
+# agents-panel — Plan
 
 _Última actualización: 3 de octubre de 2026 · Miqueas Gentile_
 
@@ -17,7 +17,7 @@ La v1 es un panel web que corre en la VM (`vm-ia`, Oracle). Desde ahí se le man
 | 5 | Impacto en skills | Cambios chicos. El que más se toca es `merge-dev`: pasa de dos máquinas a tres, el `origin` de fe/be pasa a GitHub y las preguntas al usuario van al panel. |
 | 6 | Frontend | En la misma VM, servido por el backend. |
 | 7 | Stack | Todo TypeScript: backend Node + Fastify + Agent SDK, frontend Angular. |
-| 8 | Repo | `agent-panel`, separado de NovaGent. Es multiproyecto: la v1 arranca solo con NovaGent y después se suman Judiciar y otros. |
+| 8 | Repo | `agents-panel`, separado de NovaGent. Es multiproyecto: la v1 arranca solo con NovaGent y después se suman Judiciar y otros. |
 
 ## Unidad de trabajo: un scope o work = un worktree
 
@@ -145,7 +145,7 @@ Se publica con **Tailscale Funnel**. Entrás desde cualquier navegador a `https:
 - Límite de intentos por IP y usuario, bloqueo temporal y registro de logins.
 - Cabeceras de seguridad (CSP, HSTS). Ninguna ruta de la API sin sesión.
 
-**Servicio:** systemd (`agent-panel.service`), escucha solo en `127.0.0.1:3000`. Funnel lo publica con `tailscale funnel --bg 3000`.
+**Servicio:** systemd (`agents-panel.service`), escucha solo en `127.0.0.1:3000`. Funnel lo publica con `tailscale funnel --bg 3000`.
 
 ## Impacto en las skills actuales de NovaGent
 
@@ -163,7 +163,7 @@ Se publica con **Tailscale Funnel**. Entrás desde cualquier navegador a `https:
 ## Etapas de implementación
 
 1. ✅ **Preparar la VM** (cerrada el 03/10/2026, ver [`vm-setup.md`](vm-setup.md)). Node, Go (versión de `go.mod`), `gh`, Kyro 6, Claude Code + `kyro install --agent claude`, `git-committer`, swap. Clonar NovaGent con fe y be, `.env` de desarrollo. _Listo cuando:_ `kyro doctor`, `go test ./...` y el build de `client` pasan.
-2. **Probar a mano.** Un scope chico de punta a punta con `claude` en `tmux`, en un worktree. _Listo cuando:_ las PRs a `dev` quedan bien y la raíz mergeada a `main`.
+2. ✅ **Probar a mano** (03/10/2026: work `fix-employee-test-redundant-or` lanzado desde el celular con Remote Control, terminó en PR a `dev`. Hizo falta configurar permisos: ver `vm-setup.md` paso 6). Un scope chico de punta a punta con `claude` en `tmux`, en un worktree. _Listo cuando:_ las PRs a `dev` quedan bien y la raíz mergeada a `main`.
 3. **Ajustar las skills** de NovaGent (`merge-dev`, script de worktree). _Listo cuando:_ el paso 2 sale sin intervención.
 4. **Panel MVP.** Login + 2FA, crear scope (worktree + sesión SDK), streaming, historial y resume.
 5. **Estados y PRs.** Estado fino ([`estados.md`](estados.md)), stepper, PRs y checks, aprobaciones con botones.
@@ -185,6 +185,6 @@ Se publica con **Tailscale Funnel**. Entrás desde cualquier navegador a `https:
 
 - [x] Acceso: Tailscale Funnel.
 - [x] Stack: todo TypeScript.
-- [x] Repo: `agent-panel`.
-- [x] Kyro en agent-panel: sí. Work para cambios chicos, Forge (scope) para cada etapa grande.
+- [x] Repo: `agents-panel`.
+- [x] Kyro en agents-panel: sí. Work para cambios chicos, Forge (scope) para cada etapa grande.
 - [ ] Revisar en la VM la salida JSON de `kyro status` y `kyro context-pack` para cerrar el mapeo de fases.

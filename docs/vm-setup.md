@@ -25,7 +25,7 @@ La creación de la VM en Oracle (cuenta, instancia, red, IP, SSH, alerta de pres
 scp C:\Users\miqui\Proyectos\agent-panel\scripts\vm\*.sh oracle-vm:~/
 ```
 
-Cuando el repo esté en GitHub, alcanza con clonarlo en la VM (`~/agent-panel`).
+Cuando el repo esté en GitHub, alcanza con clonarlo en la VM (`~/agents-panel`).
 
 ### 1. Base: `scripts/vm/01-base.sh`
 
@@ -36,14 +36,14 @@ bash ~/01-base.sh
 | Qué | Cómo | Por qué |
 |---|---|---|
 | Paquetes base | `apt`: git, tmux, build-essential, curl, jq, unzip, xz-utils, ripgrep, sqlite3, time | Herramientas de trabajo y de los scripts |
-| Swap 8 GB | `/swapfile` en `/etc/fstab`, `vm.swappiness=10` en `/etc/sysctl.d/99-agent-panel.conf` | Colchón para picos de RAM en builds de Angular |
+| Swap 8 GB | `/swapfile` en `/etc/fstab`, `vm.swappiness=10` en `/etc/sysctl.d/99-agents-panel.conf` | Colchón para picos de RAM en builds de Angular |
 | Node 24 LTS | Binario oficial en `/opt/node`, links en `/usr/local/bin` | Angular 21 y el panel. Versión fija, sin depender del apt de Ubuntu |
 | npm global sin sudo | `npm config set prefix ~/.npm-global` | Instalar CLIs (Kyro) sin root |
 | Go 1.25.x | Binario oficial en `/usr/local/go`, serie fijada en `GO_SERIES` | Misma serie que `go.mod` de be-ventas. Con go1.27, `go vet` (que corre dentro de `go test`) falla en código que en la PC pasa |
 | GitHub CLI | Repo apt oficial de `cli.github.com` | PRs, checks y credenciales de git |
 | Claude Code | Instalador nativo `claude.ai/install.sh` → `~/.local/bin/claude` | El agente |
 | Kyro 6 | `npm i -g kyro-ai@latest` + `kyro install --agent claude` | Flujo de trabajo; en v6 las skills `kyro-*` van a `~/.claude/skills/` |
-| PATH | Bloque `# >>> agent-panel >>>` en `~/.profile` y `~/.bashrc` | `~/.local/bin`, `~/.npm-global/bin`, `/usr/local/go/bin`, `~/go/bin` |
+| PATH | Bloque `# >>> agents-panel >>>` en `~/.profile` y `~/.bashrc` | `~/.local/bin`, `~/.npm-global/bin`, `/usr/local/go/bin`, `~/go/bin` |
 | git global | `user.name Maiki02`, `user.email`, `init.defaultBranch main`, `pull.rebase false` | Igual que en la PC; `merge-dev` usa `pull --no-rebase` |
 
 El log de cada corrida queda en `~/agent-panel-setup.log`.
@@ -95,6 +95,45 @@ scp oracle-vm:~/agent-panel-setup.log C:\Users\miqui\Proyectos\agent-panel\.logs
 
 Mediciones de referencia (03/10/2026, Go 1.25.14): `go test ./...` OK (el paquete `services` tarda ~20 s); `npm run build:client` tarda **25–29 s** y usa **1,7–2,4 GB** de RAM como pico. Después de todo el setup: 1,5 GB de RAM en uso, swap sin usar, **15 GB de disco** usados de 193 GB.
 
+### 6. Permisos de Claude Code: `scripts/vm/04-claude-permisos.sh`
+
+```powershell
+scp C:\Users\miqui\Proyectos\agent-panel\scripts\vm\04-claude-permisos.sh oracle-vm:~/
+ssh oracle-vm "bash ~/04-claude-permisos.sh"
+```
+
+Sin esto, Claude pide permiso para cada comando y el flujo no es automático. Escribe en `~/.claude/settings.json` (con backup):
+
+- `defaultMode: acceptEdits`: edita archivos sin preguntar.
+- `additionalDirectories`: `~/.agents` (runtime de Kyro), `~/.claude`, `~/proyectos`, `/tmp`. Sin esto, Claude pide permiso cada vez que lee el runtime de Kyro, que está fuera de la carpeta del proyecto.
+- **Permitido:** git, gh, go, npm/npx/node, kyro y comandos de lectura y archivos (ls, cat, rg, find, mkdir, cp, mv…).
+- **Push y PRs (explícitos):** `git push` solo de ramas `feature-…` / `feature/…` y de `main` (raíz), `gh pr create/list/view/checks/edit`. Hacen falta reglas explícitas porque el modo auto considera riesgoso todo lo que sale a GitHub.
+- **Bloqueado siempre:** push directo a `dev`, `git push --force`, `git rebase`, `gh pr merge` (las PRs las mergea el usuario), `sudo`, deploys (`npm run deploy*`, `sls deploy`) y leer `.env.production`.
+
+### 7. Repo agents-panel en la VM
+
+```bash
+git clone https://github.com/Maiki02/agents-panel.git ~/proyectos/agents-panel
+cd ~/proyectos/agents-panel && npx --yes kyro-ai@latest install --init-workspace --yes
+```
+
+Desde acá, los scripts de `scripts/vm/` se corren desde el repo clonado (`git pull` para actualizarlos). Ya no hace falta `scp`.
+
+### 8. Claude desde la web: `scripts/vm/05-remote-control.sh`
+
+```bash
+tmux kill-session -t etapa2 2>/dev/null; tmux kill-session -t claude 2>/dev/null   # servers viejos, si quedaron
+bash ~/proyectos/agents-panel/scripts/vm/05-remote-control.sh --install
+```
+
+- Levanta un server de **Remote Control** por proyecto, cada uno en su sesión de tmux: `rc-ventas` (`~/proyectos/ventas`, `--spawn same-dir`) y `rc-agents-panel` (`~/proyectos/agents-panel`, `--spawn worktree`: cada sesión nueva en su propio worktree).
+- Todos con `--permission-mode auto` (permisos del paso 6).
+- `--install` crea el servicio de usuario `claude-remote-control.service` y activa `loginctl enable-linger`, así los servers arrancan solos cuando se reinicia la VM, sin sesión SSH abierta.
+- **Uso:** en la PC, **claude.ai/code** en el navegador. Las sesiones aparecen como `rc-ventas-…` y `rc-agents-panel-…`. Desde ahí se abren sesiones nuevas y se mandan los pedidos.
+- Ver un server: `tmux attach -t rc-ventas` (salir sin cortarlo: `Ctrl+b` y después `d`).
+- Después de cambiar permisos (paso 6): `bash …/05-remote-control.sh --stop` y de nuevo sin flags.
+- Para sumar un proyecto, agregar una línea en `PROJECTS` del script.
+
 ### Pendiente (etapas siguientes del plan)
 
 
@@ -109,6 +148,7 @@ Regla del repo (`CLAUDE.md`): todo cambio que pueda modificar lo que se paga se 
 |---|---|---|---|
 | 2026-10-02 | Instancia A1 2 OCPU / 12 GB + boot volume 200 GB (dentro de Always Free) | US$0 | Miqueas |
 | 2026-10-03 | Etapa 1 (paquetes, swap en el disco existente, Node, Go, gh, Claude Code, Kyro, repos) | US$0: no agrega recursos de Oracle | — |
+| 2026-10-03 | Permisos de Claude Code y Remote Control (servicio systemd de usuario) | US$0 (usa la suscripción Claude Pro existente) | — |
 
 ## Bitácora
 
@@ -123,3 +163,7 @@ Regla del repo (`CLAUDE.md`): todo cambio que pueda modificar lo que se paga se 
 | 2026-10-03 | Copia de `.env`, `.env.local`, `.env.development` de be-ventas (`chmod 600`) y de `git-committer.md` a `~/.claude/agents/` | Hecho por scp desde la PC |
 | 2026-10-03 | `03-verify.sh` | `kyro doctor`: 13/13 PASS. `build:client`: OK en 29 s, pico 2,4 GB. `go test`: **FALLA** `internal/core/services`: `go vet` de go1.27.1 marca `employee_service_test.go:531` (condición repetida `len(userRepo.users) != 1 \|\| len(userRepo.users) != 1`). Decisión: fijar Go a 1.25.x como en go.mod; el test igual tiene un bug a corregir en be-ventas |
 | 2026-10-03 | `01-base.sh` actualizado (Go fijado a 1.25.x) + `03-verify.sh` | **VERIFY OK**. Go 1.25.14. `kyro doctor` 13/13 PASS, `go test ./...` OK, `build:client` 24,6 s y pico 1,7 GB, 0 swap usado, 15 GB de disco. **Etapa 1 cerrada** |
+| 2026-10-03 | `claude remote-control` en `~/proyectos/ventas` (tmux `etapa2`), prompt enviado desde el celular | Funciona, pero pidió permiso para cada comando. Se agregó `04-claude-permisos.sh` |
+| 2026-10-03 | Reinicio con `--permission-mode acceptEdits` | Siguió pidiendo permiso. Causa probable: Kyro lee su runtime en `~/.agents` (fuera del proyecto). Se agregó `additionalDirectories` y más comandos al script; el server pasa a `--permission-mode auto` |
+| 2026-10-03 | Pidió permiso para `gh` y `git push` | Se agregaron reglas explícitas de push (solo ramas feature y `main`) y de `gh pr`; push directo a `dev` queda bloqueado |
+| 2026-10-03 | Etapa 2: work `fix-employee-test-redundant-or` vía Remote Control con permisos nuevos | OK: PR a `dev` en be-ventas abierta, pendiente de revisión del usuario |
