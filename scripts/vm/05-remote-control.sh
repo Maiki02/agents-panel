@@ -48,6 +48,9 @@ for p in "${PROJECTS[@]}"; do
   IFS='|' read -r name dir spawn <<<"$p"
   if [ ! -d "$dir" ]; then echo "SALTEO $name: no existe $dir"; continue; fi
   if tmux has-session -t "$name" 2>/dev/null; then echo "$name ya está corriendo"; continue; fi
+  # Marca la carpeta como confiable (si no, el server queda esperando "Trust …? [y/N]" dentro de tmux).
+  CJ="$HOME/.claude.json"; [ -f "$CJ" ] || echo '{}' > "$CJ"
+  jq --arg d "$dir" '.projects[$d].hasTrustDialogAccepted = true' "$CJ" > "$CJ.tmp" && mv "$CJ.tmp" "$CJ"
   tmux new-session -d -s "$name" -c "$dir" \
     "claude remote-control --permission-mode auto --spawn $spawn --remote-control-session-name-prefix $name; echo 'Remote Control terminó. Enter para cerrar.'; read"
   echo "$name iniciado en $dir (spawn=$spawn)"
