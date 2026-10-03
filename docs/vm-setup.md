@@ -129,7 +129,9 @@ bash ~/proyectos/agents-panel/scripts/vm/05-remote-control.sh --install
 - Levanta un server de **Remote Control** por proyecto, cada uno en su sesión de tmux: `rc-ventas` (`~/proyectos/ventas`, `--spawn same-dir`) y `rc-agents-panel` (`~/proyectos/agents-panel`, `--spawn worktree`: cada sesión nueva en su propio worktree).
 - Todos con `--permission-mode auto` (permisos del paso 6).
 - `--install` crea el servicio de usuario `claude-remote-control.service` y activa `loginctl enable-linger`, así los servers arrancan solos cuando se reinicia la VM, sin sesión SSH abierta.
-- **Uso:** en la PC, **claude.ai/code** en el navegador. Las sesiones aparecen como `rc-ventas-…` y `rc-agents-panel-…`. Desde ahí se abren sesiones nuevas y se mandan los pedidos.
+- Marca cada carpeta como confiable en `~/.claude.json` (`hasTrustDialogAccepted`). Sin eso, el server de una carpeta nueva queda esperando `Trust …? [y/N]` dentro de tmux y no aparece en la web.
+- **Uso:** en la PC, **claude.ai/code**. Cada server es un **entorno**: para una sesión nueva, *Nuevo* → selector de entorno (el botón que dice "Predeterminado") → el de la VM (`NovaGent`, `agents-panel`). "Predeterminado" solo es la nube de Anthropic, no la VM. Las sesiones existentes aparecen en *Recientes*.
+- Una sesión que ya existía conserva su nombre (por ejemplo `vm-ia-parallel-acorn` en rc-ventas); el prefijo `rc-…` aplica a las nuevas.
 - Ver un server: `tmux attach -t rc-ventas` (salir sin cortarlo: `Ctrl+b` y después `d`).
 - Después de cambiar permisos (paso 6): `bash …/05-remote-control.sh --stop` y de nuevo sin flags.
 - Para sumar un proyecto, agregar una línea en `PROJECTS` del script.
@@ -167,3 +169,6 @@ Regla del repo (`CLAUDE.md`): todo cambio que pueda modificar lo que se paga se 
 | 2026-10-03 | Reinicio con `--permission-mode acceptEdits` | Siguió pidiendo permiso. Causa probable: Kyro lee su runtime en `~/.agents` (fuera del proyecto). Se agregó `additionalDirectories` y más comandos al script; el server pasa a `--permission-mode auto` |
 | 2026-10-03 | Pidió permiso para `gh` y `git push` | Se agregaron reglas explícitas de push (solo ramas feature y `main`) y de `gh pr`; push directo a `dev` queda bloqueado |
 | 2026-10-03 | Etapa 2: work `fix-employee-test-redundant-or` vía Remote Control con permisos nuevos | OK: PR a `dev` en be-ventas abierta, pendiente de revisión del usuario |
+| 2026-10-03 | Pasos 7 y 8: clon de agents-panel, `kyro install --init-workspace`, `05-remote-control.sh --install` | OK: servicio `claude-remote-control.service` habilitado, servers `rc-ventas` (same-dir) y `rc-agents-panel` (worktree) corriendo |
+| 2026-10-03 | Revisión de servers | `rc-ventas` conectado (retomó `vm-ia-parallel-acorn`). `rc-agents-panel` trabado en `Trust …? [y/N]`. Se respondió `y` con `tmux send-keys` y el script ahora pre-acepta la confianza |
+| 2026-10-03 | `rc-agents-panel` tras aceptar la confianza | OK: conectado. Entornos en la web: ventas `env_01Asj9nDeWPMK5r4jqmmNUQW`, agents-panel `env_01CvvXqJ93bAKBscT2UC8aWw` (link directo: `https://claude.ai/code?environment=<id>`) |
