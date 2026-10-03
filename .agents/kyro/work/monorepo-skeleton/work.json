@@ -1,0 +1,268 @@
+{
+  "schemaVersion": 1,
+  "kind": "organic-work",
+  "id": "monorepo-skeleton",
+  "title": "Work: esqueleto del monorepo (npm workspaces, TypeScript strict, lint)",
+  "objective": "Dejar armado el monorepo de agents-panel con npm workspaces (`apps/api`, `apps/web`, `packages/shared`), TypeScript en modo `strict` y lint funcionando desde la raíz, según \"Stack y convenciones de código\" de `CLAUDE.md` y la estructura de `docs/plan.md`. Es la base sobre la que arranca la etapa 4 (Panel MVP); no incluye funcionalidad del panel.",
+  "brief": {
+    "path": "brief.md",
+    "digest": "6e01c9437889f29dee6996e42d8653753f263097538c15aecda556b47fccdbcf",
+    "sourceIdea": null
+  },
+  "state": "active",
+  "revision": 5,
+  "createdAt": "2026-10-03T02:34:57.120Z",
+  "updatedAt": "2026-10-03T23:28:50.031Z",
+  "handoff": {
+    "nextAction": "execute_task",
+    "nextTaskId": "W2",
+    "blockedReason": null
+  },
+  "tasks": [
+    {
+      "id": "W1",
+      "title": "Raíz del monorepo: workspaces, tsconfig strict, ESLint y Prettier",
+      "description": "Crear package.json raíz (private, workspaces apps/* y packages/*, engines.node >=24), .nvmrc, tsconfig.base.json con strict y opciones estrictas extra, eslint.config.js (flat, typescript-eslint type-aware) y Prettier, más scripts raíz build, typecheck, lint, format y format:check que delegan en los workspaces.",
+      "context": "CLAUDE.md 'Stack y convenciones de código'. Node 24 LTS (v24.21.0 en la VM). Respetar .gitignore y .gitattributes existentes (LF). No commitear node_modules.",
+      "filesToTouch": [
+        "package.json",
+        "package-lock.json",
+        ".nvmrc",
+        "tsconfig.base.json",
+        "eslint.config.js",
+        ".prettierrc.json",
+        ".prettierignore"
+      ],
+      "acceptanceCriteria": [
+        "package.json raíz declara workspaces apps/* y packages/* y engines.node >=24",
+        "tsconfig.base.json tiene strict: true",
+        "npm install en la raíz termina sin errores y genera package-lock.json",
+        "npm run lint y npm run format:check existen y corren desde la raíz"
+      ],
+      "dependsOn": [],
+      "definitionRevision": 1,
+      "status": "verified",
+      "blocker": null,
+      "evidence": {
+        "summary": "Root monorepo: package.json (private, ESM, workspaces packages/* and apps/*, engines.node >=24) with build/typecheck/lint/format/format:check scripts; .nvmrc 24; tsconfig.base.json with strict plus noUncheckedIndexedAccess, exactOptionalPropertyTypes and other strict flags; eslint.config.js flat config with typescript-eslint strictTypeChecked + stylisticTypeChecked (projectService); Prettier config. TypeScript pinned to ~6.0.3 because @angular/compiler-cli 22 requires >=6.0 <6.1 and typescript-eslint 8 requires <6.1.",
+        "validations": [
+          {
+            "command": "npm install",
+            "result": "passed",
+            "note": "0 vulnerabilities, package-lock.json generated"
+          },
+          {
+            "command": "npm run lint",
+            "result": "passed",
+            "note": "no TS sources yet; config loads and lints eslint.config.js"
+          },
+          {
+            "command": "npm run format:check",
+            "result": "passed",
+            "note": "Markdown excluded from Prettier to keep hand-written docs untouched"
+          }
+        ],
+        "filesChanged": [
+          "package.json",
+          "package-lock.json",
+          ".nvmrc",
+          "tsconfig.base.json",
+          "eslint.config.js",
+          ".prettierrc.json",
+          ".prettierignore"
+        ],
+        "notes": null,
+        "by": "claude",
+        "recordedAt": "2026-10-03T02:37:18.725Z",
+        "definitionRevision": 1,
+        "materialDigest": "cfdf755fe202279c1281ab7cb6e711cc91574247b521f4a485056b70f3061068"
+      },
+      "verdict": {
+        "result": "pass",
+        "checkedCriteria": [
+          "package.json raíz declara workspaces apps/* y packages/* y engines.node >=24",
+          "tsconfig.base.json tiene strict: true",
+          "npm install en la raíz termina sin errores y genera package-lock.json",
+          "npm run lint y npm run format:check existen y corren desde la raíz"
+        ],
+        "findings": [
+          {
+            "severity": "warning",
+            "detail": "Root scripts build and typecheck exist but currently fail with 'No workspaces found' because apps/ and packages/ do not exist yet (expected until W2). They are not acceptance criteria here, but must be re-verified once workspaces are added."
+          },
+          {
+            "severity": "suggestion",
+            "detail": "The root typecheck script hardcodes '-w @agents-panel/shared' (a package not yet created); it couples the root to a future package name. Confirm W2 uses exactly that name, or use npm's workspace ordering instead."
+          },
+          {
+            "severity": "suggestion",
+            "detail": "eslint.config.js uses projectService type-aware linting for **/*.ts, but there is no root tsconfig.json (only tsconfig.base.json); any .ts file outside a workspace with its own tsconfig would fail to lint. Fine for now; keep in mind for W2+."
+          }
+        ],
+        "by": "claude-reviewer",
+        "reviewedAt": "2026-10-03T23:28:50.031Z",
+        "definitionRevision": 1,
+        "evidenceDigest": "6a52a7323ade79789450c77faaabc3033d743cb90ce1fb5a6ca83e523b37c487",
+        "reviewedMaterialDigest": "cfdf755fe202279c1281ab7cb6e711cc91574247b521f4a485056b70f3061068"
+      },
+      "disposition": null
+    },
+    {
+      "id": "W2",
+      "title": "packages/shared: tipos compartidos",
+      "description": "Crear @agents-panel/shared con tsconfig que extiende la base, build a dist/ con declaraciones y un tipo de ejemplo HealthResponse exportado desde src/index.ts.",
+      "context": "Es el contrato entre api y web; debe poder importarse como @agents-panel/shared desde ambos workspaces.",
+      "filesToTouch": [
+        "packages/shared/package.json",
+        "packages/shared/tsconfig.json",
+        "packages/shared/src/index.ts"
+      ],
+      "acceptanceCriteria": [
+        "npm run build -w @agents-panel/shared genera dist/ con .js y .d.ts",
+        "El paquete exporta el tipo HealthResponse",
+        "Typecheck y lint del paquete sin errores"
+      ],
+      "dependsOn": [
+        "W1"
+      ],
+      "definitionRevision": 1,
+      "status": "pending",
+      "blocker": null,
+      "evidence": null,
+      "verdict": null,
+      "disposition": null
+    },
+    {
+      "id": "W3",
+      "title": "apps/api: Fastify mínimo con /api/health",
+      "description": "Crear @agents-panel/api con Fastify, endpoint GET /api/health tipado con HealthResponse de shared, escucha en 127.0.0.1:3000 (configurable por env), scripts dev, build y start.",
+      "context": "Sin auth, Agent SDK ni SQLite en este Work. El panel escucha solo en 127.0.0.1:3000 (docs/plan.md).",
+      "filesToTouch": [
+        "apps/api/package.json",
+        "apps/api/tsconfig.json",
+        "apps/api/src/main.ts",
+        "apps/api/src/app.ts"
+      ],
+      "acceptanceCriteria": [
+        "npm run build -w @agents-panel/api compila sin errores",
+        "Al arrancar, GET http://127.0.0.1:3000/api/health responde 200 con un HealthResponse",
+        "El servidor no escucha en 0.0.0.0 por defecto",
+        "Typecheck y lint del workspace sin errores"
+      ],
+      "dependsOn": [
+        "W2"
+      ],
+      "definitionRevision": 1,
+      "status": "pending",
+      "blocker": null,
+      "evidence": null,
+      "verdict": null,
+      "disposition": null
+    },
+    {
+      "id": "W4",
+      "title": "apps/web: Angular standalone + signals",
+      "description": "Crear @agents-panel/web como app Angular mínima (standalone, signals, sin NgModules) con un componente raíz que use un tipo de shared, angular-eslint integrado al lint raíz y build con ng build.",
+      "context": "Angular standalone + signals según CLAUDE.md. Más adelante el backend sirve este build; acá solo tiene que compilar.",
+      "filesToTouch": [
+        "apps/web/package.json",
+        "apps/web/angular.json",
+        "apps/web/tsconfig.json",
+        "apps/web/tsconfig.app.json",
+        "apps/web/src/main.ts",
+        "apps/web/src/index.html",
+        "apps/web/src/styles.css",
+        "apps/web/src/app/app.component.ts",
+        "apps/web/src/app/app.config.ts"
+      ],
+      "acceptanceCriteria": [
+        "npm run build -w @agents-panel/web genera el bundle sin errores",
+        "La app usa bootstrapApplication y no tiene NgModules",
+        "El componente raíz usa al menos un signal e importa un tipo de @agents-panel/shared",
+        "Lint con angular-eslint y typecheck strict sin errores"
+      ],
+      "dependsOn": [
+        "W2"
+      ],
+      "definitionRevision": 1,
+      "status": "pending",
+      "blocker": null,
+      "evidence": null,
+      "verdict": null,
+      "disposition": null
+    },
+    {
+      "id": "W5",
+      "title": "Verificación del monorepo y README",
+      "description": "Verificar desde un clon limpio que npm ci, npm run build, npm run typecheck, npm run lint y npm run format:check pasan, y documentar en README.md cómo instalar, compilar, lintear y levantar la API.",
+      "context": "README en español. Si algo de la VM hubiera que cambiar, va al runbook (no se espera).",
+      "filesToTouch": [
+        "README.md"
+      ],
+      "acceptanceCriteria": [
+        "npm ci, npm run build, npm run typecheck, npm run lint y npm run format:check pasan desde la raíz",
+        "README.md explica instalación, build, lint y cómo levantar la API",
+        "git status no muestra node_modules, dist ni .angular"
+      ],
+      "dependsOn": [
+        "W3",
+        "W4"
+      ],
+      "definitionRevision": 1,
+      "status": "pending",
+      "blocker": null,
+      "evidence": null,
+      "verdict": null,
+      "disposition": null
+    }
+  ],
+  "activity": [
+    {
+      "seq": 1,
+      "at": "2026-10-03T02:34:57.120Z",
+      "event": "created",
+      "taskId": null,
+      "by": "claude",
+      "reason": "Created through the Work CLI.",
+      "revision": 1
+    },
+    {
+      "seq": 2,
+      "at": "2026-10-03T02:34:57.549Z",
+      "event": "tasks_planned",
+      "taskId": null,
+      "by": "claude",
+      "reason": "Planned 5 Work tasks.",
+      "revision": 2
+    },
+    {
+      "seq": 3,
+      "at": "2026-10-03T02:36:53.297Z",
+      "event": "task_started",
+      "taskId": "W1",
+      "by": "claude",
+      "reason": "Task started through the Work CLI.",
+      "revision": 3
+    },
+    {
+      "seq": 4,
+      "at": "2026-10-03T02:37:18.725Z",
+      "event": "evidence_recorded",
+      "taskId": "W1",
+      "by": "claude",
+      "reason": "Evidence recorded with 3 validation results.",
+      "revision": 4
+    },
+    {
+      "seq": 5,
+      "at": "2026-10-03T23:28:50.031Z",
+      "event": "review_recorded",
+      "taskId": "W1",
+      "by": "claude-reviewer",
+      "reason": "Task review recorded with pass.",
+      "revision": 5
+    }
+  ],
+  "closure": null,
+  "promotion": null
+}
