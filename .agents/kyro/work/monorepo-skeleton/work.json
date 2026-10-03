@@ -10,12 +10,12 @@
     "sourceIdea": null
   },
   "state": "active",
-  "revision": 14,
+  "revision": 17,
   "createdAt": "2026-10-03T02:34:57.120Z",
-  "updatedAt": "2026-10-03T23:36:20.871Z",
+  "updatedAt": "2026-10-03T23:38:25.364Z",
   "handoff": {
-    "nextAction": "execute_task",
-    "nextTaskId": "W5",
+    "nextAction": "ready_to_close",
+    "nextTaskId": null,
     "blockedReason": null
   },
   "tasks": [
@@ -421,10 +421,70 @@
         "W4"
       ],
       "definitionRevision": 1,
-      "status": "pending",
+      "status": "verified",
       "blocker": null,
-      "evidence": null,
-      "verdict": null,
+      "evidence": {
+        "summary": "Verified the monorepo from a fresh git clone of HEAD 4dabc80 (plus the updated README): npm ci, npm run build, npm run typecheck, npm run lint and npm run format:check all exit 0, and git status after the full build shows only the README change (node_modules, dist and .angular are ignored). README.md now documents the workspace structure, requirements (Node 24, npm 11), install/build/typecheck/lint/format commands, how to run the API (dev/start, HOST/PORT, health curl) and the web dev server.",
+        "validations": [
+          {
+            "command": "git clone + npm ci",
+            "result": "passed",
+            "note": null
+          },
+          {
+            "command": "npm run build",
+            "result": "passed",
+            "note": "clean clone"
+          },
+          {
+            "command": "npm run typecheck",
+            "result": "passed",
+            "note": "clean clone"
+          },
+          {
+            "command": "npm run lint",
+            "result": "passed",
+            "note": "clean clone"
+          },
+          {
+            "command": "npm run format:check",
+            "result": "passed",
+            "note": "clean clone; Markdown is excluded from Prettier"
+          },
+          {
+            "command": "git status --short after build",
+            "result": "passed",
+            "note": "only README.md modified; no node_modules, dist or .angular"
+          }
+        ],
+        "filesChanged": [
+          "README.md"
+        ],
+        "notes": "No VM changes were needed.",
+        "by": "claude",
+        "recordedAt": "2026-10-03T23:37:22.999Z",
+        "definitionRevision": 1,
+        "materialDigest": "af3753e4e192416a91eefb3fea6332c33b72a7ceb63be9efa118f268ceaf180c"
+      },
+      "verdict": {
+        "result": "pass",
+        "checkedCriteria": [
+          "npm ci, npm run build, npm run typecheck, npm run lint y npm run format:check pasan desde la raíz",
+          "README.md explica instalación, build, lint y cómo levantar la API",
+          "git status no muestra node_modules, dist ni .angular"
+        ],
+        "findings": [
+          {
+            "severity": "suggestion",
+            "detail": "*.md está en .prettierignore, así que format:check no valida el README ni los docs; considerar incluir Markdown en Prettier más adelante."
+          }
+        ],
+        "by": "claude-reviewer",
+        "reviewedAt": "2026-10-03T23:38:25.364Z",
+        "definitionRevision": 1,
+        "evidenceDigest": "332341f5a14fe449f99adbc3c0f5b9bdd375dada3cd5fb585c29fcc45111b1f7",
+        "reviewedMaterialDigest": "af3753e4e192416a91eefb3fea6332c33b72a7ceb63be9efa118f268ceaf180c"
+      },
       "disposition": null
     }
   ],
@@ -554,6 +614,33 @@
       "by": "claude-reviewer",
       "reason": "Task review recorded with pass.",
       "revision": 14
+    },
+    {
+      "seq": 15,
+      "at": "2026-10-03T23:36:33.193Z",
+      "event": "task_started",
+      "taskId": "W5",
+      "by": "claude",
+      "reason": "Task started through the Work CLI.",
+      "revision": 15
+    },
+    {
+      "seq": 16,
+      "at": "2026-10-03T23:37:22.999Z",
+      "event": "evidence_recorded",
+      "taskId": "W5",
+      "by": "claude",
+      "reason": "Evidence recorded with 6 validation results.",
+      "revision": 16
+    },
+    {
+      "seq": 17,
+      "at": "2026-10-03T23:38:25.364Z",
+      "event": "review_recorded",
+      "taskId": "W5",
+      "by": "claude-reviewer",
+      "reason": "Task review recorded with pass.",
+      "revision": 17
     }
   ],
   "closure": null,
