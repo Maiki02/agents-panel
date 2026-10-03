@@ -4,5 +4,7 @@ Panel web para mandar pedidos a Claude Code desde cualquier dispositivo y seguir
 
 - [Plan](docs/plan.md)
 - [Estados de un worktree](docs/estados.md)
+- [Crear la VM en Oracle](docs/vm-oracle.md)
+- [Runbook de la VM](docs/vm-setup.md)
 
 Estado: diseño. Todavía no hay código.

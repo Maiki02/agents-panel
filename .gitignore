@@ -16,5 +16,7 @@ desktop.ini
 .vscode/
 # Kyro: overlay personal y locks
 .agents/kyro/local.json
-.kyro-state-writer.lock
-.kyro-state-writer.lock/
+.kyro-state-writer.lock*
+
+# Logs traídos de la VM para revisar
+.logs/
