@@ -118,7 +118,7 @@ flowchart LR
 ```
 
 - **Backend Node + TypeScript** (Fastify). Se autentica con tu suscripción mediante `claude setup-token`.
-- **Una sesión por scope o work:** `query()` del SDK con `cwd` en el worktree y `settingSources: ['project', 'user']` (carga `CLAUDE.md`, `.claude/agents`, skills y el plugin de Kyro). `permissionMode: 'acceptEdits'` más una lista de comandos permitidos (git, gh, go, npm, kyro).
+- **Una sesión por scope o work:** `query()` del SDK con `cwd` en el worktree y `settingSources: ['project', 'user']` (carga `CLAUDE.md`, `.claude/agents` y las skills, incluidas las `kyro-*`). `permissionMode: 'acceptEdits'` más una lista de comandos permitidos (git, gh, go, npm, kyro).
 - **Permisos y preguntas:** `canUseTool` manda al panel lo que no está permitido y espera tu respuesta.
 - **Hooks** `PreToolUse` / `PostToolUse`: clasifican los comandos para el estado fino y hacen esperar los builds en el semáforo.
 - **Eventos:** cada mensaje del SDK se guarda en SQLite y se manda por SSE.
@@ -154,15 +154,15 @@ Se publica con **Tailscale Funnel**. Entrás desde cualquier navegador a `https:
 | `merge-dev` | Sí, poco | (1) Tres máquinas: PC, VM y la otra; `pull --no-rebase` y nunca `--force`. (2) `origin` de fe/be = GitHub. (3) "Restaurar rama" no aplica en worktree. (4) Los casos que frenan llegan al panel como "esperando tu respuesta". |
 | Merge de la raíz a `main` | Sí (panel) | El panel serializa los merges de la raíz (`en_cola_merge_raiz`). |
 | `orca.yaml` + `orca-setup.sh` | Sí | En la VM, el panel usa una versión que recibe el scope, nombra ramas `feature-<scope>` y clona desde GitHub con `--reference`. |
-| Kyro (`kyro-ai`) | No | En Linux no hacen falta los parches de `KYRO_README.md`. Se instala con npm más el plugin oficial de Claude Code. |
-| Stubs `kyro-forge`, `kyro-qa` | No | Ya deprecados; se usan `/kyro:forge` y `/kyro:qa` del plugin. |
+| Kyro (`kyro-ai`) | Sí: pasa a v6 | `npm i -g kyro-ai@latest` + `kyro install --agent claude`. En v6 el plugin de Claude Code se retiró: el CLI proyecta las skills `kyro-*` en `~/.claude/skills/`. La v6 trae los arreglos de Windows, así que los parches de `KYRO_README.md` dejan de hacer falta. |
+| Stubs `kyro-forge`, `kyro-qa` y plugin `kyro-ai` | Se retiran | Con v6 se usan las skills que proyecta `kyro install --agent claude`. Desinstalar el plugin viejo después de verificar. |
 | `kyro-sprint-executor` | No | Solo necesita el CLI `kyro`. |
 | `git-committer` (`~/.claude/agents/`) | Copiar | Está solo en tu PC. |
 | `.opencode/skills/git-commit` | Mover (opcional) | `merge-dev` lo lee; conviene llevarlo a `.claude/skills/`. |
 
 ## Etapas de implementación
 
-1. **Preparar la VM.** Node, Go (versión de `go.mod`), `gh`, Kyro 6, Claude Code + plugin de Kyro, `git-committer`, swap. Clonar NovaGent con fe y be, `.env` de desarrollo. _Listo cuando:_ `kyro doctor`, `go test ./...` y el build de `client` pasan.
+1. **Preparar la VM.** Node, Go (versión de `go.mod`), `gh`, Kyro 6, Claude Code + `kyro install --agent claude`, `git-committer`, swap. Clonar NovaGent con fe y be, `.env` de desarrollo. _Listo cuando:_ `kyro doctor`, `go test ./...` y el build de `client` pasan.
 2. **Probar a mano.** Un scope chico de punta a punta con `claude` en `tmux`, en un worktree. _Listo cuando:_ las PRs a `dev` quedan bien y la raíz mergeada a `main`.
 3. **Ajustar las skills** de NovaGent (`merge-dev`, script de worktree). _Listo cuando:_ el paso 2 sale sin intervención.
 4. **Panel MVP.** Login + 2FA, crear scope (worktree + sesión SDK), streaming, historial y resume.
@@ -186,4 +186,5 @@ Se publica con **Tailscale Funnel**. Entrás desde cualquier navegador a `https:
 - [x] Acceso: Tailscale Funnel.
 - [x] Stack: todo TypeScript.
 - [x] Repo: `agent-panel`.
+- [x] Kyro en agent-panel: sí. Work para cambios chicos, Forge (scope) para cada etapa grande.
 - [ ] Revisar en la VM la salida JSON de `kyro status` y `kyro context-pack` para cerrar el mapeo de fases.
