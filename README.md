@@ -6,6 +6,7 @@ Panel web para mandar pedidos a Claude Code desde cualquier dispositivo y seguir
 - [Estados de un worktree](docs/estados.md)
 - [Crear la VM en Oracle](docs/vm-oracle.md)
 - [Runbook de la VM](docs/vm-setup.md)
+- [Panel en desarrollo: cuenta, API/web y túnel SSH](docs/panel-desarrollo.md)
 
 Estado: panel MVP (etapa 4): login con contraseña + TOTP, scopes y works en worktrees propios con una sesión del Agent SDK, streaming en vivo, historial y resume. Falta lo de las etapas 5 y 6 (estados finos, PRs, Funnel, systemd).
 

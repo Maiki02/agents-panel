@@ -14,6 +14,7 @@ Panel web para mandar pedidos a Claude Code y seguir cada scope o work de Kyro d
 | `docs/estados.md` | Catálogo de estados de un worktree y cómo se detectan |
 | `docs/vm-oracle.md` | Cómo se creó la VM en Oracle (cuenta, instancia, red, SSH) |
 | `docs/vm-setup.md` | Runbook de la VM: **todo** lo que se instaló o configuró, paso a paso, y la bitácora |
+| `docs/panel-desarrollo.md` | Crear cuenta, correr API y web en la VM y entrar desde la PC por túnel SSH |
 
 Si una decisión cambia, se actualiza el doc correspondiente en el mismo cambio. Los docs se escriben en español; el código (identificadores, comentarios técnicos) en inglés.
 
