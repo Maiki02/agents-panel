@@ -136,6 +136,51 @@ bash ~/proyectos/agents-panel/scripts/vm/05-remote-control.sh --install
 - Después de cambiar permisos (paso 6): `bash …/05-remote-control.sh --stop` y de nuevo sin flags.
 - Para sumar un proyecto, agregar una línea en `PROJECTS` del script.
 
+### 9. El Agent SDK reutiliza el login de Claude Code (verificación, sin cambios en la VM)
+
+El panel usa `@anthropic-ai/claude-agent-sdk` (`apps/api/src/agent/sdk-runner.ts`). El SDK trae su propio binario de Claude Code (`@anthropic-ai/claude-agent-sdk-linux-arm64`, sale de `npm ci`) y **reutiliza la sesión de `~/.claude/.credentials.json`**: no hace falta `claude setup-token` ni una API key (el mensaje `system:init` informa `apiKeySource: "none"`, es decir, OAuth de la suscripción).
+
+Verificación (costo: unos pocos tokens de la suscripción, US$0 extra): un script temporal fuera del repo corrió `SdkRunner` con `cwd` en un repo git de prueba. Resultado: el asistente respondió, `git status` se permitió, `curl` se negó por la allowlist (`permission_denied`) y la corrida terminó en `result:success`.
+
+Si el login de la VM vence, el panel falla con error de autenticación del SDK; se renueva con `claude` (login interactivo) en la VM.
+
+### 10. Panel en desarrollo (etapa 4)
+
+Deja el panel corriendo en la VM para desarrollo, accesible solo por túnel SSH (Funnel y systemd son de la etapa 6).
+
+1. **`.env` de desarrollo de la API** (no se commitea; `.gitignore` ya lo cubre). Se genera la clave sin mostrarla y el archivo queda con permisos 600:
+
+   ```bash
+   cd ~/proyectos/agents-panel
+   umask 077
+   printf 'PANEL_SECRET_KEY=%s\nPANEL_ORIGIN=http://localhost:4200\nHOST=127.0.0.1\nPORT=3000\n' "$(openssl rand -base64 48)" > apps/api/.env
+   ```
+
+   Por qué: la API no arranca sin `PANEL_SECRET_KEY` (≥ 32 bytes; cifra el secreto TOTP) ni `PANEL_ORIGIN` (chequeo de Origin y CORS-less same-origin). Si se pierde o cambia la clave, hay que rehacer el segundo factor de cada usuario (`user:reset-2fa`).
+
+2. **Dependencias:** `npm ci` (el SDK trae su binario de Claude Code para linux-arm64).
+3. **Usuario real** (lo hace la persona, porque elige la contraseña y escanea el QR; no se pega nada acá):
+
+   ```bash
+   npm run -w @agents-panel/api cli -- user:create <usuario>
+   ```
+
+4. **Registrar un proyecto** (la base queda en `~/.local/share/agents-panel/panel.sqlite`, directorio 700):
+
+   ```bash
+   npm run -w @agents-panel/api cli -- project:add <nombre> <ruta-del-repo> <rama-base> ["comando de setup"]
+   ```
+
+   El comando de setup se ejecuta sin shell dentro del worktree nuevo (por ejemplo `npm ci`). Los worktrees se crean en `~/wt/<proyecto>/<slug>` (`PANEL_WORKTREES_DIR` lo cambia).
+5. **Levantar** (dos terminales o tmux): `npm run dev -w @agents-panel/api` y `npm run start -w @agents-panel/web`.
+6. **Entrar desde la PC** con un túnel SSH (el host es el del `~/.ssh/config`, ver `docs/vm-oracle.md`): `ssh -L 4200:127.0.0.1:4200 oracle-vm` y abrir `http://localhost:4200`.
+
+Verificación (2026-10-04, API y web reales con una base y un repo descartables en la carpeta temporal de la sesión; no se tocó la base real): login con contraseña + TOTP por el proxy de `ng serve` (`/api/auth/me` 401 sin sesión, 200 con sesión; logout sin `X-CSRF-Token` 403); crear un work contra un repo de prueba (worktree y rama `feature/e2e-demo`, sesión del SDK, 8 eventos, estado `idle`); SSE por el proxy con `Last-Event-ID`; apagar la API con `kill -9` en medio de un turno → al volver el chat quedó `interrupted`; mandar un mensaje retomó la **misma** sesión del SDK (`sdk_session_id` idéntico) y el agente recordó el contexto anterior.
+
+No cambia costos: usa la suscripción Claude existente y la VM Always Free.
+
+**Pendiente de confirmar a mano en un navegador** (la VM no tiene uno): las tres pantallas de la web (login en dos pasos, lista con formulario, chat en vivo).
+
 ### Pendiente (etapas siguientes del plan)
 
 
@@ -151,6 +196,7 @@ Regla del repo (`CLAUDE.md`): todo cambio que pueda modificar lo que se paga se 
 | 2026-10-02 | Instancia A1 2 OCPU / 12 GB + boot volume 200 GB (dentro de Always Free) | US$0 | Miqueas |
 | 2026-10-03 | Etapa 1 (paquetes, swap en el disco existente, Node, Go, gh, Claude Code, Kyro, repos) | US$0: no agrega recursos de Oracle | — |
 | 2026-10-03 | Permisos de Claude Code y Remote Control (servicio systemd de usuario) | US$0 (usa la suscripción Claude Pro existente) | — |
+| 2026-10-04 | Panel en desarrollo (etapa 4): `.env`, base SQLite local, worktrees en `~/wt`, sesiones del Agent SDK con la suscripción existente | US$0: sin recursos nuevos de Oracle ni planes pagos | — |
 
 ## Bitácora
 
@@ -172,3 +218,5 @@ Regla del repo (`CLAUDE.md`): todo cambio que pueda modificar lo que se paga se 
 | 2026-10-03 | Pasos 7 y 8: clon de agents-panel, `kyro install --init-workspace`, `05-remote-control.sh --install` | OK: servicio `claude-remote-control.service` habilitado, servers `rc-ventas` (same-dir) y `rc-agents-panel` (worktree) corriendo |
 | 2026-10-03 | Revisión de servers | `rc-ventas` conectado (retomó `vm-ia-parallel-acorn`). `rc-agents-panel` trabado en `Trust …? [y/N]`. Se respondió `y` con `tmux send-keys` y el script ahora pre-acepta la confianza |
 | 2026-10-03 | `rc-agents-panel` tras aceptar la confianza | OK: conectado. Entornos en la web: ventas `env_01Asj9nDeWPMK5r4jqmmNUQW`, agents-panel `env_01CvvXqJ93bAKBscT2UC8aWw` (link directo: `https://claude.ai/code?environment=<id>`) |
+| 2026-10-04 | Corrida de humo del Agent SDK sobre un repo git de prueba (T3.3 del scope `panel-mvp`) | OK: reutiliza `~/.claude/.credentials.json`, sin `setup-token`. Mensaje del asistente + `result:success`; `curl` negado por la allowlist. Sin cambios de configuración en la VM ni costo |
+| 2026-10-04 | Paso 10: `apps/api/.env` de desarrollo (clave generada, 600), recorrido de punta a punta con API y web reales sobre datos descartables | OK: login+TOTP, work en worktree, SSE, reinicio (`interrupted`) y resume con la misma sesión. Usuario real y proyecto real: los crea la persona (`user:create`, `project:add`) |
