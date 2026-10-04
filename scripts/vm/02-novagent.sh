@@ -31,5 +31,6 @@ step "3. Dependencias"
 
 step "4. Kyro en el workspace (crea local.json de esta máquina)"
 (cd "$BASE" && npx --yes kyro-ai@latest install --init-workspace --yes || echo "WARN: revisar kyro install")
+bash "$(dirname "$0")/06-kyro-skills.sh" || echo "WARN: 06-kyro-skills.sh falló"
 
 echo; echo "OK NovaGent en $BASE"

@@ -42,7 +42,7 @@ bash ~/01-base.sh
 | Go 1.25.x | Binario oficial en `/usr/local/go`, serie fijada en `GO_SERIES` | Misma serie que `go.mod` de be-ventas. Con go1.27, `go vet` (que corre dentro de `go test`) falla en código que en la PC pasa |
 | GitHub CLI | Repo apt oficial de `cli.github.com` | PRs, checks y credenciales de git |
 | Claude Code | Instalador nativo `claude.ai/install.sh` → `~/.local/bin/claude` | El agente |
-| Kyro 6 | `npm i -g kyro-ai@latest` + `kyro install --agent claude` | Flujo de trabajo; en v6 las skills `kyro-*` van a `~/.claude/skills/` |
+| Kyro 6 | `npm i -g kyro-ai@latest` | Flujo de trabajo. Solo instala el CLI: el runtime y las skills se instalan por workspace (pasos 3 y 7) y se enlazan a Claude Code con el paso 11 |
 | PATH | Bloque `# >>> agents-panel >>>` en `~/.profile` y `~/.bashrc` | `~/.local/bin`, `~/.npm-global/bin`, `/usr/local/go/bin`, `~/go/bin` |
 | git global | `user.name Maiki02`, `user.email`, `init.defaultBranch main`, `pull.rebase false` | Igual que en la PC; `merge-dev` usa `pull --no-rebase` |
 
@@ -120,6 +120,8 @@ cd ~/proyectos/agents-panel && npx --yes kyro-ai@latest install --init-workspace
 
 Desde acá, los scripts de `scripts/vm/` se corren desde el repo clonado (`git pull` para actualizarlos). Ya no hace falta `scp`.
 
+Después de este paso, correr el paso 11 (si no, Claude Code no ve las skills de Kyro).
+
 ### 8. Claude desde la web: `scripts/vm/05-remote-control.sh`
 
 ```bash
@@ -189,6 +191,20 @@ No cambia costos: usa la suscripción Claude existente y la VM Always Free.
 
 **Pendiente de confirmar a mano en un navegador** (la VM no tiene uno): las tres pantallas de la web (login en dos pasos, lista con formulario, chat en vivo).
 
+### 11. Skills de Kyro visibles para Claude Code: `scripts/vm/06-kyro-skills.sh`
+
+```bash
+bash ~/proyectos/agents-panel/scripts/vm/06-kyro-skills.sh
+```
+
+Kyro 6.1 solo ofrece los adapters `standard`, `opencode` y `codex` (ya no existe `--agent claude`). El adapter `standard` deja las skills `kyro-*` en `~/.agents/skills/`, y Claude Code solo lee `~/.claude/skills/` y `<proyecto>/.claude/skills/`. Sin este paso, ningún `/kyro-*` aparece en la VM (ni en Remote Control).
+
+- Crea un symlink por skill: `~/.claude/skills/kyro-* → ~/.agents/skills/kyro-*`. Así se actualizan solas cuando Kyro se reinstala y valen para todos los proyectos.
+- Idempotente. No pisa una copia real (no symlink) que ya exista: avisa y la deja.
+- Hay que repetirlo si Kyro agrega skills nuevas. `02-novagent.sh` lo corre solo.
+- **Verificar:** `ls -l ~/.claude/skills | grep kyro-` (8 enlaces) y, en una sesión nueva de Claude Code, que `/kyro-work`, `/kyro-forge`, etc. aparezcan en la lista de skills. Las sesiones y los servers `rc-*` que ya estaban corriendo hay que reiniciarlos (`05-remote-control.sh --stop` y de nuevo sin flags).
+- Los repos con `.claude/skills/kyro-*` propias de una instalación vieja (hoy `ventas`: le faltan `kyro-work` y `kyro-scope-retire`, y tiene `merge-dev`) usan esa copia en vez de la global. Si molesta, borrar esas carpetas del repo en un cambio aparte.
+
 ### Pendiente (etapas siguientes del plan)
 
 
@@ -204,6 +220,7 @@ Regla del repo (`CLAUDE.md`): todo cambio que pueda modificar lo que se paga se 
 | 2026-10-02 | Instancia A1 2 OCPU / 12 GB + boot volume 200 GB (dentro de Always Free) | US$0 | Miqueas |
 | 2026-10-03 | Etapa 1 (paquetes, swap en el disco existente, Node, Go, gh, Claude Code, Kyro, repos) | US$0: no agrega recursos de Oracle | — |
 | 2026-10-03 | Permisos de Claude Code y Remote Control (servicio systemd de usuario) | US$0 (usa la suscripción Claude Pro existente) | — |
+| 2026-10-04 | Skills de Kyro enlazadas a `~/.claude/skills` (symlinks locales) | US$0: sin recursos de Oracle | — |
 | 2026-10-04 | Panel en desarrollo (etapa 4): `.env`, base SQLite local, worktrees en `~/wt`, sesiones del Agent SDK con la suscripción existente | US$0: sin recursos nuevos de Oracle ni planes pagos | — |
 
 ## Bitácora
@@ -228,6 +245,7 @@ Regla del repo (`CLAUDE.md`): todo cambio que pueda modificar lo que se paga se 
 | 2026-10-03 | `rc-agents-panel` tras aceptar la confianza | OK: conectado. Entornos en la web: ventas `env_01Asj9nDeWPMK5r4jqmmNUQW`, agents-panel `env_01CvvXqJ93bAKBscT2UC8aWw` (link directo: `https://claude.ai/code?environment=<id>`) |
 | 2026-10-03 | Opus agotaba el límite del plan Pro | `04-claude-permisos.sh` fija `model: sonnet` por defecto. Hay que correrlo y reiniciar los servers |
 | 2026-10-04 | Corrida de humo del Agent SDK sobre un repo git de prueba (T3.3 del scope `panel-mvp`) | OK: reutiliza `~/.claude/.credentials.json`, sin `setup-token`. Mensaje del asistente + `result:success`; `curl` negado por la allowlist. Sin cambios de configuración en la VM ni costo |
+| 2026-10-04 | Las skills `kyro-*` no aparecían en la VM: `kyro install` (6.1.0, adapter `standard`) las deja en `~/.agents/skills/`, que Claude Code no lee. Se agregó `06-kyro-skills.sh` (symlinks a `~/.claude/skills/`) y se corrigió el doc (ya no existe `--agent claude`) | OK: 8 symlinks creados, segunda corrida idempotente, las skills aparecen en la lista de la sesión. Sin costo |
 | 2026-10-04 | Paso 10: `apps/api/.env` de desarrollo (clave generada, 600), recorrido de punta a punta con API y web reales sobre datos descartables | OK: login+TOTP, work en worktree, SSE, reinicio (`interrupted`) y resume con la misma sesión. Usuario real y proyecto real: los crea la persona (`user:create`, `project:add`) |
 | 2026-10-03 | `panel-setup.sh` en el repo `ventas` (setup de worktrees multi-repo para el panel) y receta de `project:add novagent` en el paso 10 | Escrito y subido, **sin correr todavía en la VM** (falta `git pull` en `~/proyectos/ventas` y probar con un work). Sin costo |
 | 2026-10-03 | Regla en `CLAUDE.md`: cuándo un repo lleva `scripts/panel-setup.sh` | Solo documentación. Sin cambios en la VM ni costo |

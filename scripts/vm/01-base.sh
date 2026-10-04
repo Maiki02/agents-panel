@@ -69,7 +69,8 @@ fi
 
 step "7. Kyro (npm global, sin sudo)"
 npm install -g kyro-ai@latest
-kyro install --agent claude || echo "WARN: kyro install --agent claude falló; ver docs/vm-setup.md"
+# Las skills y el runtime se instalan por workspace (02-novagent.sh / docs/vm-setup.md paso 7),
+# seguido de 06-kyro-skills.sh para que Claude Code las vea.
 
 step "8. PATH permanente y git"
 for f in "$HOME/.profile" "$HOME/.bashrc"; do
