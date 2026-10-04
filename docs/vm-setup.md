@@ -173,6 +173,13 @@ Deja el panel corriendo en la VM para desarrollo, accesible solo por túnel SSH 
    ```
 
    El comando de setup se ejecuta sin shell dentro del worktree nuevo (por ejemplo `npm ci`). Los worktrees se crean en `~/wt/<proyecto>/<slug>` (`PANEL_WORKTREES_DIR` lo cambia).
+   **NovaGent (raíz + fe-ventas + be-ventas)** es un solo proyecto: la raíz es el `repoPath` y el setup arma los dos repos hijos con `scripts/panel-setup.sh` (vive en el repo `ventas`):
+
+   ```bash
+   npm run -w @agents-panel/api cli -- project:add novagent ~/proyectos/ventas dev "bash scripts/panel-setup.sh"
+   ```
+
+   Qué hace el script dentro de `~/wt/novagent/<slug>` (idempotente): clona fe-ventas y be-ventas desde GitHub con `--reference` a las copias locales (el `origin` queda en GitHub, así `merge-dev` puede pushear y abrir la PR), crea la rama `feature-<slug>` desde `origin/dev` (el slug sale del nombre de la carpeta), copia solo `.env`, `.env.local` y `.env.development` de be-ventas (600, nunca producción), y corre `go mod download` y `npm ci`. Requiere que `~/proyectos/ventas/fe-ventas` y `be-ventas` existan (paso 3) y que el repo `ventas` esté actualizado en la VM (`git pull`). Se verifica creando un work desde el panel y mirando `git -C ~/wt/novagent/<slug>/fe-ventas remote -v` (GitHub) y `branch --show-current` (`feature-<slug>`).
 5. **Levantar** (dos terminales o tmux): `npm run dev -w @agents-panel/api` y `npm run start -w @agents-panel/web`.
 6. **Entrar desde la PC** con un túnel SSH (el host es el del `~/.ssh/config`, ver `docs/vm-oracle.md`): `ssh -L 4200:127.0.0.1:4200 oracle-vm` y abrir `http://localhost:4200`.
 
@@ -222,3 +229,4 @@ Regla del repo (`CLAUDE.md`): todo cambio que pueda modificar lo que se paga se 
 | 2026-10-03 | Opus agotaba el límite del plan Pro | `04-claude-permisos.sh` fija `model: sonnet` por defecto. Hay que correrlo y reiniciar los servers |
 | 2026-10-04 | Corrida de humo del Agent SDK sobre un repo git de prueba (T3.3 del scope `panel-mvp`) | OK: reutiliza `~/.claude/.credentials.json`, sin `setup-token`. Mensaje del asistente + `result:success`; `curl` negado por la allowlist. Sin cambios de configuración en la VM ni costo |
 | 2026-10-04 | Paso 10: `apps/api/.env` de desarrollo (clave generada, 600), recorrido de punta a punta con API y web reales sobre datos descartables | OK: login+TOTP, work en worktree, SSE, reinicio (`interrupted`) y resume con la misma sesión. Usuario real y proyecto real: los crea la persona (`user:create`, `project:add`) |
+| 2026-10-03 | `panel-setup.sh` en el repo `ventas` (setup de worktrees multi-repo para el panel) y receta de `project:add novagent` en el paso 10 | Escrito y subido, **sin correr todavía en la VM** (falta `git pull` en `~/proyectos/ventas` y probar con un work). Sin costo |
