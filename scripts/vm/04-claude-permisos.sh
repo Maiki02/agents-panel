@@ -10,7 +10,9 @@ mkdir -p "$HOME/.claude"
 [ -f "$F" ] || echo '{}' > "$F"
 cp "$F" "$F.bak.$(date +%Y%m%d%H%M%S)"
 
-jq '.permissions.defaultMode = "acceptEdits"
+# Modelo por defecto: Sonnet (Opus consume mucho más del límite del plan Pro). Para una tarea puntual: /model opus.
+jq '.model = "sonnet"
+  | .permissions.defaultMode = "acceptEdits"
   | .permissions.additionalDirectories = ((.permissions.additionalDirectories // []) + [
       "~/.agents", "~/.claude", "~/proyectos", "/tmp"
     ] | unique)
