@@ -5,34 +5,29 @@ import {
   ElementRef,
   effect,
   inject,
+  input,
   signal,
   viewChild,
 } from '@angular/core';
-import { ActivatedRoute, RouterLink } from '@angular/router';
 import type { Chat, ChatEvent } from '@agents-panel/shared';
 import { ChatStreamService, type StreamHandle } from './chat-stream.service';
 import { ChatsService, apiErrorMessage } from './chats.service';
 import { endsTurn, toViewItems, type ViewItem } from './event-view';
-import { statusLabel } from './status';
+import { statusLabel, statusTone } from './status';
+import { Button } from '../ui/button';
+import { Badge } from '../ui/badge';
 
 @Component({
   selector: 'app-chat',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink],
+  imports: [Button, Badge],
   template: `
-    <p>
-      @if (chat(); as c) {
-        <a [routerLink]="['/projects', c.projectId]">← {{ c.projectName }}</a>
-      } @else {
-        <a routerLink="/">← Proyectos</a>
-      }
-    </p>
     @if (chat(); as c) {
       <header class="chat-head">
         <h1>{{ c.title }}</h1>
-        <span class="badge" [class]="'badge ' + c.status">{{ label(c.status) }}</span>
+        <app-badge [tone]="tone(c.status)">{{ label(c.status) }}</app-badge>
         @if (c.status === 'running') {
-          <button type="button" class="danger" (click)="cancel()">Cancelar</button>
+          <button appButton variant="danger" type="button" (click)="cancel()">Cancelar</button>
         }
       </header>
       <p class="hint">{{ c.projectName }} · {{ c.branch }}</p>
@@ -102,6 +97,7 @@ import { statusLabel } from './status';
           (input)="draft.set(text($event))"
         ></textarea>
         <button
+          appButton
           type="submit"
           [disabled]="c.status === 'running' || draft().trim() === '' || sending()"
         >
@@ -114,10 +110,12 @@ import { statusLabel } from './status';
 export class ChatPage {
   private readonly service = inject(ChatsService);
   private readonly stream = inject(ChatStreamService);
-  private readonly route = inject(ActivatedRoute);
   private readonly bottom = viewChild<ElementRef<HTMLElement>>('bottom');
 
-  private readonly chatId = Number(this.route.snapshot.paramMap.get('id'));
+  /** Route param `:chatId` (bound by withComponentInputBinding); switching chats reuses the page. */
+  readonly chatId = input.required<string>();
+  private current = 0;
+  private generation = 0;
   private lastSeq = 0;
   private handle: StreamHandle | undefined;
 
@@ -136,24 +134,45 @@ export class ChatPage {
       this.items();
       this.bottom()?.nativeElement.scrollIntoView({ block: 'end' });
     });
-    void this.start();
+    effect(() => {
+      void this.restart(Number(this.chatId()));
+    });
   }
 
   protected label = statusLabel;
+  protected tone = statusTone;
 
   protected text(event: Event): string {
     return (event.target as HTMLTextAreaElement).value;
   }
 
-  private async start(): Promise<void> {
-    try {
-      this.chat.set(await this.service.get(this.chatId));
-      this.ingest(await this.service.events(this.chatId));
-    } catch (cause) {
-      this.error.set(apiErrorMessage(cause));
+  /** Drops everything of the previous chat and loads the new one; stale answers are ignored. */
+  private async restart(id: number): Promise<void> {
+    this.handle?.close();
+    this.handle = undefined;
+    const generation = ++this.generation;
+    this.current = id;
+    this.lastSeq = 0;
+    this.chat.set(null);
+    this.items.set([]);
+    this.error.set(null);
+    this.connected.set(true);
+    this.draft.set('');
+    if (!Number.isInteger(id) || id < 1) {
+      this.error.set('Chat no encontrado.');
       return;
     }
-    this.handle = this.stream.open(this.chatId, this.lastSeq, {
+    try {
+      const chat = await this.service.get(id);
+      const events = await this.service.events(id);
+      if (generation !== this.generation) return;
+      this.chat.set(chat);
+      this.ingest(events);
+    } catch (cause) {
+      if (generation === this.generation) this.error.set(apiErrorMessage(cause));
+      return;
+    }
+    this.handle = this.stream.open(id, this.lastSeq, {
       onEvent: (event) => {
         this.ingest([event]);
       },
@@ -181,7 +200,7 @@ export class ChatPage {
   private async refreshStatus(): Promise<void> {
     for (let attempt = 0; attempt < 8; attempt++) {
       try {
-        const fresh = await this.service.get(this.chatId);
+        const fresh = await this.service.get(this.current);
         this.chat.set(fresh);
         if (fresh.status !== 'running') return;
       } catch {
@@ -198,7 +217,7 @@ export class ChatPage {
     this.sending.set(true);
     this.error.set(null);
     try {
-      await this.service.send(this.chatId, text);
+      await this.service.send(this.current, text);
       this.draft.set('');
       this.setStatus('running');
     } catch (cause) {
@@ -210,7 +229,7 @@ export class ChatPage {
 
   protected async cancel(): Promise<void> {
     try {
-      await this.service.cancel(this.chatId);
+      await this.service.cancel(this.current);
       void this.refreshStatus();
     } catch (cause) {
       this.error.set(apiErrorMessage(cause));

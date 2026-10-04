@@ -7,41 +7,60 @@ import {
   signal,
 } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import type { Project, ProjectStatus } from '@agents-panel/shared';
+import type { Project } from '@agents-panel/shared';
 import { apiErrorMessage } from '../chats/chats.service';
 import { AddProjectForm } from './add-project.form';
-import { projectLabel } from './project-label';
+import { projectLabel, projectStatusLabel, projectStatusTone, repoDisplay } from './project-label';
 import { ProjectsService } from './projects.service';
+import { Button } from '../ui/button';
+import { Icon } from '../ui/icon';
+import { Badge } from '../ui/badge';
+import type { BadgeTone } from '../ui/badge';
 
 const POLL_MS = 3000;
-const STATUS_LABEL: Record<ProjectStatus, string> = {
-  cloning: 'Clonando',
-  ready: 'Listo',
-  error: 'Error',
-};
-const STATUS_BADGE: Record<ProjectStatus, string> = {
-  cloning: 'running',
-  ready: 'idle',
-  error: 'error',
-};
 
 @Component({
   selector: 'app-projects',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink, AddProjectForm],
+  imports: [RouterLink, AddProjectForm, Button, Badge, Icon],
   template: `
-    <h2>Proyectos</h2>
+    <div class="mb-4 flex items-center justify-between gap-3">
+      <h2 class="m-0">Proyectos</h2>
+      <button appButton type="button" (click)="adding.set(true)">
+        <app-icon name="plus" />
+        Nuevo proyecto
+      </button>
+    </div>
     @if (error(); as message) {
       <p class="error" role="alert">{{ message }}</p>
     }
     @for (project of projects(); track project.id) {
       <article class="card project-card">
-        <a [routerLink]="['/projects', project.id]">{{ label(project) }}</a>
-        <span [class]="'badge ' + badge(project)">{{ statusText(project) }}</span>
-        <div class="meta">{{ repoName(project) }}</div>
+        <div class="flex items-start justify-between gap-3">
+          <div class="min-w-0">
+            <a [routerLink]="['/projects', project.id]" class="font-semibold">
+              {{ label(project) }}
+            </a>
+            <div class="meta">
+              @if (repo(project); as r) {
+                @if (r.url) {
+                  <a [href]="r.url" target="_blank" rel="noopener noreferrer" class="break-all">
+                    {{ r.text }}
+                  </a>
+                } @else {
+                  <span class="break-all">{{ r.text }}</span>
+                }
+                @if (r.branch) {
+                  <span> · rama {{ r.branch }}</span>
+                }
+              }
+            </div>
+          </div>
+          <app-badge class="shrink-0" [tone]="tone(project)">{{ statusText(project) }}</app-badge>
+        </div>
         @if (project.status === 'error') {
           <p class="error">{{ project.statusDetail }}</p>
-          <button type="button" (click)="retry(project)">Reintentar</button>
+          <button appButton type="button" (click)="retry(project)">Reintentar</button>
         }
         @if (project.status === 'ready' && !project.hasKyro) {
           <p class="hint">Proyecto sin Kyro: no hay /kyro-* hasta inicializarlo a mano.</p>
@@ -59,16 +78,22 @@ const STATUS_BADGE: Record<ProjectStatus, string> = {
                 [value]="draft()"
                 (input)="draft.set(text($event))"
               />
-              <button type="button" (click)="saveSetup(project, draft().trim() || null)">
+              <button appButton type="button" (click)="saveSetup(project, draft().trim() || null)">
                 Guardar
               </button>
             } @else {
               <p>
                 Setup sugerido: <code>{{ command }}</code>
               </p>
-              <button type="button" (click)="saveSetup(project, command)">Confirmar</button>
-              <button type="button" class="link" (click)="edit(project, command)">Editar</button>
-              <button type="button" class="link" (click)="dismiss(project)">Sin setup</button>
+              <button appButton type="button" (click)="saveSetup(project, command)">
+                Confirmar
+              </button>
+              <button appButton variant="secondary" type="button" (click)="edit(project, command)">
+                Editar
+              </button>
+              <button appButton variant="secondary" type="button" (click)="dismiss(project)">
+                Sin setup
+              </button>
             }
           </div>
         }
@@ -78,10 +103,12 @@ const STATUS_BADGE: Record<ProjectStatus, string> = {
       </article>
     } @empty {
       @if (loaded()) {
-        <p class="hint">Todavía no hay proyectos. Agregá el primero desde abajo.</p>
+        <p class="hint">Todavía no hay proyectos. Agregá el primero con «Nuevo proyecto».</p>
       }
     }
-    <app-add-project-form (added)="onAdded($event)" />
+    @if (adding()) {
+      <app-add-project-form (added)="onAdded($event)" (closed)="adding.set(false)" />
+    }
   `,
 })
 export class ProjectsPage {
@@ -89,6 +116,7 @@ export class ProjectsPage {
 
   protected readonly projects = signal<Project[]>([]);
   protected readonly loaded = signal(false);
+  protected readonly adding = signal(false);
   protected readonly error = signal<string | null>(null);
   /** Suggested setup per ready project without one (from GET /:id). */
   private readonly suggestions = signal<Record<number, string>>({});
@@ -113,15 +141,15 @@ export class ProjectsPage {
   }
 
   protected statusText(project: Project): string {
-    return STATUS_LABEL[project.status];
+    return projectStatusLabel(project.status);
   }
 
-  protected badge(project: Project): string {
-    return STATUS_BADGE[project.status];
+  protected tone(project: Project): BadgeTone {
+    return projectStatusTone(project.status);
   }
 
-  protected repoName(project: Project): string {
-    return project.repoUrl?.replace('https://github.com/', '') ?? project.repoPath;
+  protected repo(project: Project): ReturnType<typeof repoDisplay> {
+    return repoDisplay(project);
   }
 
   protected text(event: Event): string {

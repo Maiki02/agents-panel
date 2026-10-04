@@ -1,6 +1,6 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { describe, expect, it } from 'vitest';
-import { apiErrorMessage } from '../chats/chats.service';
+import { apiErrorMessage, isInvalidTotp } from '../chats/chats.service';
 
 const failure = (status: number, error: unknown) => new HttpErrorResponse({ status, error });
 
@@ -18,5 +18,14 @@ describe('apiErrorMessage', () => {
     );
     expect(apiErrorMessage(failure(500, null))).toBe('Error 500');
     expect(apiErrorMessage(new Error('x'))).toBe('Error inesperado.');
+  });
+});
+
+describe('isInvalidTotp', () => {
+  it('is true only for a 401 invalid_totp', () => {
+    expect(isInvalidTotp(failure(401, { error: 'invalid_totp' }))).toBe(true);
+    expect(isInvalidTotp(failure(401, { error: 'unauthorized' }))).toBe(false);
+    expect(isInvalidTotp(failure(400, { error: 'invalid_totp' }))).toBe(false);
+    expect(isInvalidTotp(new Error('x'))).toBe(false);
   });
 });

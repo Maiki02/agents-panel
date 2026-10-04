@@ -1,12 +1,14 @@
 import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
 import { Router } from '@angular/router';
 import { AuthService, type LoginError } from './auth.service';
+import { Button } from '../ui/button';
 
 type Step = 'password' | 'code';
 
 @Component({
   selector: 'app-login',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [Button],
   template: `
     <section class="card narrow">
       <h1>Ingresar</h1>
@@ -31,7 +33,9 @@ type Step = 'password' | 'code';
             [value]="password()"
             (input)="password.set(value($event))"
           />
-          <button type="submit" [disabled]="busy() || !username() || !password()">Continuar</button>
+          <button appButton type="submit" [disabled]="busy() || !username() || !password()">
+            Continuar
+          </button>
         </form>
       } @else {
         <form (submit)="onCode($event)">
@@ -46,8 +50,8 @@ type Step = 'password' | 'code';
             [value]="code()"
             (input)="code.set(value($event))"
           />
-          <button type="submit" [disabled]="busy() || !code()">Entrar</button>
-          <button type="button" class="link" (click)="back()">Volver</button>
+          <button appButton type="submit" [disabled]="busy() || !code()">Entrar</button>
+          <button appButton variant="secondary" type="button" (click)="back()">Volver</button>
         </form>
       }
       @if (error(); as message) {

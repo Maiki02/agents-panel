@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, inject, input, signal } f
 import { Router } from '@angular/router';
 import type { ChatKind, Project } from '@agents-panel/shared';
 import { ChatsService, apiErrorMessage } from './chats.service';
+import { Button } from '../ui/button';
 
 export const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 export const MAX_SLUG_LENGTH = 50;
@@ -16,6 +17,7 @@ export function slugProblem(slug: string): string | null {
 @Component({
   selector: 'app-new-chat-form',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [Button],
   template: `
     <form class="card" (submit)="submit($event)">
       <h2>Nuevo chat</h2>
@@ -52,7 +54,7 @@ export function slugProblem(slug: string): string | null {
         (input)="prompt.set(text($event))"
       ></textarea>
 
-      <button type="submit" [disabled]="!canSubmit()">
+      <button appButton type="submit" [disabled]="!canSubmit()">
         {{ busy() ? 'Creando…' : 'Crear' }}
       </button>
       @if (error(); as message) {
@@ -114,7 +116,7 @@ export class NewChatForm {
         slug: this.slug(),
         prompt: this.prompt().trim(),
       });
-      await this.router.navigate(['/chats', chat.id]);
+      await this.router.navigate(['/projects', chat.projectId, 'chats', chat.id]);
     } catch (cause) {
       // Keep everything typed so the user can fix the slug and retry.
       this.error.set(apiErrorMessage(cause));

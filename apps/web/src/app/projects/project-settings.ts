@@ -9,53 +9,49 @@ import {
 } from '@angular/core';
 import type { Project } from '@agents-panel/shared';
 import { apiErrorMessage } from '../chats/chats.service';
-import { EnvFilesSection } from './env-files.section';
 import { ProjectsService } from './projects.service';
+import { Button } from '../ui/button';
 
 @Component({
-  selector: 'app-project-settings',
+  selector: 'app-project-general',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [EnvFilesSection],
+  imports: [Button],
   template: `
-    <section class="card">
-      <h2>Configuración</h2>
-      <form (submit)="save($event)">
-        <label for="cfg-display">Nombre visible</label>
-        <input
-          id="cfg-display"
-          autocomplete="off"
-          [value]="displayName()"
-          (input)="displayName.set(text($event))"
-        />
-        <label for="cfg-branch">Rama base</label>
-        <input
-          id="cfg-branch"
-          autocomplete="off"
-          [value]="baseBranch()"
-          (input)="baseBranch.set(text($event))"
-        />
-        <label for="cfg-setup">Comando de setup (vacío = sin setup)</label>
-        <input
-          id="cfg-setup"
-          autocomplete="off"
-          [value]="setupCommand()"
-          (input)="setupCommand.set(text($event))"
-        />
-        <button type="submit" [disabled]="busy() || baseBranch().trim() === ''">
-          {{ busy() ? 'Guardando…' : 'Guardar' }}
-        </button>
-        @if (saved()) {
-          <p class="hint" role="status">Guardado.</p>
-        }
-        @if (error(); as message) {
-          <p class="error" role="alert">{{ message }}</p>
-        }
-      </form>
-      <app-env-files-section [projectId]="project().id" />
-    </section>
+    <form (submit)="save($event)">
+      <label for="cfg-display">Nombre visible</label>
+      <input
+        id="cfg-display"
+        autocomplete="off"
+        [value]="displayName()"
+        (input)="displayName.set(text($event))"
+      />
+      <label for="cfg-branch">Rama base</label>
+      <input
+        id="cfg-branch"
+        autocomplete="off"
+        [value]="baseBranch()"
+        (input)="baseBranch.set(text($event))"
+      />
+      <label for="cfg-setup">Comando de setup (vacío = sin setup)</label>
+      <input
+        id="cfg-setup"
+        autocomplete="off"
+        [value]="setupCommand()"
+        (input)="setupCommand.set(text($event))"
+      />
+      <button appButton type="submit" [disabled]="busy() || baseBranch().trim() === ''">
+        {{ busy() ? 'Guardando…' : 'Guardar' }}
+      </button>
+      @if (saved()) {
+        <p class="hint" role="status">Guardado.</p>
+      }
+      @if (error(); as message) {
+        <p class="error" role="alert">{{ message }}</p>
+      }
+    </form>
   `,
 })
-export class ProjectSettings {
+export class ProjectGeneralSettings {
   private readonly service = inject(ProjectsService);
 
   readonly project = input.required<Project>();

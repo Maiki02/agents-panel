@@ -26,6 +26,12 @@ export function apiErrorMessage(error: unknown): string {
   return 'Error inesperado.';
 }
 
+/** True for a 401 `invalid_totp`: a wrong or reused code; the session is fine and nothing was done. */
+export function isInvalidTotp(error: unknown): boolean {
+  if (!(error instanceof HttpErrorResponse) || error.status !== 401) return false;
+  return (error.error as { error?: unknown } | null)?.error === 'invalid_totp';
+}
+
 @Injectable({ providedIn: 'root' })
 export class ChatsService {
   private readonly http = inject(HttpClient);

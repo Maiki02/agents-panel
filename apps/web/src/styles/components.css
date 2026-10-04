@@ -1,0 +1,107 @@
+/*
+ * Shared primitives used across screens, written with Tailwind utilities (which read the tokens).
+ * Buttons, badges, modals and tabs are NOT here: they are components in app/ui/.
+ * Add a primitive here only when several screens repeat it; one-off styling goes in the template.
+ */
+@layer components {
+  .card {
+    @apply mb-4 rounded-card border border-border bg-surface p-4 shadow-card;
+  }
+  .narrow {
+    @apply mx-auto my-10 max-w-sm;
+  }
+
+  /* Forms */
+  form {
+    @apply flex flex-col gap-2;
+  }
+  label {
+    @apply text-sm text-muted;
+  }
+  label.check {
+    @apply flex items-center gap-2;
+  }
+  input,
+  select,
+  textarea {
+    @apply rounded-control border border-border bg-bg px-2.5 py-2 text-text;
+    font: inherit;
+  }
+  input.invalid {
+    @apply border-danger;
+  }
+  textarea {
+    @apply resize-y;
+  }
+
+  /* Messages */
+  .error {
+    @apply mt-2 text-danger;
+  }
+  .hint {
+    @apply text-xs text-muted;
+  }
+  .banner {
+    @apply rounded-control border border-warn bg-warn-soft px-3 py-2;
+  }
+
+  /* Rows and lists */
+  .meta {
+    @apply mt-1 text-sm text-muted;
+  }
+  .env-row {
+    @apply mb-2 flex flex-wrap items-center gap-2;
+  }
+  .suggestion {
+    @apply mt-2 flex flex-wrap items-center gap-2;
+  }
+  table.applied {
+    @apply w-full border-collapse text-sm;
+  }
+  table.applied td {
+    @apply border-t border-border px-2 py-1;
+  }
+  details.run pre {
+    @apply max-h-80 overflow-auto whitespace-pre-wrap;
+  }
+
+  /* Chat */
+  .chat-head {
+    @apply flex flex-wrap items-center gap-3;
+  }
+  .chat-head h1 {
+    @apply m-0 text-xl;
+  }
+  .feed {
+    @apply my-3 flex flex-col gap-2;
+  }
+  .msg {
+    @apply rounded-card border border-border px-3 py-2 break-words whitespace-pre-wrap;
+  }
+  .msg.user {
+    @apply max-w-[85%] self-end bg-user-msg;
+  }
+  .msg.assistant {
+    @apply bg-surface;
+  }
+  .msg.tool {
+    @apply text-sm text-muted;
+  }
+  .msg.tool pre,
+  .msg.log {
+    @apply mt-1.5 max-h-64 overflow-auto text-xs whitespace-pre-wrap;
+  }
+  .msg.denied,
+  .msg.bad {
+    @apply border-danger text-danger;
+  }
+  .msg.result {
+    @apply border-ok text-ok;
+  }
+  .msg.log {
+    @apply text-muted;
+  }
+  .composer {
+    @apply sticky bottom-0 bg-bg py-2;
+  }
+}

@@ -9,8 +9,8 @@ import {
 } from '@angular/core';
 import { DatePipe } from '@angular/common';
 import type { EnvApplyResult, EnvFileInfo } from '@agents-panel/shared';
-import { apiErrorMessage } from '../chats/chats.service';
-import { TotpDialog } from '../shared/totp-dialog';
+import { apiErrorMessage, isInvalidTotp } from '../chats/chats.service';
+import { TotpModal } from '../shared/totp-modal';
 import { EnvFilesService } from './env-files.service';
 import {
   EMPTY_ENV_DRAFT,
@@ -20,12 +20,13 @@ import {
   trySend,
   type EnvDraft,
 } from './env-upload';
+import { Button } from '../ui/button';
 
 /** Write-only .env management: upload, replace and delete; the content never comes back (L3). */
 @Component({
   selector: 'app-env-files-section',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [DatePipe, TotpDialog],
+  imports: [DatePipe, TotpModal, Button],
   template: `
     <h3>Archivos .env</h3>
     <p class="hint">
@@ -42,26 +43,26 @@ import {
         } @else {
           <span class="error">Ilegible (cambió la clave del panel): volvé a subirlo.</span>
         }
-        <button type="button" class="link" (click)="startReplace(file.path)">Reemplazar</button>
-        <button type="button" class="danger" (click)="askDelete(file.path)">Borrar</button>
+        <button appButton variant="secondary" type="button" (click)="startReplace(file.path)">
+          Reemplazar
+        </button>
+        <button appButton variant="danger" type="button" (click)="askDelete(file.path)">
+          Borrar
+        </button>
       </div>
     } @empty {
       <p class="hint">Todavía no hay archivos .env.</p>
     }
 
     @if (deleting(); as path) {
-      <div class="card">
-        <p>
-          ¿Borrar <code>{{ path }}</code
-          >? Los worktrees ya creados conservan su copia.
-        </p>
-        <app-totp-dialog
-          submitLabel="Borrar"
-          [busy]="busy()"
-          (submitted)="confirmDelete($event)"
-          (cancelled)="deleting.set(null)"
-        />
-      </div>
+      <app-totp-modal
+        [heading]="'Borrar ' + path"
+        submitLabel="Borrar"
+        [busy]="busy()"
+        [error]="totpError()"
+        (submitted)="confirmDelete($event)"
+        (closed)="closeModals()"
+      />
     }
 
     <form class="card" (submit)="askUpload($event)">
@@ -99,19 +100,19 @@ import {
         Aplicar también a los worktrees activos
       </label>
       @if (!asking()) {
-        <button type="submit" [disabled]="!canAsk()">Subir</button>
+        <button appButton type="submit" [disabled]="!canAsk()">Subir</button>
       }
     </form>
 
     @if (asking()) {
-      <div class="card">
-        <app-totp-dialog
-          submitLabel="Subir .env"
-          [busy]="busy()"
-          (submitted)="upload($event)"
-          (cancelled)="asking.set(false)"
-        />
-      </div>
+      <app-totp-modal
+        heading="Subir .env"
+        submitLabel="Subir .env"
+        [busy]="busy()"
+        [error]="totpError()"
+        (submitted)="upload($event)"
+        (closed)="closeModals()"
+      />
     }
 
     @if (error(); as message) {
@@ -145,6 +146,8 @@ export class EnvFilesSection {
   protected readonly deleting = signal<string | null>(null);
   protected readonly busy = signal(false);
   protected readonly error = signal<string | null>(null);
+  /** Shown inside the open code modal (a wrong code leaves it open for a retry). */
+  protected readonly totpError = signal<string | null>(null);
   protected readonly applied = signal<EnvApplyResult[] | null>(null);
 
   protected readonly pathProblem = computed(() =>
@@ -194,21 +197,32 @@ export class EnvFilesSection {
 
   protected askUpload(event: Event): void {
     event.preventDefault();
-    if (this.canAsk()) this.asking.set(true);
+    if (!this.canAsk()) return;
+    this.totpError.set(null);
+    this.asking.set(true);
   }
 
   protected askDelete(path: string): void {
     this.error.set(null);
+    this.totpError.set(null);
     this.deleting.set(path);
+  }
+
+  protected closeModals(): void {
+    this.asking.set(false);
+    this.deleting.set(null);
+    this.totpError.set(null);
   }
 
   protected async upload(totp: string): Promise<void> {
     this.busy.set(true);
     this.error.set(null);
+    this.totpError.set(null);
     this.applied.set(null);
     const id = this.projectId();
+    const before = this.draft();
     try {
-      const { draft, result } = await trySend(this.draft(), (d) =>
+      const { draft, result } = await trySend(before, (d) =>
         this.service.put(id, {
           path: d.path.trim(),
           content: d.content,
@@ -221,15 +235,17 @@ export class EnvFilesSection {
       this.asking.set(false);
       await this.load(id);
     } catch (cause) {
-      if (cause instanceof EnvSendError) {
-        // The content is dropped on failure too: to retry, paste it again.
-        this.draft.set(cause.draft);
-        this.error.set(apiErrorMessage(cause.reason));
+      const reason = cause instanceof EnvSendError ? cause.reason : cause;
+      if (isInvalidTotp(reason)) {
+        // Nothing was saved: keep the draft and the modal so only the code is retyped.
+        this.draft.set(before);
+        this.totpError.set(apiErrorMessage(reason));
       } else {
-        this.draft.update((d) => ({ ...d, content: '' }));
-        this.error.set(apiErrorMessage(cause));
+        // Any other failure drops the content too: to retry, paste it again.
+        this.draft.set(cause instanceof EnvSendError ? cause.draft : { ...before, content: '' });
+        this.error.set(apiErrorMessage(reason));
+        this.asking.set(false);
       }
-      this.asking.set(false);
     } finally {
       this.busy.set(false);
     }
@@ -240,13 +256,18 @@ export class EnvFilesSection {
     if (path === null) return;
     this.busy.set(true);
     this.error.set(null);
+    this.totpError.set(null);
     try {
       await this.service.remove(this.projectId(), path, totp);
       this.deleting.set(null);
       await this.load(this.projectId());
     } catch (cause) {
-      this.error.set(apiErrorMessage(cause));
-      this.deleting.set(null);
+      if (isInvalidTotp(cause)) {
+        this.totpError.set(apiErrorMessage(cause));
+      } else {
+        this.error.set(apiErrorMessage(cause));
+        this.deleting.set(null);
+      }
     } finally {
       this.busy.set(false);
     }

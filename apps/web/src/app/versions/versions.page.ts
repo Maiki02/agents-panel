@@ -2,9 +2,13 @@ import { DatePipe } from '@angular/common';
 import { ChangeDetectionStrategy, Component, DestroyRef, inject, signal } from '@angular/core';
 import type { MaintenanceRun } from '@agents-panel/shared';
 import { apiErrorMessage } from '../chats/chats.service';
-import { TotpDialog } from '../shared/totp-dialog';
+import { TotpModal } from '../shared/totp-modal';
 import { latestLabel, runLabel } from './version-label';
 import { VersionsService, type VersionsResponse } from './versions.service';
+import { Button } from '../ui/button';
+import { Badge } from '../ui/badge';
+import { Icon } from '../ui/icon';
+import type { BadgeTone } from '../ui/badge';
 
 const POLL_MS = 3000;
 const RUN_STATUS: Record<MaintenanceRun['status'], string> = {
@@ -16,40 +20,51 @@ const RUN_STATUS: Record<MaintenanceRun['status'], string> = {
 @Component({
   selector: 'app-versions',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [DatePipe, TotpDialog],
+  imports: [DatePipe, TotpModal, Button, Badge, Icon],
   template: `
     <h2>Versiones</h2>
     @if (error(); as message) {
       <p class="error" role="alert">{{ message }}</p>
     }
     <section class="card">
-      <h3>Kyro</h3>
       @if (info(); as kyro) {
-        <p>
-          Instalada: <strong>{{ kyro.installed ?? 'desconocida' }}</strong> ·
-          {{ latest(kyro.installed, kyro.latest) }}
-        </p>
-        @if (kyro.updateRunning) {
-          <p class="hint" role="status">
-            Actualizando… no arrancan sesiones nuevas hasta que termine.
-          </p>
-        }
+        <div class="flex items-start justify-between gap-3">
+          <div>
+            <h3>Kyro</h3>
+            <p class="m-0">
+              Instalada: <strong>{{ kyro.installed ?? 'desconocida' }}</strong> ·
+              {{ latest(kyro.installed, kyro.latest) }}
+            </p>
+            @if (kyro.updateRunning) {
+              <p class="hint" role="status">
+                Actualizando… no arrancan sesiones nuevas hasta que termine.
+              </p>
+            }
+          </div>
+          <button
+            appButton
+            variant="icon"
+            type="button"
+            aria-label="Actualizar Kyro"
+            title="Actualizar Kyro"
+            [disabled]="kyro.updateRunning || busy()"
+            (click)="openModal()"
+          >
+            <app-icon name="refresh" [spin]="kyro.updateRunning" />
+          </button>
+        </div>
         @if (asking()) {
-          <app-totp-dialog
+          <app-totp-modal
+            heading="Actualizar Kyro"
             submitLabel="Actualizar"
             [busy]="busy()"
+            [error]="totpError()"
             (submitted)="update($event)"
-            (cancelled)="asking.set(false)"
+            (closed)="asking.set(false)"
           />
-        } @else {
-          <button
-            type="button"
-            [disabled]="kyro.updateRunning || busy()"
-            (click)="asking.set(true)"
-          >
-            Actualizar
-          </button>
         }
+      } @else {
+        <h3>Kyro</h3>
       }
     </section>
 
@@ -59,7 +74,7 @@ const RUN_STATUS: Record<MaintenanceRun['status'], string> = {
         <details class="run">
           <summary>
             {{ run.startedAt | date: 'short' }} · {{ runText(run) }} ·
-            <span class="badge" [class]="'badge ' + badge(run)">{{ statusText(run) }}</span>
+            <app-badge [tone]="tone(run)">{{ statusText(run) }}</app-badge>
           </summary>
           @if (run.output) {
             <pre>{{ run.output }}</pre>
@@ -81,6 +96,7 @@ export class VersionsPage {
   protected readonly asking = signal(false);
   protected readonly busy = signal(false);
   protected readonly error = signal<string | null>(null);
+  protected readonly totpError = signal<string | null>(null);
   private timer: ReturnType<typeof setInterval> | undefined;
 
   constructor() {
@@ -102,20 +118,26 @@ export class VersionsPage {
     return RUN_STATUS[run.status];
   }
 
-  protected badge(run: MaintenanceRun): string {
-    return run.status === 'ok' ? 'idle' : run.status === 'error' ? 'error' : 'running';
+  protected tone(run: MaintenanceRun): BadgeTone {
+    return run.status === 'ok' ? 'ok' : run.status === 'error' ? 'danger' : 'accent';
+  }
+
+  protected openModal(): void {
+    this.totpError.set(null);
+    this.asking.set(true);
   }
 
   protected async update(code: string): Promise<void> {
     this.busy.set(true);
     this.error.set(null);
+    this.totpError.set(null);
     try {
       await this.service.update(code);
       this.asking.set(false);
     } catch (cause) {
-      // 409 (sessions running) carries its own message with the count; 401 keeps the page.
-      this.error.set(apiErrorMessage(cause));
-      this.asking.set(false);
+      // Shown inside the modal, which stays open: a wrong code (401) or the 409 with the number
+      // of running sessions. Neither leaves the page.
+      this.totpError.set(apiErrorMessage(cause));
     } finally {
       this.busy.set(false);
     }
