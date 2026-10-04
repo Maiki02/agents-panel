@@ -1,0 +1,676 @@
+{
+  "n": 4,
+  "slug": "web-docs-alta-real",
+  "title": "Web de proyectos, docs y alta real",
+  "objective": "Que la web tenga Proyectos como pantalla inicial (alta por GitHub, configuración, .env con TOTP), una página por proyecto con sus chats, la pantalla Versiones, los docs al día y que el usuario dé de alta los tres proyectos reales desde ahí.",
+  "status": "executing",
+  "phases": [
+    {
+      "id": "P1",
+      "title": "Ajustes de API para la web",
+      "objective": "Lo que la web necesita y la API todavía no da: filtro de chats por proyecto y la decisión de debt-6.",
+      "status": "done",
+      "tasks": [
+        {
+          "id": "T1.1",
+          "title": "GET /api/chats?projectId= filtra por proyecto",
+          "description": "Agregar querystring opcional projectId (integer >= 1, additionalProperties:false) a GET /api/chats; ChatRepository.list(projectId?) filtra en SQL. Sin projectId devuelve todos como hoy. Un projectId inexistente devuelve [] (no 404).",
+          "files_to_touch": [
+            "apps/api/src/chats/routes.ts",
+            "apps/api/src/chats/repo.ts",
+            "apps/api/test/chats.test.ts"
+          ],
+          "context": "R1, falso éxito a detectar: chats de otro proyecto en la lista. La ruta sigue detrás del guard (R22); guard.test.ts no cambia la allowlist pública. Código en inglés, strict TS.",
+          "acceptance_criteria": [
+            "Con chats de dos proyectos, GET /api/chats?projectId=A devuelve solo los de A y ninguno de B",
+            "GET /api/chats sin query devuelve todos; projectId=0, 'x' o un campo extra responden 400",
+            "Sin sesión responde 401",
+            "tsc, eslint y vitest de api en verde"
+          ],
+          "depends_on": [],
+          "scenario_refs": [
+            "S30"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "GET /api/chats acepta projectId (entero >=1, sin campos extra); ChatRepository.list(projectId?) filtra en SQL; inexistente devuelve []",
+            "validation": [
+              "tsc --noEmit ok",
+              "eslint src test ok",
+              "vitest api 347/347 ok (nuevo test de filtro, 400 y 401)"
+            ],
+            "files_changed": [
+              "apps/api/src/chats/routes.ts",
+              "apps/api/src/chats/repo.ts",
+              "apps/api/test/chats.test.ts"
+            ],
+            "by": "maker",
+            "recordedAt": "2026-10-04T21:12:47.743Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "Con chats de dos proyectos, GET /api/chats?projectId=A devuelve solo los de A y ninguno de B",
+              "GET /api/chats sin query devuelve todos; projectId=0, 'x' o un campo extra responden 400",
+              "Sin sesión responde 401",
+              "tsc, eslint y vitest de api en verde"
+            ],
+            "findings": [],
+            "by": "checker",
+            "reviewedAt": "2026-10-04T21:12:47.999Z",
+            "requestDigest": "46e5f9808940dfbe08fe2d88d4f5246cdb7b289f194d3f3d2977d95be8d1d7eb",
+            "reviewedMaterialDigest": "33ba1c4ce62b4060fc4d83993b5f9e52f760fa8ef98225f7c0ab1e3fdb463597"
+          }
+        },
+        {
+          "id": "T1.2",
+          "title": "applyToActive omite worktrees con agente corriendo (debt-6)",
+          "description": "applyEnvFileToWorktrees recibe los chats con su status y no escribe en los que están 'running': los informa como skipped con motivo 'agente en curso: se aplica cuando termine o en el próximo chat'. Así se cierra la ventana TOCTOU de debt-6 (el agente no puede cambiar una carpeta por un symlink mientras se escribe) sin agregar O_NOFOLLOW por carpeta.",
+          "files_to_touch": [
+            "apps/api/src/env-files/apply.ts",
+            "apps/api/src/env-files/routes.ts",
+            "apps/api/test/env-routes.test.ts",
+            "docs/plan.md",
+            "docs/panel-desarrollo.md"
+          ],
+          "context": "debt-6 (targetSprint 4). Decisión: no aplicar a chats running en vez de mitigar con O_DIRECTORY/O_NOFOLLOW (más simple y elimina el actor que podía cambiar la carpeta). Uno que falla no frena a los demás (R17). Documentar el motivo en plan.md y panel-desarrollo.md.",
+          "acceptance_criteria": [
+            "Con un chat running y otro idle del proyecto, PUT con applyToActive escribe solo en el idle y devuelve skipped con el motivo para el running",
+            "El archivo del chat running no cambia (contenido y mtime)",
+            "El valor centinela del .env no aparece en la respuesta ni en logs (R13 sigue en verde)",
+            "debt-6 queda resuelta con nota de la decisión"
+          ],
+          "depends_on": [],
+          "scenario_refs": [
+            "S32"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "applyEnvFileToWorktrees omite chats running con motivo 'agente en curso: se aplica cuando termine o en el próximo chat'; docs plan.md y panel-desarrollo.md actualizados con la decisión (debt-6)",
+            "validation": [
+              "tsc --noEmit ok",
+              "eslint src test ok",
+              "vitest api 348/348 ok (nuevo test running vs idle: contenido y mtime intactos, centinela ausente)"
+            ],
+            "files_changed": [
+              "apps/api/src/env-files/apply.ts",
+              "apps/api/test/env-routes.test.ts",
+              "docs/plan.md",
+              "docs/panel-desarrollo.md"
+            ],
+            "by": "maker",
+            "recordedAt": "2026-10-04T21:13:51.017Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "Con un chat running y otro idle del proyecto, PUT con applyToActive escribe solo en el idle y devuelve skipped con el motivo para el running",
+              "El archivo del chat running no cambia (contenido y mtime)",
+              "El valor centinela del .env no aparece en la respuesta ni en logs (R13 sigue en verde)",
+              "debt-6 queda resuelta con nota de la decisión"
+            ],
+            "findings": [],
+            "by": "checker",
+            "reviewedAt": "2026-10-04T21:13:51.276Z",
+            "requestDigest": "2985a7e246c6aa032e02a43e09f967e436260d0e88f2565676d1b2fef54b9009",
+            "reviewedMaterialDigest": "d2810d13ac84f37daf6cf8a12abc81fa9071e29adabc33ea1a6f5f053079051b"
+          }
+        }
+      ]
+    },
+    {
+      "id": "P2",
+      "title": "Base de la web",
+      "objective": "Servicios, rutas, menú, manejo de sesión vencida vs TOTP inválido y el diálogo TOTP reutilizable.",
+      "status": "done",
+      "tasks": [
+        {
+          "id": "T2.1",
+          "title": "Servicios, rutas y menú: / = Proyectos, /projects/:id, /versions",
+          "description": "ProjectsService (list, get, add, patch, retry), EnvFilesService (list, put, remove) y VersionsService (get, update, runs) con tipos de @agents-panel/shared. Rutas: '' -> ProjectsPage, 'projects/:id' -> ProjectPage, 'versions' -> VersionsPage, 'chats/:id' sin cambios, todas con authGuard. Menú del header: Proyectos y debajo Versiones. ChatListPage global deja de ser la ruta inicial (se borra o queda sin ruta). Nombre mostrado: displayName ?? name (helper projectLabel).",
+          "files_to_touch": [
+            "apps/web/src/app/app.routes.ts",
+            "apps/web/src/app/app.ts",
+            "apps/web/src/app/projects/projects.service.ts",
+            "apps/web/src/app/projects/env-files.service.ts",
+            "apps/web/src/app/versions/versions.service.ts",
+            "apps/web/src/app/projects/project-label.ts",
+            "apps/web/src/app/projects/project-label.spec.ts",
+            "apps/web/src/app/chats/chats.service.ts"
+          ],
+          "context": "Angular standalone + signals, OnPush, lazy loadComponent como las rutas actuales. Ojo con los nombres de campo: PUT/DELETE /api/projects/:id/env usan 'totp' y POST /api/versions/kyro/update usa 'code'. ChatsService.list acepta projectId opcional (T1.1). R9: sin displayName se muestra el interno.",
+          "acceptance_criteria": [
+            "Al entrar logueado, / muestra Proyectos; el menú tiene Proyectos y Versiones en ese orden",
+            "/chats/:id sigue funcionando igual",
+            "projectLabel devuelve displayName o name (spec)",
+            "npm run typecheck, lint y build de web en verde"
+          ],
+          "depends_on": [
+            "T1.1"
+          ],
+          "scenario_refs": [
+            "S31"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "Servicios Projects/EnvFiles/Versions, ChatsService.list(projectId?), projectLabel con spec, rutas '' -> ProjectsPage, projects/:id, versions con authGuard, menú Proyectos/Versiones; ChatListPage borrada. Las 3 páginas son stubs que completan T2.2/T3.x.",
+            "validation": [
+              "npm run lint ok",
+              "web typecheck ok",
+              "web build ok",
+              "web vitest 15/15 ok (project-label.spec)"
+            ],
+            "files_changed": [
+              "apps/web/src/app/app.routes.ts",
+              "apps/web/src/app/app.ts",
+              "apps/web/src/app/projects/projects.service.ts",
+              "apps/web/src/app/projects/env-files.service.ts",
+              "apps/web/src/app/versions/versions.service.ts",
+              "apps/web/src/app/projects/project-label.ts",
+              "apps/web/src/app/projects/project-label.spec.ts",
+              "apps/web/src/app/chats/chats.service.ts",
+              "apps/web/src/app/projects/projects.page.ts",
+              "apps/web/src/app/projects/project.page.ts",
+              "apps/web/src/app/versions/versions.page.ts",
+              "apps/web/src/styles.css"
+            ],
+            "by": "maker",
+            "recordedAt": "2026-10-04T21:15:55.844Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "Al entrar logueado, / muestra Proyectos; el menú tiene Proyectos y Versiones en ese orden",
+              "/chats/:id sigue funcionando igual",
+              "projectLabel devuelve displayName o name (spec)",
+              "npm run typecheck, lint y build de web en verde"
+            ],
+            "findings": [],
+            "by": "checker",
+            "reviewedAt": "2026-10-04T21:15:56.108Z",
+            "requestDigest": "99da0d150195716fc0e161fb7f30f61467a9107ac79e778ca0164100cba71583",
+            "reviewedMaterialDigest": "34139a11a6c440c54c0f6d1a597ba8f731c1a26fa0357bb609ca40f594b40e56"
+          }
+        },
+        {
+          "id": "T2.2",
+          "title": "Sesión vencida vs TOTP inválido y diálogo TOTP reutilizable",
+          "description": "Interceptor: un 401 con error 'unauthorized' (sesión vencida) limpia AuthService y navega a /login; un 401 'invalid_totp' no redirige y llega al formulario. apiErrorMessage traduce invalid_totp a 'Código incorrecto o ya usado. Esperá el próximo código de la app.' y 429 como hoy. TotpDialog: componente con un input de 6 dígitos (autocomplete one-time-code, inputmode numeric) que emite el código y se limpia al cerrar o al fallar.",
+          "files_to_touch": [
+            "apps/web/src/app/auth/session.interceptor.ts",
+            "apps/web/src/app/auth/session.interceptor.spec.ts",
+            "apps/web/src/app/app.config.ts",
+            "apps/web/src/app/chats/chats.service.ts",
+            "apps/web/src/app/shared/totp-dialog.ts",
+            "apps/web/src/app/shared/api-error.spec.ts"
+          ],
+          "context": "Recomendación del sprint 2: 'distinguir 401 invalid_totp de sesión vencida'. R18: el código se pide en cada acción y nunca se guarda. Tests vitest en entorno node sin DOM: probar la lógica pura (clasificación del 401, mensajes) como en csrf.interceptor.spec.ts.",
+          "acceptance_criteria": [
+            "Spec: 401 {error:'unauthorized'} se clasifica como sesión vencida y 401 {error:'invalid_totp'} no",
+            "Spec: apiErrorMessage de invalid_totp da el texto en español, no 'invalid_totp'",
+            "El diálogo vacía el código después de enviar, con éxito o error",
+            "El interceptor no redirige en /api/auth/* (login sigue mostrando su propio error)"
+          ],
+          "depends_on": [
+            "T2.1"
+          ],
+          "scenario_refs": [
+            "S33"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "sessionInterceptor: 401 unauthorized limpia sesión y va a /login (no en /api/auth/*); 401 invalid_totp pasa al formulario. apiErrorMessage traduce invalid_totp. TotpDialog reutilizable que emite el código y lo vacía al enviar o cancelar. AuthService.expire().",
+            "validation": [
+              "npm run lint ok",
+              "web typecheck ok",
+              "web build ok",
+              "web vitest 21/21 ok (session.interceptor.spec, api-error.spec)"
+            ],
+            "files_changed": [
+              "apps/web/src/app/auth/session.interceptor.ts",
+              "apps/web/src/app/auth/session.interceptor.spec.ts",
+              "apps/web/src/app/auth/auth.service.ts",
+              "apps/web/src/app/app.config.ts",
+              "apps/web/src/app/chats/chats.service.ts",
+              "apps/web/src/app/shared/totp-dialog.ts",
+              "apps/web/src/app/shared/api-error.spec.ts"
+            ],
+            "by": "maker",
+            "recordedAt": "2026-10-04T21:17:09.916Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "Spec: 401 {error:'unauthorized'} se clasifica como sesión vencida y 401 {error:'invalid_totp'} no",
+              "Spec: apiErrorMessage de invalid_totp da el texto en español, no 'invalid_totp'",
+              "El diálogo vacía el código después de enviar, con éxito o error",
+              "El interceptor no redirige en /api/auth/* (login sigue mostrando su propio error)"
+            ],
+            "findings": [],
+            "by": "checker",
+            "reviewedAt": "2026-10-04T21:17:10.176Z",
+            "requestDigest": "aef664c3809ec62d5e794b99a5bf3c0aa37d154e2a2a5305dfd7965f638853f7",
+            "reviewedMaterialDigest": "382aead329b56b2d06a0d2e01a7f7cd2bd77b02cfdf04fd96ad02f8b8a901aca"
+          }
+        }
+      ]
+    },
+    {
+      "id": "P3",
+      "title": "Pantallas",
+      "objective": "Proyectos, página de proyecto, configuración con .env y Versiones.",
+      "status": "done",
+      "tasks": [
+        {
+          "id": "T3.1",
+          "title": "Pantalla Proyectos: tarjetas, estados, reintentar y Agregar proyecto",
+          "description": "Una tarjeta por proyecto con nombre visible, owner/repo, estado (Clonando / Listo / Error + statusDetail), aviso 'proyecto sin Kyro' (hasKyro=false) y kyroWarning. Error -> botón Reintentar (POST retry). Mientras haya alguno en cloning se refresca cada 3 s y se corta al salir de la pantalla. Formulario Agregar: repo (owner/repo o URL de GitHub), nombre visible opcional; validación previa en el cliente con la misma regla de R3 (el servidor sigue siendo la autoridad) y muestra 400/409 con el mensaje del servidor ('El proyecto ya existe: …'). Cuando un proyecto pasa a Listo sin setup guardado y GET /:id trae suggestedSetupCommand, la tarjeta muestra 'Setup sugerido: …' con Confirmar / Editar / Sin setup; nada se guarda hasta confirmar (PATCH setupCommand).",
+          "files_to_touch": [
+            "apps/web/src/app/projects/projects.page.ts",
+            "apps/web/src/app/projects/add-project.form.ts",
+            "apps/web/src/app/projects/repo-input.ts",
+            "apps/web/src/app/projects/repo-input.spec.ts"
+          ],
+          "context": "R2, R3, R4, R5, R8, R9, R10. D1: el clon real lo dispara el usuario; durante la implementación se prueba con un repo descartable propio o con mocks, nunca con expedientes-ai. Sin borrado de proyectos (non-goal). execFile y validación real siguen en la API.",
+          "acceptance_criteria": [
+            "Spec de repo-input: acepta owner/repo y https://github.com/owner/repo(.git); rechaza file://, git@…, otros hosts, a/b/c y owner que empieza con '-'",
+            "Un proyecto en cloning pasa a Listo o Error en la pantalla sin recargar, y el refresco se detiene cuando no queda ninguno clonando",
+            "El setup sugerido solo se guarda al confirmarlo (se ve en GET /:id antes y después)",
+            "Un 409 'ya existe' se muestra con el texto del servidor y deja lo escrito"
+          ],
+          "depends_on": [
+            "T2.1"
+          ],
+          "scenario_refs": [
+            "S2",
+            "S35",
+            "S37"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "Pantalla Proyectos con tarjetas (nombre visible, owner/repo, estado, statusDetail, aviso sin Kyro/kyroWarning), Reintentar, polling de 3 s solo mientras haya cloning (se corta al salir), formulario Agregar con validación espejo de R3 (repo-input) que conserva lo escrito ante 400/409, y setup sugerido que solo se guarda al Confirmar (PATCH).",
+            "validation": [
+              "npm run lint ok",
+              "web typecheck ok",
+              "web build ok",
+              "web vitest 43/43 ok (repo-input.spec)"
+            ],
+            "files_changed": [
+              "apps/web/src/app/projects/projects.page.ts",
+              "apps/web/src/app/projects/add-project.form.ts",
+              "apps/web/src/app/projects/repo-input.ts",
+              "apps/web/src/app/projects/repo-input.spec.ts",
+              "apps/web/src/styles.css"
+            ],
+            "notes": "Polling, sugerencia de setup y 409 no tienen test automático (vitest corre en node sin DOM); verificados por revisión de código y compilación, no en navegador.",
+            "by": "maker",
+            "recordedAt": "2026-10-04T21:18:43.295Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "Spec de repo-input: acepta owner/repo y https://github.com/owner/repo(.git); rechaza file://, git@…, otros hosts, a/b/c y owner que empieza con '-'",
+              "Un proyecto en cloning pasa a Listo o Error en la pantalla sin recargar, y el refresco se detiene cuando no queda ninguno clonando",
+              "El setup sugerido solo se guarda al confirmarlo (se ve en GET /:id antes y después)",
+              "Un 409 'ya existe' se muestra con el texto del servidor y deja lo escrito"
+            ],
+            "findings": [],
+            "by": "checker",
+            "reviewedAt": "2026-10-04T21:18:43.550Z",
+            "requestDigest": "10f90322fa091614000626d3bee51169fb6593bdb95098c1e6eabd7931078e50",
+            "reviewedMaterialDigest": "15469415d94bb7aa7ef1964846ca1956f83dbcb93af2f47c21d04870b855995b"
+          }
+        },
+        {
+          "id": "T3.2",
+          "title": "Página de proyecto: chat nuevo con proyecto fijo y sus chats",
+          "description": "ProjectPage (/projects/:id): encabezado con nombre visible, estado y link a Configuración (sección en la misma página o pestaña). NewChatForm recibe projectId como input y deja de mostrar el selector de proyecto; si el proyecto no está Listo el formulario queda deshabilitado con el motivo, y un 409 del servidor se muestra. Lista de chats con ChatsService.list(projectId). Si el id no existe: 'Proyecto no encontrado' con vuelta a Proyectos.",
+          "files_to_touch": [
+            "apps/web/src/app/projects/project.page.ts",
+            "apps/web/src/app/chats/new-chat.form.ts",
+            "apps/web/src/app/chats/chat-list.page.ts",
+            "apps/web/src/app/chats/chat.page.ts"
+          ],
+          "context": "R1 y R7. /chats/:id no cambia salvo, si hace falta, un link de vuelta al proyecto. Mantener lo que ya hace NewChatForm (slugProblem, conservar lo escrito si falla).",
+          "acceptance_criteria": [
+            "En /projects/A solo aparecen chats de A (la API filtra, T1.1) y crear un chat lo crea en A sin elegir proyecto",
+            "Con el proyecto en cloning o error el botón Crear está deshabilitado con el motivo",
+            "new-chat.form.spec.ts sigue en verde",
+            "build de web en verde"
+          ],
+          "depends_on": [
+            "T2.1"
+          ],
+          "scenario_refs": [
+            "S1",
+            "S30"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "ProjectPage /projects/:id con encabezado y estado, NewChatForm con proyecto fijo (input) deshabilitado con el motivo si cloning/error, ChatList que usa ChatsService.list(projectId), 'Proyecto no encontrado' con vuelta; /chats/:id con link de vuelta al proyecto. withComponentInputBinding habilitado.",
+            "validation": [
+              "npm run lint ok",
+              "web typecheck ok",
+              "web build ok",
+              "web vitest 43/43 ok (new-chat.form.spec sigue en verde)"
+            ],
+            "files_changed": [
+              "apps/web/src/app/projects/project.page.ts",
+              "apps/web/src/app/chats/new-chat.form.ts",
+              "apps/web/src/app/chats/chat-list.page.ts",
+              "apps/web/src/app/chats/chat.page.ts",
+              "apps/web/src/app/app.config.ts"
+            ],
+            "notes": "El filtrado lo hace la API (T1.1, con test); la UI no tiene test de DOM (vitest en node), verificada por compilación y revisión.",
+            "by": "maker",
+            "recordedAt": "2026-10-04T21:19:41.712Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "En /projects/A solo aparecen chats de A (la API filtra, T1.1) y crear un chat lo crea en A sin elegir proyecto",
+              "Con el proyecto en cloning o error el botón Crear está deshabilitado con el motivo",
+              "new-chat.form.spec.ts sigue en verde",
+              "build de web en verde"
+            ],
+            "findings": [],
+            "by": "checker",
+            "reviewedAt": "2026-10-04T21:19:41.973Z",
+            "requestDigest": "19276fa6d8756c6eadb54e0b8768e8816e05346a2e285b29adaa4c1c447d04c3",
+            "reviewedMaterialDigest": "129eaa071722783e1432897599d6b4d7b4b705960872d077e3f1a1628b2b2f1e"
+          }
+        },
+        {
+          "id": "T3.3",
+          "title": "Configuración del proyecto y .env con TOTP",
+          "description": "Editar nombre visible, rama base y comando de setup (vacío = sin setup) con PATCH. Sección .env: lista de ruta, claves, fecha y 'ilegible' si readable=false (con texto 'volvé a subirlo'). Subir: ruta relativa + archivo (FileReader) o texto pegado, casilla 'aplicar también a los worktrees activos', y TotpDialog. Reemplazar = subir a la misma ruta. Borrar con confirmación + TOTP. Después de aplicar, tabla por worktree: escrito u omitido con motivo (incluye 'agente en curso' de T1.2). El contenido vive solo en una variable local del envío: después de enviar (ok o error) se vacían el textarea, el input de archivo y cualquier signal; nunca se muestra contenido que venga del servidor (no viene).",
+          "files_to_touch": [
+            "apps/web/src/app/projects/project-settings.ts",
+            "apps/web/src/app/projects/env-files.section.ts",
+            "apps/web/src/app/projects/env-upload.ts",
+            "apps/web/src/app/projects/env-upload.spec.ts"
+          ],
+          "context": "R11, R12, R14, R15, R17, R18, R26. L3: un .env nunca vuelve al navegador. Recomendación del sprint 2: mostrar applied por worktree. Validación previa en el cliente solo para el nombre (R14: ^\\.env(\\.[A-Za-z0-9_-]+)*$, sin prod ni plantillas) y el tamaño (64 KB); el resto lo decide la API y se muestra su 400. No loguear el contenido (sin console.log). Non-goal: ver o editar un .env en línea.",
+          "acceptance_criteria": [
+            "Spec de env-upload: la regla de nombres acepta .env, .env.local, .env.staging y rechaza .env.production, .env.PROD, .env.example, .envrc",
+            "Spec: después de un envío exitoso y de uno fallido (400 y 401) el estado del formulario no conserva el contenido",
+            "Un 401 invalid_totp muestra el mensaje y no saca al usuario de la página; un 400 muestra el motivo de la API",
+            "Con applyToActive se ve el resultado por worktree",
+            "grep en apps/web/src: ningún console.* ni almacenamiento (localStorage/sessionStorage) del contenido"
+          ],
+          "depends_on": [
+            "T2.2",
+            "T3.2",
+            "T1.2"
+          ],
+          "scenario_refs": [
+            "S12",
+            "S15",
+            "S19",
+            "S20",
+            "S34"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "ProjectSettings (PATCH nombre visible/rama base/setup) y EnvFilesSection write-only: lista con claves, fecha e 'ilegible', subir/reemplazar (archivo o texto, aplicar a activos), borrar con confirmación, TOTP por acción vía TotpDialog, tabla por worktree con motivos. env-upload valida nombre (R14) y tamaño; trySend vacía el contenido tras enviar, con éxito o error.",
+            "validation": [
+              "npm run lint ok",
+              "web typecheck ok",
+              "web build ok",
+              "web vitest 61/61 ok (env-upload.spec: nombres, tamaño, contenido descartado en éxito y fallo)",
+              "grep console./localStorage/sessionStorage en apps/web/src: solo main.ts console.error preexistente, ningún contenido"
+            ],
+            "files_changed": [
+              "apps/web/src/app/projects/env-upload.ts",
+              "apps/web/src/app/projects/env-upload.spec.ts",
+              "apps/web/src/app/projects/env-files.section.ts",
+              "apps/web/src/app/projects/project-settings.ts",
+              "apps/web/src/app/projects/project.page.ts",
+              "apps/web/src/styles.css"
+            ],
+            "notes": "El 401 invalid_totp sin redirigir lo cubre session.interceptor.spec (T2.2); el comportamiento de los componentes no tiene test de DOM.",
+            "by": "maker",
+            "recordedAt": "2026-10-04T21:21:33.035Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "Spec de env-upload: la regla de nombres acepta .env, .env.local, .env.staging y rechaza .env.production, .env.PROD, .env.example, .envrc",
+              "Spec: después de un envío exitoso y de uno fallido (400 y 401) el estado del formulario no conserva el contenido",
+              "Un 401 invalid_totp muestra el mensaje y no saca al usuario de la página; un 400 muestra el motivo de la API",
+              "Con applyToActive se ve el resultado por worktree",
+              "grep en apps/web/src: ningún console.* ni almacenamiento (localStorage/sessionStorage) del contenido"
+            ],
+            "findings": [],
+            "by": "checker",
+            "reviewedAt": "2026-10-04T21:21:33.298Z",
+            "requestDigest": "c1b7033f8c5a1e983c8e2961f9c7d583b8212602863b704d3ed64c59c43b17e1",
+            "reviewedMaterialDigest": "54bae068ef6cbabc20cec0f8b411d37ff13bed4117b7024e700a04c0723f4c6d"
+          }
+        },
+        {
+          "id": "T3.4",
+          "title": "Pantalla Versiones",
+          "description": "Muestra Kyro instalado y última publicada ('última: desconocida' si latest es null, botón disponible igual), botón Actualizar con TotpDialog, 409 con el mensaje y la cantidad de sesiones corriendo, y mientras updateRunning sea true el botón se deshabilita y se refresca cada 3 s hasta que termina. Historial (GET /api/maintenance-runs): fecha, de -> a, estado y salida recortada desplegable en <pre>.",
+          "files_to_touch": [
+            "apps/web/src/app/versions/versions.page.ts",
+            "apps/web/src/app/versions/versions.spec.ts"
+          ],
+          "context": "R19, R20, R21, R18. El body del update es { code } (no 'totp'). Durante la implementación se prueba con PANEL_KYRO_UPDATE_SCRIPT apuntando a un script fake (docs/panel-desarrollo.md); no se corre el 08-kyro-update.sh real desde la web en esta tarea.",
+          "acceptance_criteria": [
+            "Spec: la etiqueta de versión da 'última: desconocida' con latest null y 'al día' / 'hay una nueva' según corresponda",
+            "Con el script fake: Actualizar con TOTP crea una corrida que aparece primera en el historial con su estado final",
+            "Con un chat corriendo, Actualizar muestra el 409 con la cantidad de sesiones",
+            "build de web en verde"
+          ],
+          "depends_on": [
+            "T2.2"
+          ],
+          "scenario_refs": [
+            "S21",
+            "S22",
+            "S24",
+            "S27",
+            "S38"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "Pantalla Versiones: Kyro instalada y última (latestLabel: 'desconocida' / 'al día' / 'hay una nueva'), Actualizar con TotpDialog (body {code}), 409 con el mensaje de la API (cantidad de sesiones), botón deshabilitado y refresco cada 3 s mientras updateRunning (se corta al terminar y al salir), historial con fecha, de→a, estado y salida en <pre> desplegable.",
+            "validation": [
+              "npm run lint ok",
+              "web typecheck ok",
+              "web build ok",
+              "web vitest 66/66 ok (versions.spec)",
+              "api vitest maintenance-routes ok: corrida con script falso primera en historial, 409 con sesiones corriendo"
+            ],
+            "files_changed": [
+              "apps/web/src/app/versions/versions.page.ts",
+              "apps/web/src/app/versions/version-label.ts",
+              "apps/web/src/app/versions/versions.spec.ts",
+              "apps/web/src/styles.css"
+            ],
+            "notes": "La UI no tiene test de DOM; no se probó en navegador. Los criterios de script falso y 409 se cubren con los tests existentes de la API que ejercen las mismas rutas.",
+            "by": "maker",
+            "recordedAt": "2026-10-04T21:22:33.830Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "Spec: la etiqueta de versión da 'última: desconocida' con latest null y 'al día' / 'hay una nueva' según corresponda",
+              "Con el script fake: Actualizar con TOTP crea una corrida que aparece primera en el historial con su estado final",
+              "Con un chat corriendo, Actualizar muestra el 409 con la cantidad de sesiones",
+              "build de web en verde"
+            ],
+            "findings": [],
+            "by": "checker",
+            "reviewedAt": "2026-10-04T21:22:34.091Z",
+            "requestDigest": "bacd5d024f6bc064ede2deecc8284b72782d6bd50e8a2624f15a5d57f795cb8e",
+            "reviewedMaterialDigest": "fc3afed434960b2421e07ce035e1eb64b3857990c7b44a94ef258f96eb888e3f"
+          }
+        }
+      ]
+    },
+    {
+      "id": "P4",
+      "title": "Docs",
+      "objective": "Que los docs describan lo que la web ya hace (R24).",
+      "status": "done",
+      "tasks": [
+        {
+          "id": "T4.1",
+          "title": "plan.md, panel-desarrollo.md y CLAUDE.md al día con la web",
+          "description": "plan.md: sacar los 'la pantalla web llega en el sprint N', describir Proyectos / página de proyecto / Versiones y la decisión de debt-6; marcar el estado del scope. panel-desarrollo.md: el alta, la configuración, los .env y la actualización se explican primero desde la web (la API queda como referencia), project:add del CLI como alternativa para carpetas ya clonadas. CLAUDE.md: revisar que la sección de proyectos registrados mencione la web; solo cambiar si hace falta. vm-setup.md: sin cambios salvo que la VM cambie (si cambia, regla de oro).",
+          "files_to_touch": [
+            "docs/plan.md",
+            "docs/panel-desarrollo.md",
+            "CLAUDE.md"
+          ],
+          "context": "R24. Docs en español. No pegar secretos ni .env reales; ejemplos con valores falsos. prettier --check en los md.",
+          "acceptance_criteria": [
+            "grep 'llega en el sprint' en docs/ no encuentra nada",
+            "Lo documentado coincide con las rutas, campos (totp vs code) y códigos 202/401/409 del código",
+            "npm run format:check limpio"
+          ],
+          "depends_on": [
+            "T3.1",
+            "T3.2",
+            "T3.3",
+            "T3.4"
+          ],
+          "scenario_refs": [
+            "S39"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "plan.md: se quitan los 'llega en el sprint N' y se describen Proyectos, página del proyecto, .env en la web, Versiones y la distinción 401. panel-desarrollo.md: alta, configuración, .env y actualización de Kyro explicados primero desde la web, API como referencia, project:add para carpetas ya clonadas. CLAUDE.md menciona el alta desde la web. vm-setup.md sin cambios (la VM no cambió).",
+            "validation": [
+              "grep 'llega en el sprint' en docs/: sin resultados",
+              "npm run format:check limpio",
+              "campos totp (.env) y code (versiones) y códigos 202/401/409 verificados contra routes.ts de env-files y maintenance"
+            ],
+            "files_changed": [
+              "docs/plan.md",
+              "docs/panel-desarrollo.md",
+              "CLAUDE.md"
+            ],
+            "by": "maker",
+            "recordedAt": "2026-10-04T21:23:05.030Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "grep 'llega en el sprint' en docs/ no encuentra nada",
+              "Lo documentado coincide con las rutas, campos (totp vs code) y códigos 202/401/409 del código",
+              "npm run format:check limpio"
+            ],
+            "findings": [],
+            "by": "checker",
+            "reviewedAt": "2026-10-04T21:23:05.291Z",
+            "requestDigest": "2d5f6ffc63900446191990ba4aa9082067bfb24993ad4f23739caedacca1f744",
+            "reviewedMaterialDigest": "36c970795af71794f45501f4691714557c7a492db7aa788d12e1ae816b3226fb"
+          }
+        }
+      ]
+    },
+    {
+      "id": "P5",
+      "title": "Verificación y alta real",
+      "objective": "Recorrido completo por el túnel y alta real hecha por el usuario.",
+      "status": "blocked",
+      "tasks": [
+        {
+          "id": "T5.1",
+          "title": "Recorrido manual de la web por el túnel SSH",
+          "description": "Con API y web levantadas en la VM (docs/panel-desarrollo.md), recorrer: login, Proyectos, agregar un repo descartable propio (no expedientes-ai), ver Clonando -> Listo, confirmar setup sugerido, página del proyecto con su chat nuevo, subir un .env de prueba con valores falsos y TOTP, aplicar a activos, Versiones con el script fake, sesión vencida -> login. Dejar capturas o notas como evidencia. Corregir lo que aparezca como tarea emergente.",
+          "files_to_touch": [],
+          "context": "D1: el repo descartable lo crea y lo borra el usuario si hace falta; el agente no clona repos reales. No tocar la VM (instalar o configurar); si algo lo exige, frenar y aplicar la regla de oro y la de costos.",
+          "acceptance_criteria": [
+            "Cada paso del recorrido anotado con resultado",
+            "npm run typecheck, npm run lint, npm run format:check, npm test y npm run build en verde",
+            "Ningún .env real usado en la prueba"
+          ],
+          "depends_on": [
+            "T4.1"
+          ],
+          "scenario_refs": [
+            "S31",
+            "S37"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "Recorrido manual por túnel SSH informado por el usuario. OK: login y Proyectos; alta de test-panel (clon en ~/proyectos/test-panel, Listo, aviso sin Kyro); página del proyecto y chat nuevo (worktree ~/wt/test-panel/probar-env creado); .env subido y escrito en el worktree con modo 600; .env.production y .env.example rechazados; .env.test y .env.pro rechazados por no estar ignorados por git; TOTP incorrecto muestra 'Código incorrecto o ya usado' sin salir de la página; aplicar a activos muestra 'Chat 1 Escrito'. NO probados en navegador: pantalla Versiones (Actualizar con script falso, 409 por sesiones), fila 'agente en curso' con chat corriendo, sesión vencida -> login, búsqueda de valores falsos en logs, confirmación explícita de Clonando->Listo sin recargar y setup sugerido. Hallazgo: el prompt inicial invoca siempre Kyro aunque hasKyro=false (debt-7); falta pull del clon desde la web (debt-8).",
+            "validation": [
+              "npm run typecheck, lint, format:check, build en verde",
+              "api vitest 348/348 y web vitest 66/66",
+              "recorrido manual parcial: ver summary"
+            ],
+            "files_changed": [],
+            "notes": "Evidencia manual provista por el usuario; lo no probado queda cubierto solo por tests automáticos de la API (maintenance-routes, env-routes) y por revisión.",
+            "by": "maker",
+            "recordedAt": "2026-10-04T22:30:36.832Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "Cada paso del recorrido anotado con resultado",
+              "npm run typecheck, npm run lint, npm run format:check, npm test y npm run build en verde",
+              "Ningún .env real usado en la prueba"
+            ],
+            "findings": [],
+            "by": "checker",
+            "reviewedAt": "2026-10-04T22:32:41.230Z",
+            "requestDigest": "efece1ee19066a512f6b4a9d87e364976567319c5d64b647cc2fe1364ed1b805",
+            "reviewedMaterialDigest": "4c977819ba13be5f218de64bf3f7818d8ab0a0f98711bf22d6de51e0e03a8445"
+          }
+        },
+        {
+          "id": "T5.2",
+          "title": "Alta real de NovaGent, Agents Panel y expedientes-ai (la hace el usuario)",
+          "description": "Checklist para el usuario desde la web: (1) NovaGent: ponerle nombre visible 'NovaGent' (ya registrado). (2) Agents Panel: agregar Maiki02/agents-panel; se adopta la carpeta ~/proyectos/agents-panel sin clonar; setup 'npm ci'. (3) expedientes-ai: agregar Maiki02/expedientes-ai; se clona; setup 'uv sync --project backend'; subir backend/.env de desarrollo con TOTP. (4) Crear un work chico en expedientes-ai y verificar worktree, dependencias instaladas y backend/.env con modo 600 y git status limpio. El agente prepara el checklist, no ejecuta pasos y registra como evidencia lo que el usuario informe.",
+          "files_to_touch": [],
+          "context": "R25 y éxitos 1 a 5 del scope. D1: el clon real lo dispara el usuario. El .env real no pasa por el chat del agente ni por docs. Si un paso falla, se registra como tarea emergente o deuda.",
+          "acceptance_criteria": [
+            "El usuario confirma los cuatro pasos con resultado",
+            "En el worktree del work de expedientes-ai: ls -l backend/.env muestra -rw------- y git status no lo lista",
+            "Los tres proyectos figuran Listo en Proyectos con su nombre visible"
+          ],
+          "depends_on": [
+            "T5.1"
+          ],
+          "scenario_refs": [
+            "S36"
+          ],
+          "status": "pending",
+          "evidence": {
+            "summary": "Diferida por decisión del usuario; no se ejecutó ningún paso del alta real (NovaGent, Agents Panel, expedientes-ai) ni se verificó el work con .env en expedientes-ai",
+            "validation": "Sin validación: tarea no ejecutada",
+            "files_changed": [],
+            "by": "maker",
+            "recordedAt": "2026-10-04T22:36:47.414Z"
+          },
+          "verdict": null,
+          "disposition": {
+            "kind": "deferred",
+            "reason": "El usuario decidió no hacer el alta real ahora: la hará cuando termine otro scope",
+            "by": "maker",
+            "recordedAt": "2026-10-04T22:36:47.414Z",
+            "target": {
+              "kind": "sprint",
+              "id": "5"
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "emergentTasks": [],
+  "definitionOfDone": [
+    "Todas las tareas done con evidencia y verdict pass",
+    "npm run typecheck, npm run lint, npm run format:check, npm test y npm run build en verde",
+    "/ es Proyectos y cada proyecto muestra solo sus chats (test de filtro por projectId)",
+    "El contenido de un .env no queda en el estado de la web ni aparece en respuestas ni logs",
+    "Docs sin 'la pantalla web llega en el sprint'",
+    "Alta real de los tres proyectos confirmada por el usuario",
+    "debt-6 resuelta"
+  ]
+}

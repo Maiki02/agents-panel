@@ -373,6 +373,76 @@
         "given": "dos altas concurrentes del mismo repo de GitHub con nombres distintos",
         "when": "se procesan",
         "then": "queda un solo proyecto y un solo clon; la otra responde 'ya existe'"
+      },
+      {
+        "id": "S30",
+        "requirement": "R1",
+        "given": "chats de dos proyectos A y B",
+        "when": "se pide GET /api/chats?projectId=A o se abre /projects/A",
+        "then": "solo aparecen los chats de A; sin projectId la API sigue devolviendo todos"
+      },
+      {
+        "id": "S31",
+        "requirement": "R1",
+        "given": "una sesión válida",
+        "when": "se entra a la web",
+        "then": "la pantalla inicial es Proyectos, el menú muestra Proyectos y debajo Versiones, y /chats/:id funciona igual que antes"
+      },
+      {
+        "id": "S32",
+        "requirement": "R17",
+        "given": "un proyecto con un chat running y otro idle",
+        "when": "se sube un .env con applyToActive",
+        "then": "se escribe solo en el idle y el running figura como skipped con motivo 'agente en curso', sin tocar su archivo"
+      },
+      {
+        "id": "S33",
+        "requirement": "R18",
+        "given": "la web abierta",
+        "when": "una acción con TOTP responde 401 invalid_totp o cualquier llamada responde 401 unauthorized",
+        "then": "con invalid_totp se muestra 'Código incorrecto o ya usado' sin salir de la página; con unauthorized se vuelve al login"
+      },
+      {
+        "id": "S34",
+        "requirement": "R11",
+        "given": "el formulario de .env con contenido cargado",
+        "when": "se envía y la API responde 2xx, 400 o 401",
+        "then": "el contenido ya no está en el formulario ni en ningún signal, y la lista solo muestra ruta, claves, fecha y legibilidad"
+      },
+      {
+        "id": "S35",
+        "requirement": "R8",
+        "given": "un proyecto recién Listo con scripts/panel-setup.sh y sin setup guardado",
+        "when": "se abre su tarjeta",
+        "then": "se muestra 'bash scripts/panel-setup.sh' como sugerencia y solo se guarda al confirmarla; también se puede editar o dejar sin setup"
+      },
+      {
+        "id": "S36",
+        "requirement": "R25",
+        "given": "la web completa en la VM",
+        "when": "el usuario da de alta NovaGent (nombre visible), Agents Panel (adopción, npm ci) y expedientes-ai (clon, uv sync --project backend, backend/.env) y crea un work en expedientes-ai",
+        "then": "los tres quedan Listo y el worktree del work tiene dependencias y backend/.env con 600 y fuera de git status"
+      },
+      {
+        "id": "S37",
+        "requirement": "R2",
+        "given": "la pantalla Proyectos",
+        "when": "se agrega un repo descartable válido",
+        "then": "la tarjeta aparece en Clonando y pasa a Listo (o a Error con motivo y Reintentar) sin recargar la página"
+      },
+      {
+        "id": "S38",
+        "requirement": "R19",
+        "given": "la pantalla Versiones sin red hacia npm",
+        "when": "se abre",
+        "then": "muestra la versión instalada, 'última: desconocida' y el botón Actualizar habilitado"
+      },
+      {
+        "id": "S39",
+        "requirement": "R24",
+        "given": "la web de Proyectos, .env y Versiones implementada",
+        "when": "se revisan plan.md, panel-desarrollo.md y CLAUDE.md",
+        "then": "describen el alta, la configuración, los .env y la actualización desde la web, sin 'la pantalla web llega en el sprint', y coinciden con rutas, campos (totp/code) y códigos del código"
       }
     ],
     "nonGoals": [
@@ -416,7 +486,7 @@
         "n": 4,
         "slug": "web-docs-alta-real",
         "title": "Web de proyectos, docs y alta real",
-        "state": "planned"
+        "state": "closed"
       }
     ]
   },
@@ -454,13 +524,23 @@
       "snapshot": "archive/sprint-003-versiones-kyro.json",
       "checkpoint": "archive/sprint-003-versiones-kyro.checkpoint.json",
       "checkpointSha256": "7a641b8f1fb0b1c3cfda9adb5dc4417c19614893e424c8b814661fc9cc98fc09"
+    },
+    {
+      "n": 4,
+      "slug": "web-docs-alta-real",
+      "outcome": "partial",
+      "closedAt": "2026-10-04",
+      "archive": "archive/sprint-004-web-docs-alta-real.md",
+      "snapshot": "archive/sprint-004-web-docs-alta-real.json",
+      "checkpoint": "archive/sprint-004-web-docs-alta-real.checkpoint.json",
+      "checkpointSha256": "c5ff041a918349fddcb7020ab7ee65453b6ef86ca15d0a417f757b27ab2d4e2f"
     }
   ],
   "previousSprint": {
-    "n": 3,
-    "slug": "versiones-kyro",
-    "outcome": "shipped",
-    "summary": "Que la API muestre la versión instalada y la última de Kyro y lo actualice con un script idempotente versionado, con TOTP, sin sesiones corriendo y bloqueando sesiones nuevas mientras corre, registrando cada corrida en maintenance_runs."
+    "n": 4,
+    "slug": "web-docs-alta-real",
+    "outcome": "partial",
+    "summary": "Que la web tenga Proyectos como pantalla inicial (alta por GitHub, configuración, .env con TOTP), una página por proyecto con sus chats, la pantalla Versiones, los docs al día y que el usuario dé de alta los tres proyectos reales desde ahí."
   },
   "activeSprint": null,
   "debt": [
@@ -487,18 +567,18 @@
       "title": "Sin índice único en repo_url: dos altas concurrentes del mismo repo con nombres distintos clonarían dos veces",
       "origin": 1,
       "priority": "low",
-      "status": "in_progress",
+      "status": "resolved",
       "targetSprint": null,
-      "note": ""
+      "note": "Verificado en sprint 3 T2.5: índice projects_repo_url_unique (migración 5) y ProjectConflictError 'ya existe'; S29"
     },
     {
       "id": "debt-4",
       "title": "kyro install corre por proyecto y toca lo global: serializar si hay altas simultáneas con .agents/kyro/",
       "origin": 1,
       "priority": "low",
-      "status": "in_progress",
+      "status": "resolved",
       "targetSprint": null,
-      "note": ""
+      "note": "Verificado en sprint 3 T2.3: KyroLock compartido entre kyro install del alta y la actualización; S26"
     },
     {
       "id": "debt-5",
@@ -514,16 +594,50 @@
       "title": "writeEnvFiles con applyToActive sobre un worktree con agente corriendo: entre el realpath de la carpeta y el rename hay una ventana (TOCTOU) en la que el agente podría cambiar una carpeta por un symlink. Evaluar abrir la carpeta con O_DIRECTORY/O_NOFOLLOW o no aplicar a chats running",
       "origin": 2,
       "priority": "low",
-      "status": "deferred",
+      "status": "resolved",
       "targetSprint": 4,
-      "note": "Low; fuera del foco de Versiones. Revisar junto con applyToActive en la web del sprint 4"
+      "note": "Resuelta en T1.2: no se aplica .env a chats running (se omiten con motivo); documentado en plan.md y panel-desarrollo.md"
+    },
+    {
+      "id": "debt-7",
+      "title": "El prompt inicial del chat invoca siempre el flujo Kyro (kyro-work/kyro-forge) aunque el proyecto no tenga Kyro (hasKyro=false); el agente crea Work y archivos .agents/ en el worktree. Pendiente: pedido directo sin Kyro, 'Inicializar Kyro' desde la web, permisos de lectura (cat/ls/grep) y revisión independiente (scope del piloto automático)",
+      "origin": 4,
+      "priority": "medium",
+      "status": "open",
+      "targetSprint": 5,
+      "note": ""
+    },
+    {
+      "id": "debt-8",
+      "title": "Actualizar un proyecto desde GitHub desde la web (git fetch + pull --ff-only del clon base por execFile, rechazando si hay cambios locales o divergencia, y mostrando el resultado): hoy lo subido a GitHub después del clon no llega a la VM y los worktrees nuevos parten de un clon viejo",
+      "origin": 4,
+      "priority": "medium",
+      "status": "open",
+      "targetSprint": 5,
+      "note": ""
+    },
+    {
+      "id": "debt-9",
+      "title": "Pruebas manuales diferidas de T5.1, a hacer al final del Sprint 4 (resolver antes de cerrar): Versiones (Actualizar con script falso; 409 con un chat corriendo), fila 'agente en curso' al aplicar .env con chat corriendo, y ausencia de valores falsos del .env en los logs de la API. Ya confirmadas por el usuario: Clonando->Listo sin recargar y sesión vencida -> login",
+      "origin": 4,
+      "priority": "high",
+      "status": "deferred",
+      "targetSprint": 5,
+      "note": "El usuario difiere las pruebas manuales de Versiones, 'agente en curso' y logs; las hará cuando termine otro scope"
     }
   ],
   "handoff": {
-    "nextAction": "plan_sprint",
+    "nextAction": "await_scope_completion",
     "nextTaskId": null,
-    "blockers": [],
-    "note": "Sprint 3 (versiones-kyro) closed as shipped. Scope remains open for planning.",
+    "blockers": [
+      {
+        "code": "no_ready_work",
+        "object": "active_sprint",
+        "reason": "No dependency-ready task remains in the active sprint.",
+        "remedyCommand": "node dist/cli.js plan --update-active --kyro-scope proyectos-y-versiones --from <approved-input.json> --dry-run --json"
+      }
+    ],
+    "note": "Sprint 4 (web-docs-alta-real) closed as partial. Roadmap exhausted; await explicit scope completion or an expansion decision.",
     "lastUpdated": "2026-10-04"
   },
   "author": {

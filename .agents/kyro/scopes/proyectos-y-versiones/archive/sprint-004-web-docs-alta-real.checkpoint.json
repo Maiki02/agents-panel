@@ -1,0 +1,2003 @@
+{
+  "schemaVersion": 1,
+  "kind": "kyro.sprint-close-checkpoint",
+  "checkpointId": "bbf88c807ba481b985c2e6eeeb4742615f75670045bcd2ed5611bf0edb61e017",
+  "createdAt": "2026-10-04T22:49:25.558Z",
+  "identity": {
+    "scope": "proyectos-y-versiones",
+    "sprintN": 4,
+    "sprintSlug": "web-docs-alta-real"
+  },
+  "close": {
+    "outcome": "partial",
+    "note": null,
+    "summary": null,
+    "recommendations": [],
+    "learnings": []
+  },
+  "paths": {
+    "legacySnapshot": ".agents/kyro/scopes/proyectos-y-versiones/archive/sprint-004-web-docs-alta-real.json",
+    "narrative": ".agents/kyro/scopes/proyectos-y-versiones/archive/sprint-004-web-docs-alta-real.md"
+  },
+  "beforeClose": {
+    "schemaVersion": 4,
+    "scope": "proyectos-y-versiones",
+    "title": "Proyectos, Versiones y .env desde la web",
+    "status": "planning",
+    "objective": "Que agregar y operar proyectos (alta por GitHub con clon en la VM, setup, .env de desarrollo y actualización de Kyro) se haga completo desde la web, con Proyectos como pantalla inicial.",
+    "successCriteria": [
+      "Al entrar, la pantalla inicial lista los proyectos registrados; al elegir uno se ven solo sus chats y el formulario de chat nuevo ya apunta a ese proyecto.",
+      "Pegando Maiki02/expedientes-ai en Agregar proyecto, el proyecto queda 'listo' en la VM con origin en GitHub y rama base existente; si el clon falla queda en 'error' sin carpeta a medio clonar.",
+      "Registrar una carpeta que ya existe con el mismo origin (Agents Panel) la adopta sin clonar de nuevo.",
+      "Un .env subido desde la web aparece con permisos 600 en cada worktree nuevo del proyecto, git no lo muestra, y su contenido nunca vuelve al navegador ni aparece en respuestas, logs, eventos ni en la base en claro.",
+      "La pantalla Versiones muestra la versión instalada y la última publicada de Kyro, y Actualizar la deja instalada y registrada sin cortar sesiones en curso (con una sesión corriendo se rechaza con 409)."
+    ],
+    "spec": {
+      "requirements": [
+        {
+          "id": "R1",
+          "statement": "La pantalla inicial es Proyectos: una tarjeta por proyecto con su estado. Elegir un proyecto abre su página con el chat nuevo (proyecto fijo) y solo los chats de ese proyecto; Versiones queda debajo de Proyectos en el menú.",
+          "priority": "must",
+          "rationale": "Éxito 1 del plan. Falso éxito a detectar: chats de otro proyecto en la lista (test de filtro por projectId). /chats/:id no cambia."
+        },
+        {
+          "id": "R2",
+          "statement": "El usuario agrega un proyecto desde la web pegando owner/repo o una URL de GitHub; el panel lo clona en segundo plano en el directorio de proyectos de la VM y el proyecto pasa por los estados clonando, listo o error con el motivo.",
+          "priority": "must",
+          "rationale": "D1: el clon lo dispara el usuario desde la web, nunca un agente ni una tarea previa (durante la implementación se prueba con un repo descartable). D2: se clona con gh repo clone por execFile, solo GitHub. D3: un clon grande supera un timeout HTTP, por eso es en segundo plano con status y status_detail; los proyectos existentes migran como listo. Tradeoff: no admite GitLab ni URLs SSH; se acepta."
+        },
+        {
+          "id": "R3",
+          "statement": "Solo se aceptan repos de GitHub con formato owner/repo (owner de 1 a 39 caracteres alfanuméricos o guion; repo de hasta 100 caracteres alfanuméricos, punto, guion o guion bajo, sin empezar con punto) a los que llega el gh autenticado de la VM; cualquier otra entrada se rechaza con 400 antes de ejecutar nada.",
+          "priority": "must",
+          "rationale": "L10: evita clonar URLs arbitrarias (otros hosts, rutas locales, file://). Hipótesis a verificar: la salida de gh repo clone para repos privados y su manejo de errores."
+        },
+        {
+          "id": "R4",
+          "statement": "Si la carpeta destino ya existe y su origin normalizado (https o ssh, con o sin .git) coincide con el repo pedido, el proyecto se adopta sin clonar; si existe con otro origin, se rechaza con 409 sin tocar nada; registrar dos veces el mismo repo responde 'ya existe'.",
+          "priority": "must",
+          "rationale": "D4: Agents Panel y NovaGent ya están clonados. Tradeoff: hay que comparar URLs normalizadas. Éxito 3 del plan."
+        },
+        {
+          "id": "R5",
+          "statement": "Un proyecto solo pasa a listo si el clon terminó, su origin es el repo pedido y la rama base existe; si algo falla queda en error con el motivo recortado y se borra la carpeta que creó el panel; el error se puede reintentar.",
+          "priority": "must",
+          "rationale": "L9: evita worktrees sobre clones rotos. Éxito 2 del plan; falso éxito: registrado pero sin clonar u origin que no es GitHub."
+        },
+        {
+          "id": "R6",
+          "statement": "Antes de clonar se verifica el espacio libre (umbral 10 GB); sin espacio, el proyecto queda en error 'sin espacio' y no se clona nada. Al arrancar el panel, los proyectos que quedaron clonando pasan a error 'interrumpido' y se pueden reintentar.",
+          "priority": "must",
+          "rationale": "Riesgos del plan: clon gigante llena el disco; reinicio del panel durante un clon deja el proyecto colgado."
+        },
+        {
+          "id": "R7",
+          "statement": "La creación de un chat sobre un proyecto que no está listo se rechaza con 409.",
+          "priority": "must",
+          "rationale": "Riesgo del plan: carrera entre clon y creación de chat, con worktree sobre un repo incompleto."
+        },
+        {
+          "id": "R8",
+          "statement": "Al registrar, si el repo trae scripts/panel-setup.sh se sugiere 'bash scripts/panel-setup.sh'; si no, el comando de setup queda vacío o se escribe a mano; el valor se guarda explícito y se puede editar después desde la configuración del proyecto. Lo sugerido se muestra y se confirma antes de guardarse.",
+          "priority": "must",
+          "rationale": "D5: el usuario preguntó si todos los repos necesitan setup.sh: no. Tradeoff: si el repo suma panel-setup.sh después hay que editar el setup a mano. createWorktree no cambia su contrato. NovaGent: panel-setup.sh; Agents Panel: npm ci; expedientes-ai: uv sync --project backend."
+        },
+        {
+          "id": "R9",
+          "statement": "Cada proyecto tiene un nombre interno kebab-case (rutas y worktrees) y un nombre visible libre, editable, que se muestra en la web; si falta, se muestra el interno.",
+          "priority": "should",
+          "rationale": "D12: el nombre interno ya se usa en rutas (~/wt/<proyecto>/…) y no puede cambiar; el usuario quiere ver nombres de producto (NovaGent, Agents Panel, Judiciar). Columna display_name nullable."
+        },
+        {
+          "id": "R10",
+          "statement": "Al registrar un proyecto, Kyro se inicializa en él solo si el repo trae .agents/kyro/; si no, queda registrado con un aviso visible de 'proyecto sin Kyro'.",
+          "priority": "should",
+          "rationale": "D11: no meter archivos de Kyro en repos que no lo usan. Tradeoff: sin Kyro no hay /kyro-* hasta inicializarlo a mano. Hipótesis H2: kyro install --init-workspace --yes con el CLI global equivale a lo hecho con npx en el paso 7 de vm-setup.md; se verifica en la VM antes de implementarlo."
+        },
+        {
+          "id": "R11",
+          "statement": "Cada proyecto puede tener uno o varios archivos .env identificados por ruta relativa (por ejemplo .env, .env.local, .env.development, backend/.env, be-ventas/.env.local); se pueden subir (archivo o texto pegado), reemplazar y borrar; la API solo devuelve ruta, nombres de claves y fecha, nunca el contenido.",
+          "priority": "must",
+          "rationale": "L3: un .env nunca vuelve al navegador. El usuario aclaró que los nombres varían. Fuera de alcance: verlo o editarlo en línea. Para cambiarlo se sube de nuevo."
+        },
+        {
+          "id": "R12",
+          "statement": "Los .env se guardan cifrados en reposo (AES-256-GCM, clave derivada con HKDF de PANEL_SECRET_KEY, info 'env-files-v1'); si no se pueden descifrar (clave rotada), figuran como ilegibles y no se escribe nada en worktrees.",
+          "priority": "must",
+          "rationale": "L4 y D6: la base y sus backups no tienen secretos en claro. Tradeoff: rotar PANEL_SECRET_KEY obliga a volver a subirlos. Tabla project_env_files(project_id, rel_path, ciphertext, iv, tag, key_names, updated_at, UNIQUE(project_id, rel_path))."
+        },
+        {
+          "id": "R13",
+          "statement": "El contenido de un .env no aparece nunca en logs, eventos de chat, respuestas de la API ni en la base en claro; el logger redacta el campo del contenido.",
+          "priority": "must",
+          "rationale": "Riesgo del plan: secreto en logs porque Fastify serializa el body. Prueba con un valor centinela buscado en respuesta, logs, chat_events y base."
+        },
+        {
+          "id": "R14",
+          "statement": "Solo se aceptan nombres de archivo .env o .env.<sufijo> (basename ^\\.env(\\.[A-Za-z0-9_-]+)*$), nunca con 'prod' (sin distinguir mayúsculas) ni plantillas (example, sample, ejemplo, template); el archivo debe pesar hasta 64 KB y tener líneas CLAVE=valor, comentarios o vacías.",
+          "priority": "must",
+          "rationale": "L5 y D7: no llevar credenciales de producción a la VM (CLAUDE.md). Un .env.staging se acepta porque no es producción. Validación en un solo módulo con tests de tabla."
+        },
+        {
+          "id": "R15",
+          "statement": "Un .env solo se escribe en una ruta relativa que no sale del proyecto (sin ..) y que git ignora (git check-ignore), tanto al subirlo como al escribirlo en cada worktree.",
+          "priority": "must",
+          "rationale": "L6: evita que el agente lo commitee y lo pushee a GitHub. Rechazos esperados: ../.env y archivos no ignorados."
+        },
+        {
+          "id": "R16",
+          "statement": "En cada worktree nuevo, el panel escribe los .env del proyecto con permisos 600 después de correr el setup; si falta la carpeta destino de algún .env, la creación falla con 'falta la carpeta X para .env' y se deshace todo (el agente no arranca sin sus .env).",
+          "priority": "must",
+          "rationale": "D8: los repos hijos de NovaGent (be-ventas/) los crea el setup; escribir antes rompería el git clone. Tradeoff: un setup que necesite el .env no lo tiene; hoy ninguno lo necesita y panel-setup.sh de ventas igual copia el suyo."
+        },
+        {
+          "id": "R17",
+          "statement": "Al subir un .env se puede elegir aplicarlo también a los worktrees activos del proyecto; el resultado se informa por worktree (escrito u omitido con motivo) y uno que falla no frena a los demás.",
+          "priority": "should",
+          "rationale": "Pedido del usuario al aprobar el plan (rotar un .env sin recrear worktrees)."
+        },
+        {
+          "id": "R18",
+          "statement": "Subir, reemplazar o borrar un .env y actualizar Kyro exigen un código TOTP vigente además de la sesión; un código ya usado se rechaza y un código incorrecto o repetido responde 401 y cuenta para el límite de intentos existente.",
+          "priority": "must",
+          "rationale": "L7 y D9: son las acciones de más impacto y la URL es pública. Se reutiliza checkTotp con su contador y auth/attempts.ts. Tradeoff: hay que tipear un código más."
+        },
+        {
+          "id": "R19",
+          "statement": "La pantalla Versiones muestra la versión de Kyro instalada y la última publicada (si no hay red: 'última: desconocida' y el botón sigue disponible), un botón Actualizar y el historial de actualizaciones.",
+          "priority": "must",
+          "rationale": "Éxito 5 del plan. Kyro es global de la VM: CLI en ~/.npm-global, runtime en ~/.agents/kyro/current, skills enlazadas por 06-kyro-skills.sh."
+        },
+        {
+          "id": "R20",
+          "statement": "Actualizar Kyro corre un script idempotente versionado (scripts/vm/08-kyro-update.sh: npm i -g kyro-ai@latest, kyro update en cada raíz de proyecto con Kyro, 06-kyro-skills.sh y kyro doctor); cada corrida se guarda en maintenance_runs con versión anterior, versión nueva, resultado y salida recortada, y la versión mostrada es la que realmente quedó.",
+          "priority": "must",
+          "rationale": "D10: cumple la regla de oro de la VM (procedimiento en el runbook, rehacible a mano). Tradeoff: las corridas desde el panel no suman línea a la bitácora de vm-setup.md; por eso se ajusta CLAUDE.md. Hipótesis H1: la secuencia npm i -g + kyro update es la correcta en 6.x; se verifica a mano una vez antes de escribir el script."
+        },
+        {
+          "id": "R21",
+          "statement": "Kyro no se actualiza mientras haya sesiones corriendo (409 con la cantidad de sesiones) y, mientras corre la actualización, no arrancan sesiones nuevas.",
+          "priority": "must",
+          "rationale": "L8: evita agentes a mitad de tarea con el runtime cambiado debajo."
+        },
+        {
+          "id": "R22",
+          "statement": "Toda ruta nueva de la API exige sesión (guard deny-by-default sin ampliar la allowlist pública) y todo comando externo (gh, git, kyro, npm, scripts) va por execFile con argv, sin shell; lo que escribe el usuario es solo un argumento validado.",
+          "priority": "must",
+          "rationale": "L1 y L2: la URL es pública (Funnel); evita exponer clonado, .env o actualización a internet e inyección de comandos. guard.test.ts recorre las rutas registradas; verificación de L2 con grep y review."
+        },
+        {
+          "id": "R23",
+          "statement": "La VM tiene uv instalado en ~/.local/bin por un script idempotente (scripts/vm/07-uv.sh), documentado en vm-setup.md con su línea de bitácora y la tabla de Costos (US$0).",
+          "priority": "must",
+          "rationale": "expedientes-ai (Python 3.12, uv.lock) lo necesita y la VM no lo tiene (Python 3.14.4). Regla de oro de la VM: script de scripts/vm/ + runbook + bitácora. Las toolchains no se instalan desde la web."
+        },
+        {
+          "id": "R24",
+          "statement": "Los docs quedan actualizados en el mismo cambio: plan.md (el registro de proyectos pasa a la web y reemplaza .panel/project.yaml; .env y Versiones), vm-setup.md, panel-desarrollo.md y CLAUDE.md (convención de setup, .env que pone el panel y regla de la bitácora para corridas desde el panel).",
+          "priority": "must",
+          "rationale": "CLAUDE.md: si una decisión cambia, se actualiza el doc correspondiente en el mismo cambio. D10 obliga a ajustar la regla de la bitácora."
+        },
+        {
+          "id": "R25",
+          "statement": "Con todo implementado, el usuario da de alta desde la web NovaGent (nombre visible), Agents Panel (adopción, setup npm ci) y expedientes-ai (clon, setup uv sync --project backend, backend/.env), y un work chico en expedientes-ai arranca con su worktree, dependencias y .env.",
+          "priority": "must",
+          "rationale": "WS7 del plan: esta acción la hace el usuario desde la web (D1); el agente nunca clona expedientes-ai."
+        },
+        {
+          "id": "R26",
+          "statement": "Un archivo .env ilegible, con nombre o ruta inválidos, no ignorado, demasiado grande o sin formato CLAVE=valor se rechaza con 400 y el motivo; no se guarda nada.",
+          "priority": "must",
+          "rationale": "Garantía de fallo del plan: entrada inválida no deja estado parcial."
+        }
+      ],
+      "scenarios": [
+        {
+          "id": "S1",
+          "requirement": "R7",
+          "given": "un proyecto en estado 'cloning' o 'error' y otro 'ready'",
+          "when": "se crea un chat con POST /api/chats sobre cada uno",
+          "then": "los dos primeros responden 409 sin crear worktree, chat ni evento y el 'ready' crea el chat como hasta ahora"
+        },
+        {
+          "id": "S2",
+          "requirement": "R3",
+          "given": "una sesión válida",
+          "when": "se hace POST /api/projects con 'file:///etc', 'git@github.com:a/b.git', 'https://evil.com/a/b', 'a/b/c', un owner que empieza con '-' o un body con una ruta de carpeta",
+          "then": "responde 400 y no se ejecuta ningún comando; en cambio 'owner/repo' y 'https://github.com/owner/repo.git' dan el mismo repo"
+        },
+        {
+          "id": "S3",
+          "requirement": "R2",
+          "given": "un repo remoto falso y la carpeta destino inexistente",
+          "when": "se hace POST /api/projects con owner/repo",
+          "then": "responde 202 con el proyecto en 'cloning' y al terminar queda 'ready' con origin igual al pedido y una rama base existente"
+        },
+        {
+          "id": "S4",
+          "requirement": "R4",
+          "given": "una carpeta ya clonada en el directorio de proyectos cuyo origin coincide con el pedido (y otra con origin distinto)",
+          "when": "se registra cada una",
+          "then": "la primera se adopta sin llamar al cloner, la segunda responde 409 sin modificar la carpeta y registrar de nuevo el mismo repo responde 'ya existe'"
+        },
+        {
+          "id": "S5",
+          "requirement": "R5",
+          "given": "un clon que falla (repo inexistente o sin permiso) y poco espacio libre",
+          "when": "termina el intento de alta",
+          "then": "el proyecto queda 'error' con el motivo recortado, la carpeta que creó el panel no existe y con poco espacio el cloner ni se llama; retry lo lleva a 'ready' cuando el clon funciona"
+        },
+        {
+          "id": "S6",
+          "requirement": "R6",
+          "given": "un proyecto que quedó en 'cloning' cuando el panel se detuvo",
+          "when": "arranca el panel",
+          "then": "el proyecto pasa a 'error' con detalle 'interrumpido' y se puede reintentar"
+        },
+        {
+          "id": "S7",
+          "requirement": "R8",
+          "given": "un repo con scripts/panel-setup.sh y otro sin él",
+          "when": "se consulta GET /api/projects/:id de cada uno sin setup guardado",
+          "then": "el primero trae suggestedSetupCommand 'bash scripts/panel-setup.sh', el segundo null, y ninguno guarda el setup hasta que se lo edita con PATCH"
+        },
+        {
+          "id": "S8",
+          "requirement": "R9",
+          "given": "un proyecto con nombre interno 'novagent'",
+          "when": "se hace PATCH con displayName 'NovaGent'",
+          "then": "la API devuelve displayName 'NovaGent' y el nombre interno y la ruta de worktrees no cambian; sin nombre visible se usa el interno"
+        },
+        {
+          "id": "S9",
+          "requirement": "R10",
+          "given": "un repo con .agents/kyro/ y otro sin él",
+          "when": "se registran",
+          "then": "en el primero se llama una vez al inicializador de Kyro con cwd en el repo, en el segundo no se llama y la respuesta trae hasKyro=false; si el inicializador falla el proyecto sigue 'ready' con un aviso"
+        },
+        {
+          "id": "S10",
+          "requirement": "R22",
+          "given": "sin cookie de sesión",
+          "when": "se llama a cada ruta nueva de proyectos",
+          "then": "responde 401 y la lista de rutas públicas sigue siendo solo /api/health y los pasos del login"
+        },
+        {
+          "id": "S11",
+          "requirement": "R23",
+          "given": "la VM sin uv",
+          "when": "se corre dos veces bash scripts/vm/07-uv.sh",
+          "then": "la primera deja `uv --version` funcionando, la segunda no cambia nada y vm-setup.md registra el paso, la bitácora y el costo US$0"
+        },
+        {
+          "id": "S12",
+          "requirement": "R14",
+          "given": "una tabla de nombres de archivo",
+          "when": "se validan .env, .env.local, .env.development, .env.staging, .env.production, .env.PROD, .env.example, .env.ejemplo, .env.template, .envrc y x.env",
+          "then": "se aceptan los cuatro primeros y el resto se rechaza con 400 y el motivo, sin guardar nada"
+        },
+        {
+          "id": "S13",
+          "requirement": "R15",
+          "given": "un proyecto listo cuyo .gitignore ignora .env y backend/.env pero no config/.env",
+          "when": "se sube ../.env, /abs/.env, a/../.env, config/.env y backend/.env",
+          "then": "las cuatro primeras responden 400 sin guardar nada y backend/.env se guarda"
+        },
+        {
+          "id": "S14",
+          "requirement": "R26",
+          "given": "una sesión válida y un TOTP nuevo",
+          "when": "se sube un .env de más de 64 KB, con NUL o con una línea que no es CLAVE=valor",
+          "then": "responde 400 con el motivo (la línea por número, sin su texto) y la tabla project_env_files queda igual"
+        },
+        {
+          "id": "S15",
+          "requirement": "R11",
+          "given": "un proyecto listo con .env y backend/.env subidos",
+          "when": "se listan, se reemplaza .env y se borra backend/.env",
+          "then": "GET devuelve solo ruta, nombres de claves, fecha y si es legible; el reemplazo deja una sola fila con fecha nueva; el borrado la quita; ninguna respuesta trae el contenido"
+        },
+        {
+          "id": "S16",
+          "requirement": "R12",
+          "given": ".env guardados con una PANEL_SECRET_KEY",
+          "when": "el panel arranca con otra clave o el cifrado fue alterado",
+          "then": "los archivos figuran como ilegibles en GET y no se escribe ninguno en worktrees; la base no tiene el contenido en claro"
+        },
+        {
+          "id": "S17",
+          "requirement": "R13",
+          "given": "un .env con un valor centinela y el logger en nivel trace",
+          "when": "se sube, se reemplaza, se rechaza por formato, se rechaza por TOTP y se escribe en el worktree de un chat nuevo",
+          "then": "el centinela no aparece en ninguna respuesta, en la salida del logger, en chat_events ni en los bytes de la base"
+        },
+        {
+          "id": "S18",
+          "requirement": "R16",
+          "given": "un proyecto con backend/.env y un setup que crea o no crea la carpeta backend",
+          "when": "se crea un chat",
+          "then": "si el setup la crea, backend/.env queda con modo 600 y git status limpio; si no, la creación falla con 'falta la carpeta backend para backend/.env' y no quedan worktree, rama ni chat"
+        },
+        {
+          "id": "S19",
+          "requirement": "R17",
+          "given": "dos chats activos del proyecto, uno sin la carpeta destino",
+          "when": "se sube un .env con applyToActive",
+          "then": "la respuesta informa 'written' para uno y 'skipped' con motivo para el otro, y el primero tiene el contenido nuevo con 600"
+        },
+        {
+          "id": "S20",
+          "requirement": "R18",
+          "given": "una sesión válida",
+          "when": "se sube o borra un .env sin TOTP, con uno incorrecto o con uno ya usado",
+          "then": "responde 401 invalid_totp, no cambia nada, el intento cuenta para el límite y al quinto el usuario queda bloqueado"
+        },
+        {
+          "id": "S21",
+          "requirement": "R19",
+          "given": "kyro instalado y el registro de npm disponible o no",
+          "when": "se pide GET /api/versions",
+          "then": "devuelve la versión instalada y la última publicada; sin red o por timeout, latest es null ('última: desconocida') y la actualización sigue permitida"
+        },
+        {
+          "id": "S22",
+          "requirement": "R20",
+          "given": "un script de actualización fake que termina bien o mal",
+          "when": "se pide la actualización con TOTP válido y sin sesiones",
+          "then": "responde 202 con runId y la corrida queda en maintenance_runs con versión anterior, versión medida al final, status ok o error y salida recortada; GET /api/maintenance-runs la lista primero"
+        },
+        {
+          "id": "S23",
+          "requirement": "R20",
+          "given": "la VM con Kyro instalado y las raíces de proyectos con Kyro",
+          "when": "se corre scripts/vm/08-kyro-update.sh dos veces seguidas",
+          "then": "las dos terminan con exit 0 y kyro doctor sano, la segunda no cambia versión ni symlinks de skills, y la última línea es KYRO_VERSION=<versión instalada>"
+        },
+        {
+          "id": "S24",
+          "requirement": "R21",
+          "given": "una sesión de agente corriendo",
+          "when": "se pide la actualización de Kyro con TOTP válido",
+          "then": "responde 409 con la cantidad de sesiones corriendo, no crea fila en maintenance_runs y no ejecuta el script"
+        },
+        {
+          "id": "S25",
+          "requirement": "R21",
+          "given": "una actualización de Kyro en curso",
+          "when": "se crea un chat, se manda un mensaje o se pide otra actualización",
+          "then": "las tres responden 409 sin crear worktree, chat ni corrida; al terminar la actualización (ok o error) crear chats vuelve a funcionar"
+        },
+        {
+          "id": "S26",
+          "requirement": "R20",
+          "given": "un alta de proyecto con kyro install en curso",
+          "when": "se pide la actualización de Kyro",
+          "then": "el script no arranca hasta que termina kyro install, y un kyro install que llega durante la actualización espera a que termine"
+        },
+        {
+          "id": "S27",
+          "requirement": "R18",
+          "given": "una sesión válida",
+          "when": "se pide la actualización de Kyro sin TOTP, con uno incorrecto o ya usado",
+          "then": "responde 401 invalid_totp, no crea corrida ni ejecuta el script y el intento cuenta para el límite"
+        },
+        {
+          "id": "S28",
+          "requirement": "R20",
+          "given": "una corrida de actualización 'running' en la base porque el panel se reinició",
+          "when": "el panel arranca",
+          "then": "la corrida queda en 'error' con 'interrumpido' y se puede pedir una nueva"
+        },
+        {
+          "id": "S29",
+          "requirement": "R4",
+          "given": "dos altas concurrentes del mismo repo de GitHub con nombres distintos",
+          "when": "se procesan",
+          "then": "queda un solo proyecto y un solo clon; la otra responde 'ya existe'"
+        },
+        {
+          "id": "S30",
+          "requirement": "R1",
+          "given": "chats de dos proyectos A y B",
+          "when": "se pide GET /api/chats?projectId=A o se abre /projects/A",
+          "then": "solo aparecen los chats de A; sin projectId la API sigue devolviendo todos"
+        },
+        {
+          "id": "S31",
+          "requirement": "R1",
+          "given": "una sesión válida",
+          "when": "se entra a la web",
+          "then": "la pantalla inicial es Proyectos, el menú muestra Proyectos y debajo Versiones, y /chats/:id funciona igual que antes"
+        },
+        {
+          "id": "S32",
+          "requirement": "R17",
+          "given": "un proyecto con un chat running y otro idle",
+          "when": "se sube un .env con applyToActive",
+          "then": "se escribe solo en el idle y el running figura como skipped con motivo 'agente en curso', sin tocar su archivo"
+        },
+        {
+          "id": "S33",
+          "requirement": "R18",
+          "given": "la web abierta",
+          "when": "una acción con TOTP responde 401 invalid_totp o cualquier llamada responde 401 unauthorized",
+          "then": "con invalid_totp se muestra 'Código incorrecto o ya usado' sin salir de la página; con unauthorized se vuelve al login"
+        },
+        {
+          "id": "S34",
+          "requirement": "R11",
+          "given": "el formulario de .env con contenido cargado",
+          "when": "se envía y la API responde 2xx, 400 o 401",
+          "then": "el contenido ya no está en el formulario ni en ningún signal, y la lista solo muestra ruta, claves, fecha y legibilidad"
+        },
+        {
+          "id": "S35",
+          "requirement": "R8",
+          "given": "un proyecto recién Listo con scripts/panel-setup.sh y sin setup guardado",
+          "when": "se abre su tarjeta",
+          "then": "se muestra 'bash scripts/panel-setup.sh' como sugerencia y solo se guarda al confirmarla; también se puede editar o dejar sin setup"
+        },
+        {
+          "id": "S36",
+          "requirement": "R25",
+          "given": "la web completa en la VM",
+          "when": "el usuario da de alta NovaGent (nombre visible), Agents Panel (adopción, npm ci) y expedientes-ai (clon, uv sync --project backend, backend/.env) y crea un work en expedientes-ai",
+          "then": "los tres quedan Listo y el worktree del work tiene dependencias y backend/.env con 600 y fuera de git status"
+        },
+        {
+          "id": "S37",
+          "requirement": "R2",
+          "given": "la pantalla Proyectos",
+          "when": "se agrega un repo descartable válido",
+          "then": "la tarjeta aparece en Clonando y pasa a Listo (o a Error con motivo y Reintentar) sin recargar la página"
+        },
+        {
+          "id": "S38",
+          "requirement": "R19",
+          "given": "la pantalla Versiones sin red hacia npm",
+          "when": "se abre",
+          "then": "muestra la versión instalada, 'última: desconocida' y el botón Actualizar habilitado"
+        },
+        {
+          "id": "S39",
+          "requirement": "R24",
+          "given": "la web de Proyectos, .env y Versiones implementada",
+          "when": "se revisan plan.md, panel-desarrollo.md y CLAUDE.md",
+          "then": "describen el alta, la configuración, los .env y la actualización desde la web, sin 'la pantalla web llega en el sprint', y coinciden con rutas, campos (totp/code) y códigos del código"
+        }
+      ],
+      "nonGoals": [
+        "Ver o editar un .env en línea desde la web (va contra la ley de solo escritura); para cambiarlo se sube de nuevo.",
+        "Borrar proyectos o su carpeta desde la web (destructivo, queda como follow-up).",
+        "Clonar repos que no sean de GitHub o usar URLs SSH.",
+        "Instalar toolchains (Go, uv, Python) desde la web; van por scripts/vm/.",
+        "Actualizar desde Versiones otras herramientas que no sean Kyro (Claude Code, Node, gh).",
+        "Passkeys o re-autenticación por passkey.",
+        "Quitar la copia de .env de panel-setup.sh del repo ventas (otro repo; el panel escribe después y gana).",
+        "Clonar o registrar expedientes-ai durante la implementación: lo hace el usuario desde la web."
+      ],
+      "openQuestions": []
+    },
+    "clarifications": [],
+    "conventions": [],
+    "adrs": [],
+    "roadmap": {
+      "plannedSprintCount": 4,
+      "sizingRationale": "Cuatro sprints porque el trabajo tiene una cadena de dependencias y cada tramo tiene un resultado verificable por separado. Orden del plan: WS1 (modelo y migración) primero porque las tablas projects ampliada, project_env_files y maintenance_runs las usan todos; después WS2, WS3 y WS4 en ese orden porque comparten la migración y WS3 necesita el estado 'listo' y el worktree de WS2; WS5 (web) al final de las APIs porque consume las tres; WS6 (docs) y WS7 (alta real, manual del usuario) al cierre. Sprint 1 (WS1 + WS2 + 07-uv.sh): modelo, alta por GitHub con clon, adopción, setup por convención, estados y 07-uv.sh, que no depende de nada. Dividir el sprint 1 si la fase del clon crece más que la del modelo. Sprint 2 (WS3): .env cifrados, validación, TOTP de re-autenticación y escritura en worktrees; se separa porque es la superficie de seguridad más sensible y su gate (valor centinela) es independiente. Sprint 3 (WS4): Versiones y actualización de Kyro; se separa porque toca el runtime global de la VM y exige verificar H1 a mano antes de escribir el script. Sprint 4 (WS5 + WS6 + WS7): web completa, docs y alta real por el usuario; requiere las tres APIs terminadas. No se parte la web de los docs porque los docs describen lo que la web ya hace. Hipótesis H1 (actualización de Kyro 6.x) se verifica en el sprint 3 y H2 (kyro install --init-workspace con el CLI global) en el sprint 1. Orden de las decisiones de entrega: D1 el usuario hace el clon real desde la web; D8 los .env se escriben después del setup; D10 las corridas desde el panel se registran en maintenance_runs.",
+      "sprints": [
+        {
+          "n": 1,
+          "slug": "proyectos-api",
+          "title": "Proyectos: modelo y alta por GitHub",
+          "state": "closed"
+        },
+        {
+          "n": 2,
+          "slug": "env-seguro",
+          "title": ".env cifrados y escritura en worktrees",
+          "state": "closed"
+        },
+        {
+          "n": 3,
+          "slug": "versiones-kyro",
+          "title": "Versiones y actualización de Kyro",
+          "state": "closed"
+        },
+        {
+          "n": 4,
+          "slug": "web-docs-alta-real",
+          "title": "Web de proyectos, docs y alta real",
+          "state": "active"
+        }
+      ]
+    },
+    "ledger": [
+      {
+        "n": 1,
+        "slug": "proyectos-api",
+        "outcome": "shipped",
+        "closedAt": "2026-10-04",
+        "archive": "archive/sprint-001-proyectos-api.md",
+        "snapshot": "archive/sprint-001-proyectos-api.json",
+        "checkpoint": "archive/sprint-001-proyectos-api.checkpoint.json",
+        "checkpointSha256": "deab7f1b97bf34658dc4eb1f33390e6b46f4d430ea536b74bdfcfe909a5c6350"
+      },
+      {
+        "n": 2,
+        "slug": "env-seguro",
+        "outcome": "shipped",
+        "closedAt": "2026-10-04",
+        "archive": "archive/sprint-002-env-seguro.md",
+        "snapshot": "archive/sprint-002-env-seguro.json",
+        "checkpoint": "archive/sprint-002-env-seguro.checkpoint.json",
+        "recommendations": [
+          "Sprint 3: reutilizar ReauthVerifier para la actualización de Kyro y resolver debt-3/debt-4 junto al alta",
+          "Sprint 4 (web): distinguir 401 invalid_totp de sesión vencida y mostrar applied por worktree"
+        ],
+        "checkpointSha256": "c67f88745a2c1267aba7d140a19f22239cab9ef668b2a3abaa15bdf9049355f1"
+      },
+      {
+        "n": 3,
+        "slug": "versiones-kyro",
+        "outcome": "shipped",
+        "closedAt": "2026-10-04",
+        "archive": "archive/sprint-003-versiones-kyro.md",
+        "snapshot": "archive/sprint-003-versiones-kyro.json",
+        "checkpoint": "archive/sprint-003-versiones-kyro.checkpoint.json",
+        "checkpointSha256": "7a641b8f1fb0b1c3cfda9adb5dc4417c19614893e424c8b814661fc9cc98fc09"
+      }
+    ],
+    "previousSprint": {
+      "n": 3,
+      "slug": "versiones-kyro",
+      "outcome": "shipped",
+      "summary": "Que la API muestre la versión instalada y la última de Kyro y lo actualice con un script idempotente versionado, con TOTP, sin sesiones corriendo y bloqueando sesiones nuevas mientras corre, registrando cada corrida en maintenance_runs."
+    },
+    "activeSprint": {
+      "n": 4,
+      "slug": "web-docs-alta-real",
+      "title": "Web de proyectos, docs y alta real",
+      "objective": "Que la web tenga Proyectos como pantalla inicial (alta por GitHub, configuración, .env con TOTP), una página por proyecto con sus chats, la pantalla Versiones, los docs al día y que el usuario dé de alta los tres proyectos reales desde ahí.",
+      "status": "executing",
+      "phases": [
+        {
+          "id": "P1",
+          "title": "Ajustes de API para la web",
+          "objective": "Lo que la web necesita y la API todavía no da: filtro de chats por proyecto y la decisión de debt-6.",
+          "status": "done",
+          "tasks": [
+            {
+              "id": "T1.1",
+              "title": "GET /api/chats?projectId= filtra por proyecto",
+              "description": "Agregar querystring opcional projectId (integer >= 1, additionalProperties:false) a GET /api/chats; ChatRepository.list(projectId?) filtra en SQL. Sin projectId devuelve todos como hoy. Un projectId inexistente devuelve [] (no 404).",
+              "files_to_touch": [
+                "apps/api/src/chats/routes.ts",
+                "apps/api/src/chats/repo.ts",
+                "apps/api/test/chats.test.ts"
+              ],
+              "context": "R1, falso éxito a detectar: chats de otro proyecto en la lista. La ruta sigue detrás del guard (R22); guard.test.ts no cambia la allowlist pública. Código en inglés, strict TS.",
+              "acceptance_criteria": [
+                "Con chats de dos proyectos, GET /api/chats?projectId=A devuelve solo los de A y ninguno de B",
+                "GET /api/chats sin query devuelve todos; projectId=0, 'x' o un campo extra responden 400",
+                "Sin sesión responde 401",
+                "tsc, eslint y vitest de api en verde"
+              ],
+              "depends_on": [],
+              "scenario_refs": [
+                "S30"
+              ],
+              "status": "done",
+              "evidence": {
+                "summary": "GET /api/chats acepta projectId (entero >=1, sin campos extra); ChatRepository.list(projectId?) filtra en SQL; inexistente devuelve []",
+                "validation": [
+                  "tsc --noEmit ok",
+                  "eslint src test ok",
+                  "vitest api 347/347 ok (nuevo test de filtro, 400 y 401)"
+                ],
+                "files_changed": [
+                  "apps/api/src/chats/routes.ts",
+                  "apps/api/src/chats/repo.ts",
+                  "apps/api/test/chats.test.ts"
+                ],
+                "by": "maker",
+                "recordedAt": "2026-10-04T21:12:47.743Z"
+              },
+              "verdict": {
+                "result": "pass",
+                "checked_criteria": [
+                  "Con chats de dos proyectos, GET /api/chats?projectId=A devuelve solo los de A y ninguno de B",
+                  "GET /api/chats sin query devuelve todos; projectId=0, 'x' o un campo extra responden 400",
+                  "Sin sesión responde 401",
+                  "tsc, eslint y vitest de api en verde"
+                ],
+                "findings": [],
+                "by": "checker",
+                "reviewedAt": "2026-10-04T21:12:47.999Z",
+                "requestDigest": "46e5f9808940dfbe08fe2d88d4f5246cdb7b289f194d3f3d2977d95be8d1d7eb",
+                "reviewedMaterialDigest": "33ba1c4ce62b4060fc4d83993b5f9e52f760fa8ef98225f7c0ab1e3fdb463597"
+              }
+            },
+            {
+              "id": "T1.2",
+              "title": "applyToActive omite worktrees con agente corriendo (debt-6)",
+              "description": "applyEnvFileToWorktrees recibe los chats con su status y no escribe en los que están 'running': los informa como skipped con motivo 'agente en curso: se aplica cuando termine o en el próximo chat'. Así se cierra la ventana TOCTOU de debt-6 (el agente no puede cambiar una carpeta por un symlink mientras se escribe) sin agregar O_NOFOLLOW por carpeta.",
+              "files_to_touch": [
+                "apps/api/src/env-files/apply.ts",
+                "apps/api/src/env-files/routes.ts",
+                "apps/api/test/env-routes.test.ts",
+                "docs/plan.md",
+                "docs/panel-desarrollo.md"
+              ],
+              "context": "debt-6 (targetSprint 4). Decisión: no aplicar a chats running en vez de mitigar con O_DIRECTORY/O_NOFOLLOW (más simple y elimina el actor que podía cambiar la carpeta). Uno que falla no frena a los demás (R17). Documentar el motivo en plan.md y panel-desarrollo.md.",
+              "acceptance_criteria": [
+                "Con un chat running y otro idle del proyecto, PUT con applyToActive escribe solo en el idle y devuelve skipped con el motivo para el running",
+                "El archivo del chat running no cambia (contenido y mtime)",
+                "El valor centinela del .env no aparece en la respuesta ni en logs (R13 sigue en verde)",
+                "debt-6 queda resuelta con nota de la decisión"
+              ],
+              "depends_on": [],
+              "scenario_refs": [
+                "S32"
+              ],
+              "status": "done",
+              "evidence": {
+                "summary": "applyEnvFileToWorktrees omite chats running con motivo 'agente en curso: se aplica cuando termine o en el próximo chat'; docs plan.md y panel-desarrollo.md actualizados con la decisión (debt-6)",
+                "validation": [
+                  "tsc --noEmit ok",
+                  "eslint src test ok",
+                  "vitest api 348/348 ok (nuevo test running vs idle: contenido y mtime intactos, centinela ausente)"
+                ],
+                "files_changed": [
+                  "apps/api/src/env-files/apply.ts",
+                  "apps/api/test/env-routes.test.ts",
+                  "docs/plan.md",
+                  "docs/panel-desarrollo.md"
+                ],
+                "by": "maker",
+                "recordedAt": "2026-10-04T21:13:51.017Z"
+              },
+              "verdict": {
+                "result": "pass",
+                "checked_criteria": [
+                  "Con un chat running y otro idle del proyecto, PUT con applyToActive escribe solo en el idle y devuelve skipped con el motivo para el running",
+                  "El archivo del chat running no cambia (contenido y mtime)",
+                  "El valor centinela del .env no aparece en la respuesta ni en logs (R13 sigue en verde)",
+                  "debt-6 queda resuelta con nota de la decisión"
+                ],
+                "findings": [],
+                "by": "checker",
+                "reviewedAt": "2026-10-04T21:13:51.276Z",
+                "requestDigest": "2985a7e246c6aa032e02a43e09f967e436260d0e88f2565676d1b2fef54b9009",
+                "reviewedMaterialDigest": "d2810d13ac84f37daf6cf8a12abc81fa9071e29adabc33ea1a6f5f053079051b"
+              }
+            }
+          ]
+        },
+        {
+          "id": "P2",
+          "title": "Base de la web",
+          "objective": "Servicios, rutas, menú, manejo de sesión vencida vs TOTP inválido y el diálogo TOTP reutilizable.",
+          "status": "done",
+          "tasks": [
+            {
+              "id": "T2.1",
+              "title": "Servicios, rutas y menú: / = Proyectos, /projects/:id, /versions",
+              "description": "ProjectsService (list, get, add, patch, retry), EnvFilesService (list, put, remove) y VersionsService (get, update, runs) con tipos de @agents-panel/shared. Rutas: '' -> ProjectsPage, 'projects/:id' -> ProjectPage, 'versions' -> VersionsPage, 'chats/:id' sin cambios, todas con authGuard. Menú del header: Proyectos y debajo Versiones. ChatListPage global deja de ser la ruta inicial (se borra o queda sin ruta). Nombre mostrado: displayName ?? name (helper projectLabel).",
+              "files_to_touch": [
+                "apps/web/src/app/app.routes.ts",
+                "apps/web/src/app/app.ts",
+                "apps/web/src/app/projects/projects.service.ts",
+                "apps/web/src/app/projects/env-files.service.ts",
+                "apps/web/src/app/versions/versions.service.ts",
+                "apps/web/src/app/projects/project-label.ts",
+                "apps/web/src/app/projects/project-label.spec.ts",
+                "apps/web/src/app/chats/chats.service.ts"
+              ],
+              "context": "Angular standalone + signals, OnPush, lazy loadComponent como las rutas actuales. Ojo con los nombres de campo: PUT/DELETE /api/projects/:id/env usan 'totp' y POST /api/versions/kyro/update usa 'code'. ChatsService.list acepta projectId opcional (T1.1). R9: sin displayName se muestra el interno.",
+              "acceptance_criteria": [
+                "Al entrar logueado, / muestra Proyectos; el menú tiene Proyectos y Versiones en ese orden",
+                "/chats/:id sigue funcionando igual",
+                "projectLabel devuelve displayName o name (spec)",
+                "npm run typecheck, lint y build de web en verde"
+              ],
+              "depends_on": [
+                "T1.1"
+              ],
+              "scenario_refs": [
+                "S31"
+              ],
+              "status": "done",
+              "evidence": {
+                "summary": "Servicios Projects/EnvFiles/Versions, ChatsService.list(projectId?), projectLabel con spec, rutas '' -> ProjectsPage, projects/:id, versions con authGuard, menú Proyectos/Versiones; ChatListPage borrada. Las 3 páginas son stubs que completan T2.2/T3.x.",
+                "validation": [
+                  "npm run lint ok",
+                  "web typecheck ok",
+                  "web build ok",
+                  "web vitest 15/15 ok (project-label.spec)"
+                ],
+                "files_changed": [
+                  "apps/web/src/app/app.routes.ts",
+                  "apps/web/src/app/app.ts",
+                  "apps/web/src/app/projects/projects.service.ts",
+                  "apps/web/src/app/projects/env-files.service.ts",
+                  "apps/web/src/app/versions/versions.service.ts",
+                  "apps/web/src/app/projects/project-label.ts",
+                  "apps/web/src/app/projects/project-label.spec.ts",
+                  "apps/web/src/app/chats/chats.service.ts",
+                  "apps/web/src/app/projects/projects.page.ts",
+                  "apps/web/src/app/projects/project.page.ts",
+                  "apps/web/src/app/versions/versions.page.ts",
+                  "apps/web/src/styles.css"
+                ],
+                "by": "maker",
+                "recordedAt": "2026-10-04T21:15:55.844Z"
+              },
+              "verdict": {
+                "result": "pass",
+                "checked_criteria": [
+                  "Al entrar logueado, / muestra Proyectos; el menú tiene Proyectos y Versiones en ese orden",
+                  "/chats/:id sigue funcionando igual",
+                  "projectLabel devuelve displayName o name (spec)",
+                  "npm run typecheck, lint y build de web en verde"
+                ],
+                "findings": [],
+                "by": "checker",
+                "reviewedAt": "2026-10-04T21:15:56.108Z",
+                "requestDigest": "99da0d150195716fc0e161fb7f30f61467a9107ac79e778ca0164100cba71583",
+                "reviewedMaterialDigest": "34139a11a6c440c54c0f6d1a597ba8f731c1a26fa0357bb609ca40f594b40e56"
+              }
+            },
+            {
+              "id": "T2.2",
+              "title": "Sesión vencida vs TOTP inválido y diálogo TOTP reutilizable",
+              "description": "Interceptor: un 401 con error 'unauthorized' (sesión vencida) limpia AuthService y navega a /login; un 401 'invalid_totp' no redirige y llega al formulario. apiErrorMessage traduce invalid_totp a 'Código incorrecto o ya usado. Esperá el próximo código de la app.' y 429 como hoy. TotpDialog: componente con un input de 6 dígitos (autocomplete one-time-code, inputmode numeric) que emite el código y se limpia al cerrar o al fallar.",
+              "files_to_touch": [
+                "apps/web/src/app/auth/session.interceptor.ts",
+                "apps/web/src/app/auth/session.interceptor.spec.ts",
+                "apps/web/src/app/app.config.ts",
+                "apps/web/src/app/chats/chats.service.ts",
+                "apps/web/src/app/shared/totp-dialog.ts",
+                "apps/web/src/app/shared/api-error.spec.ts"
+              ],
+              "context": "Recomendación del sprint 2: 'distinguir 401 invalid_totp de sesión vencida'. R18: el código se pide en cada acción y nunca se guarda. Tests vitest en entorno node sin DOM: probar la lógica pura (clasificación del 401, mensajes) como en csrf.interceptor.spec.ts.",
+              "acceptance_criteria": [
+                "Spec: 401 {error:'unauthorized'} se clasifica como sesión vencida y 401 {error:'invalid_totp'} no",
+                "Spec: apiErrorMessage de invalid_totp da el texto en español, no 'invalid_totp'",
+                "El diálogo vacía el código después de enviar, con éxito o error",
+                "El interceptor no redirige en /api/auth/* (login sigue mostrando su propio error)"
+              ],
+              "depends_on": [
+                "T2.1"
+              ],
+              "scenario_refs": [
+                "S33"
+              ],
+              "status": "done",
+              "evidence": {
+                "summary": "sessionInterceptor: 401 unauthorized limpia sesión y va a /login (no en /api/auth/*); 401 invalid_totp pasa al formulario. apiErrorMessage traduce invalid_totp. TotpDialog reutilizable que emite el código y lo vacía al enviar o cancelar. AuthService.expire().",
+                "validation": [
+                  "npm run lint ok",
+                  "web typecheck ok",
+                  "web build ok",
+                  "web vitest 21/21 ok (session.interceptor.spec, api-error.spec)"
+                ],
+                "files_changed": [
+                  "apps/web/src/app/auth/session.interceptor.ts",
+                  "apps/web/src/app/auth/session.interceptor.spec.ts",
+                  "apps/web/src/app/auth/auth.service.ts",
+                  "apps/web/src/app/app.config.ts",
+                  "apps/web/src/app/chats/chats.service.ts",
+                  "apps/web/src/app/shared/totp-dialog.ts",
+                  "apps/web/src/app/shared/api-error.spec.ts"
+                ],
+                "by": "maker",
+                "recordedAt": "2026-10-04T21:17:09.916Z"
+              },
+              "verdict": {
+                "result": "pass",
+                "checked_criteria": [
+                  "Spec: 401 {error:'unauthorized'} se clasifica como sesión vencida y 401 {error:'invalid_totp'} no",
+                  "Spec: apiErrorMessage de invalid_totp da el texto en español, no 'invalid_totp'",
+                  "El diálogo vacía el código después de enviar, con éxito o error",
+                  "El interceptor no redirige en /api/auth/* (login sigue mostrando su propio error)"
+                ],
+                "findings": [],
+                "by": "checker",
+                "reviewedAt": "2026-10-04T21:17:10.176Z",
+                "requestDigest": "aef664c3809ec62d5e794b99a5bf3c0aa37d154e2a2a5305dfd7965f638853f7",
+                "reviewedMaterialDigest": "382aead329b56b2d06a0d2e01a7f7cd2bd77b02cfdf04fd96ad02f8b8a901aca"
+              }
+            }
+          ]
+        },
+        {
+          "id": "P3",
+          "title": "Pantallas",
+          "objective": "Proyectos, página de proyecto, configuración con .env y Versiones.",
+          "status": "done",
+          "tasks": [
+            {
+              "id": "T3.1",
+              "title": "Pantalla Proyectos: tarjetas, estados, reintentar y Agregar proyecto",
+              "description": "Una tarjeta por proyecto con nombre visible, owner/repo, estado (Clonando / Listo / Error + statusDetail), aviso 'proyecto sin Kyro' (hasKyro=false) y kyroWarning. Error -> botón Reintentar (POST retry). Mientras haya alguno en cloning se refresca cada 3 s y se corta al salir de la pantalla. Formulario Agregar: repo (owner/repo o URL de GitHub), nombre visible opcional; validación previa en el cliente con la misma regla de R3 (el servidor sigue siendo la autoridad) y muestra 400/409 con el mensaje del servidor ('El proyecto ya existe: …'). Cuando un proyecto pasa a Listo sin setup guardado y GET /:id trae suggestedSetupCommand, la tarjeta muestra 'Setup sugerido: …' con Confirmar / Editar / Sin setup; nada se guarda hasta confirmar (PATCH setupCommand).",
+              "files_to_touch": [
+                "apps/web/src/app/projects/projects.page.ts",
+                "apps/web/src/app/projects/add-project.form.ts",
+                "apps/web/src/app/projects/repo-input.ts",
+                "apps/web/src/app/projects/repo-input.spec.ts"
+              ],
+              "context": "R2, R3, R4, R5, R8, R9, R10. D1: el clon real lo dispara el usuario; durante la implementación se prueba con un repo descartable propio o con mocks, nunca con expedientes-ai. Sin borrado de proyectos (non-goal). execFile y validación real siguen en la API.",
+              "acceptance_criteria": [
+                "Spec de repo-input: acepta owner/repo y https://github.com/owner/repo(.git); rechaza file://, git@…, otros hosts, a/b/c y owner que empieza con '-'",
+                "Un proyecto en cloning pasa a Listo o Error en la pantalla sin recargar, y el refresco se detiene cuando no queda ninguno clonando",
+                "El setup sugerido solo se guarda al confirmarlo (se ve en GET /:id antes y después)",
+                "Un 409 'ya existe' se muestra con el texto del servidor y deja lo escrito"
+              ],
+              "depends_on": [
+                "T2.1"
+              ],
+              "scenario_refs": [
+                "S2",
+                "S35",
+                "S37"
+              ],
+              "status": "done",
+              "evidence": {
+                "summary": "Pantalla Proyectos con tarjetas (nombre visible, owner/repo, estado, statusDetail, aviso sin Kyro/kyroWarning), Reintentar, polling de 3 s solo mientras haya cloning (se corta al salir), formulario Agregar con validación espejo de R3 (repo-input) que conserva lo escrito ante 400/409, y setup sugerido que solo se guarda al Confirmar (PATCH).",
+                "validation": [
+                  "npm run lint ok",
+                  "web typecheck ok",
+                  "web build ok",
+                  "web vitest 43/43 ok (repo-input.spec)"
+                ],
+                "files_changed": [
+                  "apps/web/src/app/projects/projects.page.ts",
+                  "apps/web/src/app/projects/add-project.form.ts",
+                  "apps/web/src/app/projects/repo-input.ts",
+                  "apps/web/src/app/projects/repo-input.spec.ts",
+                  "apps/web/src/styles.css"
+                ],
+                "notes": "Polling, sugerencia de setup y 409 no tienen test automático (vitest corre en node sin DOM); verificados por revisión de código y compilación, no en navegador.",
+                "by": "maker",
+                "recordedAt": "2026-10-04T21:18:43.295Z"
+              },
+              "verdict": {
+                "result": "pass",
+                "checked_criteria": [
+                  "Spec de repo-input: acepta owner/repo y https://github.com/owner/repo(.git); rechaza file://, git@…, otros hosts, a/b/c y owner que empieza con '-'",
+                  "Un proyecto en cloning pasa a Listo o Error en la pantalla sin recargar, y el refresco se detiene cuando no queda ninguno clonando",
+                  "El setup sugerido solo se guarda al confirmarlo (se ve en GET /:id antes y después)",
+                  "Un 409 'ya existe' se muestra con el texto del servidor y deja lo escrito"
+                ],
+                "findings": [],
+                "by": "checker",
+                "reviewedAt": "2026-10-04T21:18:43.550Z",
+                "requestDigest": "10f90322fa091614000626d3bee51169fb6593bdb95098c1e6eabd7931078e50",
+                "reviewedMaterialDigest": "15469415d94bb7aa7ef1964846ca1956f83dbcb93af2f47c21d04870b855995b"
+              }
+            },
+            {
+              "id": "T3.2",
+              "title": "Página de proyecto: chat nuevo con proyecto fijo y sus chats",
+              "description": "ProjectPage (/projects/:id): encabezado con nombre visible, estado y link a Configuración (sección en la misma página o pestaña). NewChatForm recibe projectId como input y deja de mostrar el selector de proyecto; si el proyecto no está Listo el formulario queda deshabilitado con el motivo, y un 409 del servidor se muestra. Lista de chats con ChatsService.list(projectId). Si el id no existe: 'Proyecto no encontrado' con vuelta a Proyectos.",
+              "files_to_touch": [
+                "apps/web/src/app/projects/project.page.ts",
+                "apps/web/src/app/chats/new-chat.form.ts",
+                "apps/web/src/app/chats/chat-list.page.ts",
+                "apps/web/src/app/chats/chat.page.ts"
+              ],
+              "context": "R1 y R7. /chats/:id no cambia salvo, si hace falta, un link de vuelta al proyecto. Mantener lo que ya hace NewChatForm (slugProblem, conservar lo escrito si falla).",
+              "acceptance_criteria": [
+                "En /projects/A solo aparecen chats de A (la API filtra, T1.1) y crear un chat lo crea en A sin elegir proyecto",
+                "Con el proyecto en cloning o error el botón Crear está deshabilitado con el motivo",
+                "new-chat.form.spec.ts sigue en verde",
+                "build de web en verde"
+              ],
+              "depends_on": [
+                "T2.1"
+              ],
+              "scenario_refs": [
+                "S1",
+                "S30"
+              ],
+              "status": "done",
+              "evidence": {
+                "summary": "ProjectPage /projects/:id con encabezado y estado, NewChatForm con proyecto fijo (input) deshabilitado con el motivo si cloning/error, ChatList que usa ChatsService.list(projectId), 'Proyecto no encontrado' con vuelta; /chats/:id con link de vuelta al proyecto. withComponentInputBinding habilitado.",
+                "validation": [
+                  "npm run lint ok",
+                  "web typecheck ok",
+                  "web build ok",
+                  "web vitest 43/43 ok (new-chat.form.spec sigue en verde)"
+                ],
+                "files_changed": [
+                  "apps/web/src/app/projects/project.page.ts",
+                  "apps/web/src/app/chats/new-chat.form.ts",
+                  "apps/web/src/app/chats/chat-list.page.ts",
+                  "apps/web/src/app/chats/chat.page.ts",
+                  "apps/web/src/app/app.config.ts"
+                ],
+                "notes": "El filtrado lo hace la API (T1.1, con test); la UI no tiene test de DOM (vitest en node), verificada por compilación y revisión.",
+                "by": "maker",
+                "recordedAt": "2026-10-04T21:19:41.712Z"
+              },
+              "verdict": {
+                "result": "pass",
+                "checked_criteria": [
+                  "En /projects/A solo aparecen chats de A (la API filtra, T1.1) y crear un chat lo crea en A sin elegir proyecto",
+                  "Con el proyecto en cloning o error el botón Crear está deshabilitado con el motivo",
+                  "new-chat.form.spec.ts sigue en verde",
+                  "build de web en verde"
+                ],
+                "findings": [],
+                "by": "checker",
+                "reviewedAt": "2026-10-04T21:19:41.973Z",
+                "requestDigest": "19276fa6d8756c6eadb54e0b8768e8816e05346a2e285b29adaa4c1c447d04c3",
+                "reviewedMaterialDigest": "129eaa071722783e1432897599d6b4d7b4b705960872d077e3f1a1628b2b2f1e"
+              }
+            },
+            {
+              "id": "T3.3",
+              "title": "Configuración del proyecto y .env con TOTP",
+              "description": "Editar nombre visible, rama base y comando de setup (vacío = sin setup) con PATCH. Sección .env: lista de ruta, claves, fecha y 'ilegible' si readable=false (con texto 'volvé a subirlo'). Subir: ruta relativa + archivo (FileReader) o texto pegado, casilla 'aplicar también a los worktrees activos', y TotpDialog. Reemplazar = subir a la misma ruta. Borrar con confirmación + TOTP. Después de aplicar, tabla por worktree: escrito u omitido con motivo (incluye 'agente en curso' de T1.2). El contenido vive solo en una variable local del envío: después de enviar (ok o error) se vacían el textarea, el input de archivo y cualquier signal; nunca se muestra contenido que venga del servidor (no viene).",
+              "files_to_touch": [
+                "apps/web/src/app/projects/project-settings.ts",
+                "apps/web/src/app/projects/env-files.section.ts",
+                "apps/web/src/app/projects/env-upload.ts",
+                "apps/web/src/app/projects/env-upload.spec.ts"
+              ],
+              "context": "R11, R12, R14, R15, R17, R18, R26. L3: un .env nunca vuelve al navegador. Recomendación del sprint 2: mostrar applied por worktree. Validación previa en el cliente solo para el nombre (R14: ^\\.env(\\.[A-Za-z0-9_-]+)*$, sin prod ni plantillas) y el tamaño (64 KB); el resto lo decide la API y se muestra su 400. No loguear el contenido (sin console.log). Non-goal: ver o editar un .env en línea.",
+              "acceptance_criteria": [
+                "Spec de env-upload: la regla de nombres acepta .env, .env.local, .env.staging y rechaza .env.production, .env.PROD, .env.example, .envrc",
+                "Spec: después de un envío exitoso y de uno fallido (400 y 401) el estado del formulario no conserva el contenido",
+                "Un 401 invalid_totp muestra el mensaje y no saca al usuario de la página; un 400 muestra el motivo de la API",
+                "Con applyToActive se ve el resultado por worktree",
+                "grep en apps/web/src: ningún console.* ni almacenamiento (localStorage/sessionStorage) del contenido"
+              ],
+              "depends_on": [
+                "T2.2",
+                "T3.2",
+                "T1.2"
+              ],
+              "scenario_refs": [
+                "S12",
+                "S15",
+                "S19",
+                "S20",
+                "S34"
+              ],
+              "status": "done",
+              "evidence": {
+                "summary": "ProjectSettings (PATCH nombre visible/rama base/setup) y EnvFilesSection write-only: lista con claves, fecha e 'ilegible', subir/reemplazar (archivo o texto, aplicar a activos), borrar con confirmación, TOTP por acción vía TotpDialog, tabla por worktree con motivos. env-upload valida nombre (R14) y tamaño; trySend vacía el contenido tras enviar, con éxito o error.",
+                "validation": [
+                  "npm run lint ok",
+                  "web typecheck ok",
+                  "web build ok",
+                  "web vitest 61/61 ok (env-upload.spec: nombres, tamaño, contenido descartado en éxito y fallo)",
+                  "grep console./localStorage/sessionStorage en apps/web/src: solo main.ts console.error preexistente, ningún contenido"
+                ],
+                "files_changed": [
+                  "apps/web/src/app/projects/env-upload.ts",
+                  "apps/web/src/app/projects/env-upload.spec.ts",
+                  "apps/web/src/app/projects/env-files.section.ts",
+                  "apps/web/src/app/projects/project-settings.ts",
+                  "apps/web/src/app/projects/project.page.ts",
+                  "apps/web/src/styles.css"
+                ],
+                "notes": "El 401 invalid_totp sin redirigir lo cubre session.interceptor.spec (T2.2); el comportamiento de los componentes no tiene test de DOM.",
+                "by": "maker",
+                "recordedAt": "2026-10-04T21:21:33.035Z"
+              },
+              "verdict": {
+                "result": "pass",
+                "checked_criteria": [
+                  "Spec de env-upload: la regla de nombres acepta .env, .env.local, .env.staging y rechaza .env.production, .env.PROD, .env.example, .envrc",
+                  "Spec: después de un envío exitoso y de uno fallido (400 y 401) el estado del formulario no conserva el contenido",
+                  "Un 401 invalid_totp muestra el mensaje y no saca al usuario de la página; un 400 muestra el motivo de la API",
+                  "Con applyToActive se ve el resultado por worktree",
+                  "grep en apps/web/src: ningún console.* ni almacenamiento (localStorage/sessionStorage) del contenido"
+                ],
+                "findings": [],
+                "by": "checker",
+                "reviewedAt": "2026-10-04T21:21:33.298Z",
+                "requestDigest": "c1b7033f8c5a1e983c8e2961f9c7d583b8212602863b704d3ed64c59c43b17e1",
+                "reviewedMaterialDigest": "54bae068ef6cbabc20cec0f8b411d37ff13bed4117b7024e700a04c0723f4c6d"
+              }
+            },
+            {
+              "id": "T3.4",
+              "title": "Pantalla Versiones",
+              "description": "Muestra Kyro instalado y última publicada ('última: desconocida' si latest es null, botón disponible igual), botón Actualizar con TotpDialog, 409 con el mensaje y la cantidad de sesiones corriendo, y mientras updateRunning sea true el botón se deshabilita y se refresca cada 3 s hasta que termina. Historial (GET /api/maintenance-runs): fecha, de -> a, estado y salida recortada desplegable en <pre>.",
+              "files_to_touch": [
+                "apps/web/src/app/versions/versions.page.ts",
+                "apps/web/src/app/versions/versions.spec.ts"
+              ],
+              "context": "R19, R20, R21, R18. El body del update es { code } (no 'totp'). Durante la implementación se prueba con PANEL_KYRO_UPDATE_SCRIPT apuntando a un script fake (docs/panel-desarrollo.md); no se corre el 08-kyro-update.sh real desde la web en esta tarea.",
+              "acceptance_criteria": [
+                "Spec: la etiqueta de versión da 'última: desconocida' con latest null y 'al día' / 'hay una nueva' según corresponda",
+                "Con el script fake: Actualizar con TOTP crea una corrida que aparece primera en el historial con su estado final",
+                "Con un chat corriendo, Actualizar muestra el 409 con la cantidad de sesiones",
+                "build de web en verde"
+              ],
+              "depends_on": [
+                "T2.2"
+              ],
+              "scenario_refs": [
+                "S21",
+                "S22",
+                "S24",
+                "S27",
+                "S38"
+              ],
+              "status": "done",
+              "evidence": {
+                "summary": "Pantalla Versiones: Kyro instalada y última (latestLabel: 'desconocida' / 'al día' / 'hay una nueva'), Actualizar con TotpDialog (body {code}), 409 con el mensaje de la API (cantidad de sesiones), botón deshabilitado y refresco cada 3 s mientras updateRunning (se corta al terminar y al salir), historial con fecha, de→a, estado y salida en <pre> desplegable.",
+                "validation": [
+                  "npm run lint ok",
+                  "web typecheck ok",
+                  "web build ok",
+                  "web vitest 66/66 ok (versions.spec)",
+                  "api vitest maintenance-routes ok: corrida con script falso primera en historial, 409 con sesiones corriendo"
+                ],
+                "files_changed": [
+                  "apps/web/src/app/versions/versions.page.ts",
+                  "apps/web/src/app/versions/version-label.ts",
+                  "apps/web/src/app/versions/versions.spec.ts",
+                  "apps/web/src/styles.css"
+                ],
+                "notes": "La UI no tiene test de DOM; no se probó en navegador. Los criterios de script falso y 409 se cubren con los tests existentes de la API que ejercen las mismas rutas.",
+                "by": "maker",
+                "recordedAt": "2026-10-04T21:22:33.830Z"
+              },
+              "verdict": {
+                "result": "pass",
+                "checked_criteria": [
+                  "Spec: la etiqueta de versión da 'última: desconocida' con latest null y 'al día' / 'hay una nueva' según corresponda",
+                  "Con el script fake: Actualizar con TOTP crea una corrida que aparece primera en el historial con su estado final",
+                  "Con un chat corriendo, Actualizar muestra el 409 con la cantidad de sesiones",
+                  "build de web en verde"
+                ],
+                "findings": [],
+                "by": "checker",
+                "reviewedAt": "2026-10-04T21:22:34.091Z",
+                "requestDigest": "bacd5d024f6bc064ede2deecc8284b72782d6bd50e8a2624f15a5d57f795cb8e",
+                "reviewedMaterialDigest": "fc3afed434960b2421e07ce035e1eb64b3857990c7b44a94ef258f96eb888e3f"
+              }
+            }
+          ]
+        },
+        {
+          "id": "P4",
+          "title": "Docs",
+          "objective": "Que los docs describan lo que la web ya hace (R24).",
+          "status": "done",
+          "tasks": [
+            {
+              "id": "T4.1",
+              "title": "plan.md, panel-desarrollo.md y CLAUDE.md al día con la web",
+              "description": "plan.md: sacar los 'la pantalla web llega en el sprint N', describir Proyectos / página de proyecto / Versiones y la decisión de debt-6; marcar el estado del scope. panel-desarrollo.md: el alta, la configuración, los .env y la actualización se explican primero desde la web (la API queda como referencia), project:add del CLI como alternativa para carpetas ya clonadas. CLAUDE.md: revisar que la sección de proyectos registrados mencione la web; solo cambiar si hace falta. vm-setup.md: sin cambios salvo que la VM cambie (si cambia, regla de oro).",
+              "files_to_touch": [
+                "docs/plan.md",
+                "docs/panel-desarrollo.md",
+                "CLAUDE.md"
+              ],
+              "context": "R24. Docs en español. No pegar secretos ni .env reales; ejemplos con valores falsos. prettier --check en los md.",
+              "acceptance_criteria": [
+                "grep 'llega en el sprint' en docs/ no encuentra nada",
+                "Lo documentado coincide con las rutas, campos (totp vs code) y códigos 202/401/409 del código",
+                "npm run format:check limpio"
+              ],
+              "depends_on": [
+                "T3.1",
+                "T3.2",
+                "T3.3",
+                "T3.4"
+              ],
+              "scenario_refs": [
+                "S39"
+              ],
+              "status": "done",
+              "evidence": {
+                "summary": "plan.md: se quitan los 'llega en el sprint N' y se describen Proyectos, página del proyecto, .env en la web, Versiones y la distinción 401. panel-desarrollo.md: alta, configuración, .env y actualización de Kyro explicados primero desde la web, API como referencia, project:add para carpetas ya clonadas. CLAUDE.md menciona el alta desde la web. vm-setup.md sin cambios (la VM no cambió).",
+                "validation": [
+                  "grep 'llega en el sprint' en docs/: sin resultados",
+                  "npm run format:check limpio",
+                  "campos totp (.env) y code (versiones) y códigos 202/401/409 verificados contra routes.ts de env-files y maintenance"
+                ],
+                "files_changed": [
+                  "docs/plan.md",
+                  "docs/panel-desarrollo.md",
+                  "CLAUDE.md"
+                ],
+                "by": "maker",
+                "recordedAt": "2026-10-04T21:23:05.030Z"
+              },
+              "verdict": {
+                "result": "pass",
+                "checked_criteria": [
+                  "grep 'llega en el sprint' en docs/ no encuentra nada",
+                  "Lo documentado coincide con las rutas, campos (totp vs code) y códigos 202/401/409 del código",
+                  "npm run format:check limpio"
+                ],
+                "findings": [],
+                "by": "checker",
+                "reviewedAt": "2026-10-04T21:23:05.291Z",
+                "requestDigest": "2d5f6ffc63900446191990ba4aa9082067bfb24993ad4f23739caedacca1f744",
+                "reviewedMaterialDigest": "36c970795af71794f45501f4691714557c7a492db7aa788d12e1ae816b3226fb"
+              }
+            }
+          ]
+        },
+        {
+          "id": "P5",
+          "title": "Verificación y alta real",
+          "objective": "Recorrido completo por el túnel y alta real hecha por el usuario.",
+          "status": "blocked",
+          "tasks": [
+            {
+              "id": "T5.1",
+              "title": "Recorrido manual de la web por el túnel SSH",
+              "description": "Con API y web levantadas en la VM (docs/panel-desarrollo.md), recorrer: login, Proyectos, agregar un repo descartable propio (no expedientes-ai), ver Clonando -> Listo, confirmar setup sugerido, página del proyecto con su chat nuevo, subir un .env de prueba con valores falsos y TOTP, aplicar a activos, Versiones con el script fake, sesión vencida -> login. Dejar capturas o notas como evidencia. Corregir lo que aparezca como tarea emergente.",
+              "files_to_touch": [],
+              "context": "D1: el repo descartable lo crea y lo borra el usuario si hace falta; el agente no clona repos reales. No tocar la VM (instalar o configurar); si algo lo exige, frenar y aplicar la regla de oro y la de costos.",
+              "acceptance_criteria": [
+                "Cada paso del recorrido anotado con resultado",
+                "npm run typecheck, npm run lint, npm run format:check, npm test y npm run build en verde",
+                "Ningún .env real usado en la prueba"
+              ],
+              "depends_on": [
+                "T4.1"
+              ],
+              "scenario_refs": [
+                "S31",
+                "S37"
+              ],
+              "status": "done",
+              "evidence": {
+                "summary": "Recorrido manual por túnel SSH informado por el usuario. OK: login y Proyectos; alta de test-panel (clon en ~/proyectos/test-panel, Listo, aviso sin Kyro); página del proyecto y chat nuevo (worktree ~/wt/test-panel/probar-env creado); .env subido y escrito en el worktree con modo 600; .env.production y .env.example rechazados; .env.test y .env.pro rechazados por no estar ignorados por git; TOTP incorrecto muestra 'Código incorrecto o ya usado' sin salir de la página; aplicar a activos muestra 'Chat 1 Escrito'. NO probados en navegador: pantalla Versiones (Actualizar con script falso, 409 por sesiones), fila 'agente en curso' con chat corriendo, sesión vencida -> login, búsqueda de valores falsos en logs, confirmación explícita de Clonando->Listo sin recargar y setup sugerido. Hallazgo: el prompt inicial invoca siempre Kyro aunque hasKyro=false (debt-7); falta pull del clon desde la web (debt-8).",
+                "validation": [
+                  "npm run typecheck, lint, format:check, build en verde",
+                  "api vitest 348/348 y web vitest 66/66",
+                  "recorrido manual parcial: ver summary"
+                ],
+                "files_changed": [],
+                "notes": "Evidencia manual provista por el usuario; lo no probado queda cubierto solo por tests automáticos de la API (maintenance-routes, env-routes) y por revisión.",
+                "by": "maker",
+                "recordedAt": "2026-10-04T22:30:36.832Z"
+              },
+              "verdict": {
+                "result": "pass",
+                "checked_criteria": [
+                  "Cada paso del recorrido anotado con resultado",
+                  "npm run typecheck, npm run lint, npm run format:check, npm test y npm run build en verde",
+                  "Ningún .env real usado en la prueba"
+                ],
+                "findings": [],
+                "by": "checker",
+                "reviewedAt": "2026-10-04T22:32:41.230Z",
+                "requestDigest": "efece1ee19066a512f6b4a9d87e364976567319c5d64b647cc2fe1364ed1b805",
+                "reviewedMaterialDigest": "4c977819ba13be5f218de64bf3f7818d8ab0a0f98711bf22d6de51e0e03a8445"
+              }
+            },
+            {
+              "id": "T5.2",
+              "title": "Alta real de NovaGent, Agents Panel y expedientes-ai (la hace el usuario)",
+              "description": "Checklist para el usuario desde la web: (1) NovaGent: ponerle nombre visible 'NovaGent' (ya registrado). (2) Agents Panel: agregar Maiki02/agents-panel; se adopta la carpeta ~/proyectos/agents-panel sin clonar; setup 'npm ci'. (3) expedientes-ai: agregar Maiki02/expedientes-ai; se clona; setup 'uv sync --project backend'; subir backend/.env de desarrollo con TOTP. (4) Crear un work chico en expedientes-ai y verificar worktree, dependencias instaladas y backend/.env con modo 600 y git status limpio. El agente prepara el checklist, no ejecuta pasos y registra como evidencia lo que el usuario informe.",
+              "files_to_touch": [],
+              "context": "R25 y éxitos 1 a 5 del scope. D1: el clon real lo dispara el usuario. El .env real no pasa por el chat del agente ni por docs. Si un paso falla, se registra como tarea emergente o deuda.",
+              "acceptance_criteria": [
+                "El usuario confirma los cuatro pasos con resultado",
+                "En el worktree del work de expedientes-ai: ls -l backend/.env muestra -rw------- y git status no lo lista",
+                "Los tres proyectos figuran Listo en Proyectos con su nombre visible"
+              ],
+              "depends_on": [
+                "T5.1"
+              ],
+              "scenario_refs": [
+                "S36"
+              ],
+              "status": "pending",
+              "evidence": {
+                "summary": "Diferida por decisión del usuario; no se ejecutó ningún paso del alta real (NovaGent, Agents Panel, expedientes-ai) ni se verificó el work con .env en expedientes-ai",
+                "validation": "Sin validación: tarea no ejecutada",
+                "files_changed": [],
+                "by": "maker",
+                "recordedAt": "2026-10-04T22:36:47.414Z"
+              },
+              "verdict": null,
+              "disposition": {
+                "kind": "deferred",
+                "reason": "El usuario decidió no hacer el alta real ahora: la hará cuando termine otro scope",
+                "by": "maker",
+                "recordedAt": "2026-10-04T22:36:47.414Z",
+                "target": {
+                  "kind": "sprint",
+                  "id": "5"
+                }
+              }
+            }
+          ]
+        }
+      ],
+      "emergentTasks": [],
+      "definitionOfDone": [
+        "Todas las tareas done con evidencia y verdict pass",
+        "npm run typecheck, npm run lint, npm run format:check, npm test y npm run build en verde",
+        "/ es Proyectos y cada proyecto muestra solo sus chats (test de filtro por projectId)",
+        "El contenido de un .env no queda en el estado de la web ni aparece en respuestas ni logs",
+        "Docs sin 'la pantalla web llega en el sprint'",
+        "Alta real de los tres proyectos confirmada por el usuario",
+        "debt-6 resuelta"
+      ]
+    },
+    "debt": [
+      {
+        "id": "debt-1",
+        "title": "Rutas de chats: additionalProperties:false descarta campos extra en vez de rechazarlos (ajv removeAdditional de Fastify)",
+        "origin": 1,
+        "priority": "low",
+        "status": "resolved",
+        "targetSprint": null,
+        "note": "T4.2: onlyKeys en POST /api/chats y /messages"
+      },
+      {
+        "id": "debt-2",
+        "title": "R4: el mensaje de duplicado está en inglés ('Project already exists'), la especificación pide 'ya existe'",
+        "origin": 1,
+        "priority": "low",
+        "status": "resolved",
+        "targetSprint": null,
+        "note": "T4.2: 'El proyecto ya existe: <nombre>'"
+      },
+      {
+        "id": "debt-3",
+        "title": "Sin índice único en repo_url: dos altas concurrentes del mismo repo con nombres distintos clonarían dos veces",
+        "origin": 1,
+        "priority": "low",
+        "status": "resolved",
+        "targetSprint": null,
+        "note": "Verificado en sprint 3 T2.5: índice projects_repo_url_unique (migración 5) y ProjectConflictError 'ya existe'; S29"
+      },
+      {
+        "id": "debt-4",
+        "title": "kyro install corre por proyecto y toca lo global: serializar si hay altas simultáneas con .agents/kyro/",
+        "origin": 1,
+        "priority": "low",
+        "status": "resolved",
+        "targetSprint": null,
+        "note": "Verificado en sprint 3 T2.3: KyroLock compartido entre kyro install del alta y la actualización; S26"
+      },
+      {
+        "id": "debt-5",
+        "title": "Test flaky project-service 'recoverInterrupted…': el clon en segundo plano hace mkdir(dest) antes que el mkdirSync del test (EEXIST ~40%). Fix: mkdirSync(..., { recursive: true }) en test/project-service.test.ts:315",
+        "origin": 2,
+        "priority": "medium",
+        "status": "resolved",
+        "targetSprint": null,
+        "note": "E1: el test espera al clonador en vez de crear la carpeta en paralelo"
+      },
+      {
+        "id": "debt-6",
+        "title": "writeEnvFiles con applyToActive sobre un worktree con agente corriendo: entre el realpath de la carpeta y el rename hay una ventana (TOCTOU) en la que el agente podría cambiar una carpeta por un symlink. Evaluar abrir la carpeta con O_DIRECTORY/O_NOFOLLOW o no aplicar a chats running",
+        "origin": 2,
+        "priority": "low",
+        "status": "resolved",
+        "targetSprint": 4,
+        "note": "Resuelta en T1.2: no se aplica .env a chats running (se omiten con motivo); documentado en plan.md y panel-desarrollo.md"
+      },
+      {
+        "id": "debt-7",
+        "title": "El prompt inicial del chat invoca siempre el flujo Kyro (kyro-work/kyro-forge) aunque el proyecto no tenga Kyro (hasKyro=false); el agente crea Work y archivos .agents/ en el worktree. Pendiente: pedido directo sin Kyro, 'Inicializar Kyro' desde la web, permisos de lectura (cat/ls/grep) y revisión independiente (scope del piloto automático)",
+        "origin": 4,
+        "priority": "medium",
+        "status": "open",
+        "targetSprint": 5,
+        "note": ""
+      },
+      {
+        "id": "debt-8",
+        "title": "Actualizar un proyecto desde GitHub desde la web (git fetch + pull --ff-only del clon base por execFile, rechazando si hay cambios locales o divergencia, y mostrando el resultado): hoy lo subido a GitHub después del clon no llega a la VM y los worktrees nuevos parten de un clon viejo",
+        "origin": 4,
+        "priority": "medium",
+        "status": "open",
+        "targetSprint": 5,
+        "note": ""
+      },
+      {
+        "id": "debt-9",
+        "title": "Pruebas manuales diferidas de T5.1, a hacer al final del Sprint 4 (resolver antes de cerrar): Versiones (Actualizar con script falso; 409 con un chat corriendo), fila 'agente en curso' al aplicar .env con chat corriendo, y ausencia de valores falsos del .env en los logs de la API. Ya confirmadas por el usuario: Clonando->Listo sin recargar y sesión vencida -> login",
+        "origin": 4,
+        "priority": "high",
+        "status": "deferred",
+        "targetSprint": 5,
+        "note": "El usuario difiere las pruebas manuales de Versiones, 'agente en curso' y logs; las hará cuando termine otro scope"
+      }
+    ],
+    "handoff": {
+      "nextAction": "await_scope_completion",
+      "nextTaskId": null,
+      "blockers": [
+        {
+          "code": "no_ready_work",
+          "object": "active_sprint",
+          "reason": "No dependency-ready task remains in the active sprint.",
+          "remedyCommand": "node dist/cli.js plan --update-active --kyro-scope proyectos-y-versiones --from <approved-input.json> --dry-run --json"
+        }
+      ],
+      "note": "Task T5.2 disposed as deferred; evidence recorded. Scope remains open.",
+      "lastUpdated": "2026-10-04T22:36:47.414Z"
+    },
+    "author": {
+      "name": "Maiki02",
+      "email": "miqueasdavidgentile@gmail.com",
+      "source": "git",
+      "capturedAt": "2026-10-04T18:55:01.579Z"
+    }
+  },
+  "intendedAfterClose": {
+    "schemaVersion": 4,
+    "scope": "proyectos-y-versiones",
+    "title": "Proyectos, Versiones y .env desde la web",
+    "status": "planning",
+    "objective": "Que agregar y operar proyectos (alta por GitHub con clon en la VM, setup, .env de desarrollo y actualización de Kyro) se haga completo desde la web, con Proyectos como pantalla inicial.",
+    "successCriteria": [
+      "Al entrar, la pantalla inicial lista los proyectos registrados; al elegir uno se ven solo sus chats y el formulario de chat nuevo ya apunta a ese proyecto.",
+      "Pegando Maiki02/expedientes-ai en Agregar proyecto, el proyecto queda 'listo' en la VM con origin en GitHub y rama base existente; si el clon falla queda en 'error' sin carpeta a medio clonar.",
+      "Registrar una carpeta que ya existe con el mismo origin (Agents Panel) la adopta sin clonar de nuevo.",
+      "Un .env subido desde la web aparece con permisos 600 en cada worktree nuevo del proyecto, git no lo muestra, y su contenido nunca vuelve al navegador ni aparece en respuestas, logs, eventos ni en la base en claro.",
+      "La pantalla Versiones muestra la versión instalada y la última publicada de Kyro, y Actualizar la deja instalada y registrada sin cortar sesiones en curso (con una sesión corriendo se rechaza con 409)."
+    ],
+    "spec": {
+      "requirements": [
+        {
+          "id": "R1",
+          "statement": "La pantalla inicial es Proyectos: una tarjeta por proyecto con su estado. Elegir un proyecto abre su página con el chat nuevo (proyecto fijo) y solo los chats de ese proyecto; Versiones queda debajo de Proyectos en el menú.",
+          "priority": "must",
+          "rationale": "Éxito 1 del plan. Falso éxito a detectar: chats de otro proyecto en la lista (test de filtro por projectId). /chats/:id no cambia."
+        },
+        {
+          "id": "R2",
+          "statement": "El usuario agrega un proyecto desde la web pegando owner/repo o una URL de GitHub; el panel lo clona en segundo plano en el directorio de proyectos de la VM y el proyecto pasa por los estados clonando, listo o error con el motivo.",
+          "priority": "must",
+          "rationale": "D1: el clon lo dispara el usuario desde la web, nunca un agente ni una tarea previa (durante la implementación se prueba con un repo descartable). D2: se clona con gh repo clone por execFile, solo GitHub. D3: un clon grande supera un timeout HTTP, por eso es en segundo plano con status y status_detail; los proyectos existentes migran como listo. Tradeoff: no admite GitLab ni URLs SSH; se acepta."
+        },
+        {
+          "id": "R3",
+          "statement": "Solo se aceptan repos de GitHub con formato owner/repo (owner de 1 a 39 caracteres alfanuméricos o guion; repo de hasta 100 caracteres alfanuméricos, punto, guion o guion bajo, sin empezar con punto) a los que llega el gh autenticado de la VM; cualquier otra entrada se rechaza con 400 antes de ejecutar nada.",
+          "priority": "must",
+          "rationale": "L10: evita clonar URLs arbitrarias (otros hosts, rutas locales, file://). Hipótesis a verificar: la salida de gh repo clone para repos privados y su manejo de errores."
+        },
+        {
+          "id": "R4",
+          "statement": "Si la carpeta destino ya existe y su origin normalizado (https o ssh, con o sin .git) coincide con el repo pedido, el proyecto se adopta sin clonar; si existe con otro origin, se rechaza con 409 sin tocar nada; registrar dos veces el mismo repo responde 'ya existe'.",
+          "priority": "must",
+          "rationale": "D4: Agents Panel y NovaGent ya están clonados. Tradeoff: hay que comparar URLs normalizadas. Éxito 3 del plan."
+        },
+        {
+          "id": "R5",
+          "statement": "Un proyecto solo pasa a listo si el clon terminó, su origin es el repo pedido y la rama base existe; si algo falla queda en error con el motivo recortado y se borra la carpeta que creó el panel; el error se puede reintentar.",
+          "priority": "must",
+          "rationale": "L9: evita worktrees sobre clones rotos. Éxito 2 del plan; falso éxito: registrado pero sin clonar u origin que no es GitHub."
+        },
+        {
+          "id": "R6",
+          "statement": "Antes de clonar se verifica el espacio libre (umbral 10 GB); sin espacio, el proyecto queda en error 'sin espacio' y no se clona nada. Al arrancar el panel, los proyectos que quedaron clonando pasan a error 'interrumpido' y se pueden reintentar.",
+          "priority": "must",
+          "rationale": "Riesgos del plan: clon gigante llena el disco; reinicio del panel durante un clon deja el proyecto colgado."
+        },
+        {
+          "id": "R7",
+          "statement": "La creación de un chat sobre un proyecto que no está listo se rechaza con 409.",
+          "priority": "must",
+          "rationale": "Riesgo del plan: carrera entre clon y creación de chat, con worktree sobre un repo incompleto."
+        },
+        {
+          "id": "R8",
+          "statement": "Al registrar, si el repo trae scripts/panel-setup.sh se sugiere 'bash scripts/panel-setup.sh'; si no, el comando de setup queda vacío o se escribe a mano; el valor se guarda explícito y se puede editar después desde la configuración del proyecto. Lo sugerido se muestra y se confirma antes de guardarse.",
+          "priority": "must",
+          "rationale": "D5: el usuario preguntó si todos los repos necesitan setup.sh: no. Tradeoff: si el repo suma panel-setup.sh después hay que editar el setup a mano. createWorktree no cambia su contrato. NovaGent: panel-setup.sh; Agents Panel: npm ci; expedientes-ai: uv sync --project backend."
+        },
+        {
+          "id": "R9",
+          "statement": "Cada proyecto tiene un nombre interno kebab-case (rutas y worktrees) y un nombre visible libre, editable, que se muestra en la web; si falta, se muestra el interno.",
+          "priority": "should",
+          "rationale": "D12: el nombre interno ya se usa en rutas (~/wt/<proyecto>/…) y no puede cambiar; el usuario quiere ver nombres de producto (NovaGent, Agents Panel, Judiciar). Columna display_name nullable."
+        },
+        {
+          "id": "R10",
+          "statement": "Al registrar un proyecto, Kyro se inicializa en él solo si el repo trae .agents/kyro/; si no, queda registrado con un aviso visible de 'proyecto sin Kyro'.",
+          "priority": "should",
+          "rationale": "D11: no meter archivos de Kyro en repos que no lo usan. Tradeoff: sin Kyro no hay /kyro-* hasta inicializarlo a mano. Hipótesis H2: kyro install --init-workspace --yes con el CLI global equivale a lo hecho con npx en el paso 7 de vm-setup.md; se verifica en la VM antes de implementarlo."
+        },
+        {
+          "id": "R11",
+          "statement": "Cada proyecto puede tener uno o varios archivos .env identificados por ruta relativa (por ejemplo .env, .env.local, .env.development, backend/.env, be-ventas/.env.local); se pueden subir (archivo o texto pegado), reemplazar y borrar; la API solo devuelve ruta, nombres de claves y fecha, nunca el contenido.",
+          "priority": "must",
+          "rationale": "L3: un .env nunca vuelve al navegador. El usuario aclaró que los nombres varían. Fuera de alcance: verlo o editarlo en línea. Para cambiarlo se sube de nuevo."
+        },
+        {
+          "id": "R12",
+          "statement": "Los .env se guardan cifrados en reposo (AES-256-GCM, clave derivada con HKDF de PANEL_SECRET_KEY, info 'env-files-v1'); si no se pueden descifrar (clave rotada), figuran como ilegibles y no se escribe nada en worktrees.",
+          "priority": "must",
+          "rationale": "L4 y D6: la base y sus backups no tienen secretos en claro. Tradeoff: rotar PANEL_SECRET_KEY obliga a volver a subirlos. Tabla project_env_files(project_id, rel_path, ciphertext, iv, tag, key_names, updated_at, UNIQUE(project_id, rel_path))."
+        },
+        {
+          "id": "R13",
+          "statement": "El contenido de un .env no aparece nunca en logs, eventos de chat, respuestas de la API ni en la base en claro; el logger redacta el campo del contenido.",
+          "priority": "must",
+          "rationale": "Riesgo del plan: secreto en logs porque Fastify serializa el body. Prueba con un valor centinela buscado en respuesta, logs, chat_events y base."
+        },
+        {
+          "id": "R14",
+          "statement": "Solo se aceptan nombres de archivo .env o .env.<sufijo> (basename ^\\.env(\\.[A-Za-z0-9_-]+)*$), nunca con 'prod' (sin distinguir mayúsculas) ni plantillas (example, sample, ejemplo, template); el archivo debe pesar hasta 64 KB y tener líneas CLAVE=valor, comentarios o vacías.",
+          "priority": "must",
+          "rationale": "L5 y D7: no llevar credenciales de producción a la VM (CLAUDE.md). Un .env.staging se acepta porque no es producción. Validación en un solo módulo con tests de tabla."
+        },
+        {
+          "id": "R15",
+          "statement": "Un .env solo se escribe en una ruta relativa que no sale del proyecto (sin ..) y que git ignora (git check-ignore), tanto al subirlo como al escribirlo en cada worktree.",
+          "priority": "must",
+          "rationale": "L6: evita que el agente lo commitee y lo pushee a GitHub. Rechazos esperados: ../.env y archivos no ignorados."
+        },
+        {
+          "id": "R16",
+          "statement": "En cada worktree nuevo, el panel escribe los .env del proyecto con permisos 600 después de correr el setup; si falta la carpeta destino de algún .env, la creación falla con 'falta la carpeta X para .env' y se deshace todo (el agente no arranca sin sus .env).",
+          "priority": "must",
+          "rationale": "D8: los repos hijos de NovaGent (be-ventas/) los crea el setup; escribir antes rompería el git clone. Tradeoff: un setup que necesite el .env no lo tiene; hoy ninguno lo necesita y panel-setup.sh de ventas igual copia el suyo."
+        },
+        {
+          "id": "R17",
+          "statement": "Al subir un .env se puede elegir aplicarlo también a los worktrees activos del proyecto; el resultado se informa por worktree (escrito u omitido con motivo) y uno que falla no frena a los demás.",
+          "priority": "should",
+          "rationale": "Pedido del usuario al aprobar el plan (rotar un .env sin recrear worktrees)."
+        },
+        {
+          "id": "R18",
+          "statement": "Subir, reemplazar o borrar un .env y actualizar Kyro exigen un código TOTP vigente además de la sesión; un código ya usado se rechaza y un código incorrecto o repetido responde 401 y cuenta para el límite de intentos existente.",
+          "priority": "must",
+          "rationale": "L7 y D9: son las acciones de más impacto y la URL es pública. Se reutiliza checkTotp con su contador y auth/attempts.ts. Tradeoff: hay que tipear un código más."
+        },
+        {
+          "id": "R19",
+          "statement": "La pantalla Versiones muestra la versión de Kyro instalada y la última publicada (si no hay red: 'última: desconocida' y el botón sigue disponible), un botón Actualizar y el historial de actualizaciones.",
+          "priority": "must",
+          "rationale": "Éxito 5 del plan. Kyro es global de la VM: CLI en ~/.npm-global, runtime en ~/.agents/kyro/current, skills enlazadas por 06-kyro-skills.sh."
+        },
+        {
+          "id": "R20",
+          "statement": "Actualizar Kyro corre un script idempotente versionado (scripts/vm/08-kyro-update.sh: npm i -g kyro-ai@latest, kyro update en cada raíz de proyecto con Kyro, 06-kyro-skills.sh y kyro doctor); cada corrida se guarda en maintenance_runs con versión anterior, versión nueva, resultado y salida recortada, y la versión mostrada es la que realmente quedó.",
+          "priority": "must",
+          "rationale": "D10: cumple la regla de oro de la VM (procedimiento en el runbook, rehacible a mano). Tradeoff: las corridas desde el panel no suman línea a la bitácora de vm-setup.md; por eso se ajusta CLAUDE.md. Hipótesis H1: la secuencia npm i -g + kyro update es la correcta en 6.x; se verifica a mano una vez antes de escribir el script."
+        },
+        {
+          "id": "R21",
+          "statement": "Kyro no se actualiza mientras haya sesiones corriendo (409 con la cantidad de sesiones) y, mientras corre la actualización, no arrancan sesiones nuevas.",
+          "priority": "must",
+          "rationale": "L8: evita agentes a mitad de tarea con el runtime cambiado debajo."
+        },
+        {
+          "id": "R22",
+          "statement": "Toda ruta nueva de la API exige sesión (guard deny-by-default sin ampliar la allowlist pública) y todo comando externo (gh, git, kyro, npm, scripts) va por execFile con argv, sin shell; lo que escribe el usuario es solo un argumento validado.",
+          "priority": "must",
+          "rationale": "L1 y L2: la URL es pública (Funnel); evita exponer clonado, .env o actualización a internet e inyección de comandos. guard.test.ts recorre las rutas registradas; verificación de L2 con grep y review."
+        },
+        {
+          "id": "R23",
+          "statement": "La VM tiene uv instalado en ~/.local/bin por un script idempotente (scripts/vm/07-uv.sh), documentado en vm-setup.md con su línea de bitácora y la tabla de Costos (US$0).",
+          "priority": "must",
+          "rationale": "expedientes-ai (Python 3.12, uv.lock) lo necesita y la VM no lo tiene (Python 3.14.4). Regla de oro de la VM: script de scripts/vm/ + runbook + bitácora. Las toolchains no se instalan desde la web."
+        },
+        {
+          "id": "R24",
+          "statement": "Los docs quedan actualizados en el mismo cambio: plan.md (el registro de proyectos pasa a la web y reemplaza .panel/project.yaml; .env y Versiones), vm-setup.md, panel-desarrollo.md y CLAUDE.md (convención de setup, .env que pone el panel y regla de la bitácora para corridas desde el panel).",
+          "priority": "must",
+          "rationale": "CLAUDE.md: si una decisión cambia, se actualiza el doc correspondiente en el mismo cambio. D10 obliga a ajustar la regla de la bitácora."
+        },
+        {
+          "id": "R25",
+          "statement": "Con todo implementado, el usuario da de alta desde la web NovaGent (nombre visible), Agents Panel (adopción, setup npm ci) y expedientes-ai (clon, setup uv sync --project backend, backend/.env), y un work chico en expedientes-ai arranca con su worktree, dependencias y .env.",
+          "priority": "must",
+          "rationale": "WS7 del plan: esta acción la hace el usuario desde la web (D1); el agente nunca clona expedientes-ai."
+        },
+        {
+          "id": "R26",
+          "statement": "Un archivo .env ilegible, con nombre o ruta inválidos, no ignorado, demasiado grande o sin formato CLAVE=valor se rechaza con 400 y el motivo; no se guarda nada.",
+          "priority": "must",
+          "rationale": "Garantía de fallo del plan: entrada inválida no deja estado parcial."
+        }
+      ],
+      "scenarios": [
+        {
+          "id": "S1",
+          "requirement": "R7",
+          "given": "un proyecto en estado 'cloning' o 'error' y otro 'ready'",
+          "when": "se crea un chat con POST /api/chats sobre cada uno",
+          "then": "los dos primeros responden 409 sin crear worktree, chat ni evento y el 'ready' crea el chat como hasta ahora"
+        },
+        {
+          "id": "S2",
+          "requirement": "R3",
+          "given": "una sesión válida",
+          "when": "se hace POST /api/projects con 'file:///etc', 'git@github.com:a/b.git', 'https://evil.com/a/b', 'a/b/c', un owner que empieza con '-' o un body con una ruta de carpeta",
+          "then": "responde 400 y no se ejecuta ningún comando; en cambio 'owner/repo' y 'https://github.com/owner/repo.git' dan el mismo repo"
+        },
+        {
+          "id": "S3",
+          "requirement": "R2",
+          "given": "un repo remoto falso y la carpeta destino inexistente",
+          "when": "se hace POST /api/projects con owner/repo",
+          "then": "responde 202 con el proyecto en 'cloning' y al terminar queda 'ready' con origin igual al pedido y una rama base existente"
+        },
+        {
+          "id": "S4",
+          "requirement": "R4",
+          "given": "una carpeta ya clonada en el directorio de proyectos cuyo origin coincide con el pedido (y otra con origin distinto)",
+          "when": "se registra cada una",
+          "then": "la primera se adopta sin llamar al cloner, la segunda responde 409 sin modificar la carpeta y registrar de nuevo el mismo repo responde 'ya existe'"
+        },
+        {
+          "id": "S5",
+          "requirement": "R5",
+          "given": "un clon que falla (repo inexistente o sin permiso) y poco espacio libre",
+          "when": "termina el intento de alta",
+          "then": "el proyecto queda 'error' con el motivo recortado, la carpeta que creó el panel no existe y con poco espacio el cloner ni se llama; retry lo lleva a 'ready' cuando el clon funciona"
+        },
+        {
+          "id": "S6",
+          "requirement": "R6",
+          "given": "un proyecto que quedó en 'cloning' cuando el panel se detuvo",
+          "when": "arranca el panel",
+          "then": "el proyecto pasa a 'error' con detalle 'interrumpido' y se puede reintentar"
+        },
+        {
+          "id": "S7",
+          "requirement": "R8",
+          "given": "un repo con scripts/panel-setup.sh y otro sin él",
+          "when": "se consulta GET /api/projects/:id de cada uno sin setup guardado",
+          "then": "el primero trae suggestedSetupCommand 'bash scripts/panel-setup.sh', el segundo null, y ninguno guarda el setup hasta que se lo edita con PATCH"
+        },
+        {
+          "id": "S8",
+          "requirement": "R9",
+          "given": "un proyecto con nombre interno 'novagent'",
+          "when": "se hace PATCH con displayName 'NovaGent'",
+          "then": "la API devuelve displayName 'NovaGent' y el nombre interno y la ruta de worktrees no cambian; sin nombre visible se usa el interno"
+        },
+        {
+          "id": "S9",
+          "requirement": "R10",
+          "given": "un repo con .agents/kyro/ y otro sin él",
+          "when": "se registran",
+          "then": "en el primero se llama una vez al inicializador de Kyro con cwd en el repo, en el segundo no se llama y la respuesta trae hasKyro=false; si el inicializador falla el proyecto sigue 'ready' con un aviso"
+        },
+        {
+          "id": "S10",
+          "requirement": "R22",
+          "given": "sin cookie de sesión",
+          "when": "se llama a cada ruta nueva de proyectos",
+          "then": "responde 401 y la lista de rutas públicas sigue siendo solo /api/health y los pasos del login"
+        },
+        {
+          "id": "S11",
+          "requirement": "R23",
+          "given": "la VM sin uv",
+          "when": "se corre dos veces bash scripts/vm/07-uv.sh",
+          "then": "la primera deja `uv --version` funcionando, la segunda no cambia nada y vm-setup.md registra el paso, la bitácora y el costo US$0"
+        },
+        {
+          "id": "S12",
+          "requirement": "R14",
+          "given": "una tabla de nombres de archivo",
+          "when": "se validan .env, .env.local, .env.development, .env.staging, .env.production, .env.PROD, .env.example, .env.ejemplo, .env.template, .envrc y x.env",
+          "then": "se aceptan los cuatro primeros y el resto se rechaza con 400 y el motivo, sin guardar nada"
+        },
+        {
+          "id": "S13",
+          "requirement": "R15",
+          "given": "un proyecto listo cuyo .gitignore ignora .env y backend/.env pero no config/.env",
+          "when": "se sube ../.env, /abs/.env, a/../.env, config/.env y backend/.env",
+          "then": "las cuatro primeras responden 400 sin guardar nada y backend/.env se guarda"
+        },
+        {
+          "id": "S14",
+          "requirement": "R26",
+          "given": "una sesión válida y un TOTP nuevo",
+          "when": "se sube un .env de más de 64 KB, con NUL o con una línea que no es CLAVE=valor",
+          "then": "responde 400 con el motivo (la línea por número, sin su texto) y la tabla project_env_files queda igual"
+        },
+        {
+          "id": "S15",
+          "requirement": "R11",
+          "given": "un proyecto listo con .env y backend/.env subidos",
+          "when": "se listan, se reemplaza .env y se borra backend/.env",
+          "then": "GET devuelve solo ruta, nombres de claves, fecha y si es legible; el reemplazo deja una sola fila con fecha nueva; el borrado la quita; ninguna respuesta trae el contenido"
+        },
+        {
+          "id": "S16",
+          "requirement": "R12",
+          "given": ".env guardados con una PANEL_SECRET_KEY",
+          "when": "el panel arranca con otra clave o el cifrado fue alterado",
+          "then": "los archivos figuran como ilegibles en GET y no se escribe ninguno en worktrees; la base no tiene el contenido en claro"
+        },
+        {
+          "id": "S17",
+          "requirement": "R13",
+          "given": "un .env con un valor centinela y el logger en nivel trace",
+          "when": "se sube, se reemplaza, se rechaza por formato, se rechaza por TOTP y se escribe en el worktree de un chat nuevo",
+          "then": "el centinela no aparece en ninguna respuesta, en la salida del logger, en chat_events ni en los bytes de la base"
+        },
+        {
+          "id": "S18",
+          "requirement": "R16",
+          "given": "un proyecto con backend/.env y un setup que crea o no crea la carpeta backend",
+          "when": "se crea un chat",
+          "then": "si el setup la crea, backend/.env queda con modo 600 y git status limpio; si no, la creación falla con 'falta la carpeta backend para backend/.env' y no quedan worktree, rama ni chat"
+        },
+        {
+          "id": "S19",
+          "requirement": "R17",
+          "given": "dos chats activos del proyecto, uno sin la carpeta destino",
+          "when": "se sube un .env con applyToActive",
+          "then": "la respuesta informa 'written' para uno y 'skipped' con motivo para el otro, y el primero tiene el contenido nuevo con 600"
+        },
+        {
+          "id": "S20",
+          "requirement": "R18",
+          "given": "una sesión válida",
+          "when": "se sube o borra un .env sin TOTP, con uno incorrecto o con uno ya usado",
+          "then": "responde 401 invalid_totp, no cambia nada, el intento cuenta para el límite y al quinto el usuario queda bloqueado"
+        },
+        {
+          "id": "S21",
+          "requirement": "R19",
+          "given": "kyro instalado y el registro de npm disponible o no",
+          "when": "se pide GET /api/versions",
+          "then": "devuelve la versión instalada y la última publicada; sin red o por timeout, latest es null ('última: desconocida') y la actualización sigue permitida"
+        },
+        {
+          "id": "S22",
+          "requirement": "R20",
+          "given": "un script de actualización fake que termina bien o mal",
+          "when": "se pide la actualización con TOTP válido y sin sesiones",
+          "then": "responde 202 con runId y la corrida queda en maintenance_runs con versión anterior, versión medida al final, status ok o error y salida recortada; GET /api/maintenance-runs la lista primero"
+        },
+        {
+          "id": "S23",
+          "requirement": "R20",
+          "given": "la VM con Kyro instalado y las raíces de proyectos con Kyro",
+          "when": "se corre scripts/vm/08-kyro-update.sh dos veces seguidas",
+          "then": "las dos terminan con exit 0 y kyro doctor sano, la segunda no cambia versión ni symlinks de skills, y la última línea es KYRO_VERSION=<versión instalada>"
+        },
+        {
+          "id": "S24",
+          "requirement": "R21",
+          "given": "una sesión de agente corriendo",
+          "when": "se pide la actualización de Kyro con TOTP válido",
+          "then": "responde 409 con la cantidad de sesiones corriendo, no crea fila en maintenance_runs y no ejecuta el script"
+        },
+        {
+          "id": "S25",
+          "requirement": "R21",
+          "given": "una actualización de Kyro en curso",
+          "when": "se crea un chat, se manda un mensaje o se pide otra actualización",
+          "then": "las tres responden 409 sin crear worktree, chat ni corrida; al terminar la actualización (ok o error) crear chats vuelve a funcionar"
+        },
+        {
+          "id": "S26",
+          "requirement": "R20",
+          "given": "un alta de proyecto con kyro install en curso",
+          "when": "se pide la actualización de Kyro",
+          "then": "el script no arranca hasta que termina kyro install, y un kyro install que llega durante la actualización espera a que termine"
+        },
+        {
+          "id": "S27",
+          "requirement": "R18",
+          "given": "una sesión válida",
+          "when": "se pide la actualización de Kyro sin TOTP, con uno incorrecto o ya usado",
+          "then": "responde 401 invalid_totp, no crea corrida ni ejecuta el script y el intento cuenta para el límite"
+        },
+        {
+          "id": "S28",
+          "requirement": "R20",
+          "given": "una corrida de actualización 'running' en la base porque el panel se reinició",
+          "when": "el panel arranca",
+          "then": "la corrida queda en 'error' con 'interrumpido' y se puede pedir una nueva"
+        },
+        {
+          "id": "S29",
+          "requirement": "R4",
+          "given": "dos altas concurrentes del mismo repo de GitHub con nombres distintos",
+          "when": "se procesan",
+          "then": "queda un solo proyecto y un solo clon; la otra responde 'ya existe'"
+        },
+        {
+          "id": "S30",
+          "requirement": "R1",
+          "given": "chats de dos proyectos A y B",
+          "when": "se pide GET /api/chats?projectId=A o se abre /projects/A",
+          "then": "solo aparecen los chats de A; sin projectId la API sigue devolviendo todos"
+        },
+        {
+          "id": "S31",
+          "requirement": "R1",
+          "given": "una sesión válida",
+          "when": "se entra a la web",
+          "then": "la pantalla inicial es Proyectos, el menú muestra Proyectos y debajo Versiones, y /chats/:id funciona igual que antes"
+        },
+        {
+          "id": "S32",
+          "requirement": "R17",
+          "given": "un proyecto con un chat running y otro idle",
+          "when": "se sube un .env con applyToActive",
+          "then": "se escribe solo en el idle y el running figura como skipped con motivo 'agente en curso', sin tocar su archivo"
+        },
+        {
+          "id": "S33",
+          "requirement": "R18",
+          "given": "la web abierta",
+          "when": "una acción con TOTP responde 401 invalid_totp o cualquier llamada responde 401 unauthorized",
+          "then": "con invalid_totp se muestra 'Código incorrecto o ya usado' sin salir de la página; con unauthorized se vuelve al login"
+        },
+        {
+          "id": "S34",
+          "requirement": "R11",
+          "given": "el formulario de .env con contenido cargado",
+          "when": "se envía y la API responde 2xx, 400 o 401",
+          "then": "el contenido ya no está en el formulario ni en ningún signal, y la lista solo muestra ruta, claves, fecha y legibilidad"
+        },
+        {
+          "id": "S35",
+          "requirement": "R8",
+          "given": "un proyecto recién Listo con scripts/panel-setup.sh y sin setup guardado",
+          "when": "se abre su tarjeta",
+          "then": "se muestra 'bash scripts/panel-setup.sh' como sugerencia y solo se guarda al confirmarla; también se puede editar o dejar sin setup"
+        },
+        {
+          "id": "S36",
+          "requirement": "R25",
+          "given": "la web completa en la VM",
+          "when": "el usuario da de alta NovaGent (nombre visible), Agents Panel (adopción, npm ci) y expedientes-ai (clon, uv sync --project backend, backend/.env) y crea un work en expedientes-ai",
+          "then": "los tres quedan Listo y el worktree del work tiene dependencias y backend/.env con 600 y fuera de git status"
+        },
+        {
+          "id": "S37",
+          "requirement": "R2",
+          "given": "la pantalla Proyectos",
+          "when": "se agrega un repo descartable válido",
+          "then": "la tarjeta aparece en Clonando y pasa a Listo (o a Error con motivo y Reintentar) sin recargar la página"
+        },
+        {
+          "id": "S38",
+          "requirement": "R19",
+          "given": "la pantalla Versiones sin red hacia npm",
+          "when": "se abre",
+          "then": "muestra la versión instalada, 'última: desconocida' y el botón Actualizar habilitado"
+        },
+        {
+          "id": "S39",
+          "requirement": "R24",
+          "given": "la web de Proyectos, .env y Versiones implementada",
+          "when": "se revisan plan.md, panel-desarrollo.md y CLAUDE.md",
+          "then": "describen el alta, la configuración, los .env y la actualización desde la web, sin 'la pantalla web llega en el sprint', y coinciden con rutas, campos (totp/code) y códigos del código"
+        }
+      ],
+      "nonGoals": [
+        "Ver o editar un .env en línea desde la web (va contra la ley de solo escritura); para cambiarlo se sube de nuevo.",
+        "Borrar proyectos o su carpeta desde la web (destructivo, queda como follow-up).",
+        "Clonar repos que no sean de GitHub o usar URLs SSH.",
+        "Instalar toolchains (Go, uv, Python) desde la web; van por scripts/vm/.",
+        "Actualizar desde Versiones otras herramientas que no sean Kyro (Claude Code, Node, gh).",
+        "Passkeys o re-autenticación por passkey.",
+        "Quitar la copia de .env de panel-setup.sh del repo ventas (otro repo; el panel escribe después y gana).",
+        "Clonar o registrar expedientes-ai durante la implementación: lo hace el usuario desde la web."
+      ],
+      "openQuestions": []
+    },
+    "clarifications": [],
+    "conventions": [],
+    "adrs": [],
+    "roadmap": {
+      "plannedSprintCount": 4,
+      "sizingRationale": "Cuatro sprints porque el trabajo tiene una cadena de dependencias y cada tramo tiene un resultado verificable por separado. Orden del plan: WS1 (modelo y migración) primero porque las tablas projects ampliada, project_env_files y maintenance_runs las usan todos; después WS2, WS3 y WS4 en ese orden porque comparten la migración y WS3 necesita el estado 'listo' y el worktree de WS2; WS5 (web) al final de las APIs porque consume las tres; WS6 (docs) y WS7 (alta real, manual del usuario) al cierre. Sprint 1 (WS1 + WS2 + 07-uv.sh): modelo, alta por GitHub con clon, adopción, setup por convención, estados y 07-uv.sh, que no depende de nada. Dividir el sprint 1 si la fase del clon crece más que la del modelo. Sprint 2 (WS3): .env cifrados, validación, TOTP de re-autenticación y escritura en worktrees; se separa porque es la superficie de seguridad más sensible y su gate (valor centinela) es independiente. Sprint 3 (WS4): Versiones y actualización de Kyro; se separa porque toca el runtime global de la VM y exige verificar H1 a mano antes de escribir el script. Sprint 4 (WS5 + WS6 + WS7): web completa, docs y alta real por el usuario; requiere las tres APIs terminadas. No se parte la web de los docs porque los docs describen lo que la web ya hace. Hipótesis H1 (actualización de Kyro 6.x) se verifica en el sprint 3 y H2 (kyro install --init-workspace con el CLI global) en el sprint 1. Orden de las decisiones de entrega: D1 el usuario hace el clon real desde la web; D8 los .env se escriben después del setup; D10 las corridas desde el panel se registran en maintenance_runs.",
+      "sprints": [
+        {
+          "n": 1,
+          "slug": "proyectos-api",
+          "title": "Proyectos: modelo y alta por GitHub",
+          "state": "closed"
+        },
+        {
+          "n": 2,
+          "slug": "env-seguro",
+          "title": ".env cifrados y escritura en worktrees",
+          "state": "closed"
+        },
+        {
+          "n": 3,
+          "slug": "versiones-kyro",
+          "title": "Versiones y actualización de Kyro",
+          "state": "closed"
+        },
+        {
+          "n": 4,
+          "slug": "web-docs-alta-real",
+          "title": "Web de proyectos, docs y alta real",
+          "state": "closed"
+        }
+      ]
+    },
+    "ledger": [
+      {
+        "n": 1,
+        "slug": "proyectos-api",
+        "outcome": "shipped",
+        "closedAt": "2026-10-04",
+        "archive": "archive/sprint-001-proyectos-api.md",
+        "snapshot": "archive/sprint-001-proyectos-api.json",
+        "checkpoint": "archive/sprint-001-proyectos-api.checkpoint.json",
+        "checkpointSha256": "deab7f1b97bf34658dc4eb1f33390e6b46f4d430ea536b74bdfcfe909a5c6350"
+      },
+      {
+        "n": 2,
+        "slug": "env-seguro",
+        "outcome": "shipped",
+        "closedAt": "2026-10-04",
+        "archive": "archive/sprint-002-env-seguro.md",
+        "snapshot": "archive/sprint-002-env-seguro.json",
+        "checkpoint": "archive/sprint-002-env-seguro.checkpoint.json",
+        "recommendations": [
+          "Sprint 3: reutilizar ReauthVerifier para la actualización de Kyro y resolver debt-3/debt-4 junto al alta",
+          "Sprint 4 (web): distinguir 401 invalid_totp de sesión vencida y mostrar applied por worktree"
+        ],
+        "checkpointSha256": "c67f88745a2c1267aba7d140a19f22239cab9ef668b2a3abaa15bdf9049355f1"
+      },
+      {
+        "n": 3,
+        "slug": "versiones-kyro",
+        "outcome": "shipped",
+        "closedAt": "2026-10-04",
+        "archive": "archive/sprint-003-versiones-kyro.md",
+        "snapshot": "archive/sprint-003-versiones-kyro.json",
+        "checkpoint": "archive/sprint-003-versiones-kyro.checkpoint.json",
+        "checkpointSha256": "7a641b8f1fb0b1c3cfda9adb5dc4417c19614893e424c8b814661fc9cc98fc09"
+      },
+      {
+        "n": 4,
+        "slug": "web-docs-alta-real",
+        "outcome": "partial",
+        "closedAt": "2026-10-04",
+        "archive": "archive/sprint-004-web-docs-alta-real.md",
+        "snapshot": "archive/sprint-004-web-docs-alta-real.json",
+        "checkpoint": "archive/sprint-004-web-docs-alta-real.checkpoint.json",
+        "checkpointSha256": "c5ff041a918349fddcb7020ab7ee65453b6ef86ca15d0a417f757b27ab2d4e2f"
+      }
+    ],
+    "previousSprint": {
+      "n": 4,
+      "slug": "web-docs-alta-real",
+      "outcome": "partial",
+      "summary": "Que la web tenga Proyectos como pantalla inicial (alta por GitHub, configuración, .env con TOTP), una página por proyecto con sus chats, la pantalla Versiones, los docs al día y que el usuario dé de alta los tres proyectos reales desde ahí."
+    },
+    "activeSprint": null,
+    "debt": [
+      {
+        "id": "debt-1",
+        "title": "Rutas de chats: additionalProperties:false descarta campos extra en vez de rechazarlos (ajv removeAdditional de Fastify)",
+        "origin": 1,
+        "priority": "low",
+        "status": "resolved",
+        "targetSprint": null,
+        "note": "T4.2: onlyKeys en POST /api/chats y /messages"
+      },
+      {
+        "id": "debt-2",
+        "title": "R4: el mensaje de duplicado está en inglés ('Project already exists'), la especificación pide 'ya existe'",
+        "origin": 1,
+        "priority": "low",
+        "status": "resolved",
+        "targetSprint": null,
+        "note": "T4.2: 'El proyecto ya existe: <nombre>'"
+      },
+      {
+        "id": "debt-3",
+        "title": "Sin índice único en repo_url: dos altas concurrentes del mismo repo con nombres distintos clonarían dos veces",
+        "origin": 1,
+        "priority": "low",
+        "status": "resolved",
+        "targetSprint": null,
+        "note": "Verificado en sprint 3 T2.5: índice projects_repo_url_unique (migración 5) y ProjectConflictError 'ya existe'; S29"
+      },
+      {
+        "id": "debt-4",
+        "title": "kyro install corre por proyecto y toca lo global: serializar si hay altas simultáneas con .agents/kyro/",
+        "origin": 1,
+        "priority": "low",
+        "status": "resolved",
+        "targetSprint": null,
+        "note": "Verificado en sprint 3 T2.3: KyroLock compartido entre kyro install del alta y la actualización; S26"
+      },
+      {
+        "id": "debt-5",
+        "title": "Test flaky project-service 'recoverInterrupted…': el clon en segundo plano hace mkdir(dest) antes que el mkdirSync del test (EEXIST ~40%). Fix: mkdirSync(..., { recursive: true }) en test/project-service.test.ts:315",
+        "origin": 2,
+        "priority": "medium",
+        "status": "resolved",
+        "targetSprint": null,
+        "note": "E1: el test espera al clonador en vez de crear la carpeta en paralelo"
+      },
+      {
+        "id": "debt-6",
+        "title": "writeEnvFiles con applyToActive sobre un worktree con agente corriendo: entre el realpath de la carpeta y el rename hay una ventana (TOCTOU) en la que el agente podría cambiar una carpeta por un symlink. Evaluar abrir la carpeta con O_DIRECTORY/O_NOFOLLOW o no aplicar a chats running",
+        "origin": 2,
+        "priority": "low",
+        "status": "resolved",
+        "targetSprint": 4,
+        "note": "Resuelta en T1.2: no se aplica .env a chats running (se omiten con motivo); documentado en plan.md y panel-desarrollo.md"
+      },
+      {
+        "id": "debt-7",
+        "title": "El prompt inicial del chat invoca siempre el flujo Kyro (kyro-work/kyro-forge) aunque el proyecto no tenga Kyro (hasKyro=false); el agente crea Work y archivos .agents/ en el worktree. Pendiente: pedido directo sin Kyro, 'Inicializar Kyro' desde la web, permisos de lectura (cat/ls/grep) y revisión independiente (scope del piloto automático)",
+        "origin": 4,
+        "priority": "medium",
+        "status": "open",
+        "targetSprint": 5,
+        "note": ""
+      },
+      {
+        "id": "debt-8",
+        "title": "Actualizar un proyecto desde GitHub desde la web (git fetch + pull --ff-only del clon base por execFile, rechazando si hay cambios locales o divergencia, y mostrando el resultado): hoy lo subido a GitHub después del clon no llega a la VM y los worktrees nuevos parten de un clon viejo",
+        "origin": 4,
+        "priority": "medium",
+        "status": "open",
+        "targetSprint": 5,
+        "note": ""
+      },
+      {
+        "id": "debt-9",
+        "title": "Pruebas manuales diferidas de T5.1, a hacer al final del Sprint 4 (resolver antes de cerrar): Versiones (Actualizar con script falso; 409 con un chat corriendo), fila 'agente en curso' al aplicar .env con chat corriendo, y ausencia de valores falsos del .env en los logs de la API. Ya confirmadas por el usuario: Clonando->Listo sin recargar y sesión vencida -> login",
+        "origin": 4,
+        "priority": "high",
+        "status": "deferred",
+        "targetSprint": 5,
+        "note": "El usuario difiere las pruebas manuales de Versiones, 'agente en curso' y logs; las hará cuando termine otro scope"
+      }
+    ],
+    "handoff": {
+      "nextAction": "await_scope_completion",
+      "nextTaskId": null,
+      "blockers": [
+        {
+          "code": "no_ready_work",
+          "object": "active_sprint",
+          "reason": "No dependency-ready task remains in the active sprint.",
+          "remedyCommand": "node dist/cli.js plan --update-active --kyro-scope proyectos-y-versiones --from <approved-input.json> --dry-run --json"
+        }
+      ],
+      "note": "Sprint 4 (web-docs-alta-real) closed as partial. Roadmap exhausted; await explicit scope completion or an expansion decision.",
+      "lastUpdated": "2026-10-04"
+    },
+    "author": {
+      "name": "Maiki02",
+      "email": "miqueasdavidgentile@gmail.com",
+      "source": "git",
+      "capturedAt": "2026-10-04T18:55:01.579Z"
+    }
+  },
+  "projectScopeBefore": {
+    "id": "proyectos-y-versiones",
+    "title": "Proyectos, Versiones y .env desde la web",
+    "status": "blocked"
+  },
+  "projectScopeAfter": {
+    "id": "proyectos-y-versiones",
+    "title": "Proyectos, Versiones y .env desde la web",
+    "status": "planning"
+  },
+  "digests": {
+    "beforeClose": "1bef5624f6e33e3d4832f3adbd90a59b05ef15eb35cd281d94c2812afc5becff",
+    "intendedAfterClose": "2dae6d500f86b93e8321166e51cd703550414babd5283bd6c1794b2732bb5330",
+    "projectScopeBefore": "250feefb3aac920a32c952f9caee3bdb92b6535163ae70c471ee13117328d07c",
+    "projectScopeAfter": "d79947d65f5953228ddc0d625faa959e52ae6e3683b709b0cab07d8e7851b94a",
+    "legacySnapshot": "ce3ad841363a4f21223dd17786b6f4b1a0af3c66b46e6fb0f37b130b7a20350d",
+    "narrative": "2fdb2d6f61c567ae1cc80127a208be188b7f069af9c0097af768f34cf3d8cd9b"
+  }
+}
