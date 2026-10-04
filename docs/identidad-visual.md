@@ -40,3 +40,48 @@ Claro por defecto, oscuro si el sistema lo pide (`prefers-color-scheme: dark`). 
   - `Button` (`<button appButton variant="primary|secondary|danger|icon">`): botón nativo con la identidad.
   - `Badge` (`<app-badge tone="neutral|accent|ok|warn|danger">`): insignia de estado.
   - `Icon` (`<app-icon name="refresh|close|plus" [spin]>`): SVG en línea que sigue el color del texto. Para sumar un icono se agrega su trazo a `ICON_PATHS`.
+
+## Criterios de pantallas
+
+Rigen para toda pantalla nueva. Lo que ya existe se ajusta cuando se toca, no en un cambio aparte.
+
+### Tarjetas e ítems de lista
+
+- **Anatomía fija:** título (una línea, se corta con `…` y el texto completo va en `title`), debajo una línea de metadatos en `text-muted` (tipo · rama · URL), y el **estado arriba a la derecha** como un único `Badge`. Las acciones van al pie (tarjeta) o como botones de icono a la derecha (ítem).
+- **Un solo destino por tarjeta:** si la tarjeta lleva a otra pantalla, toda la tarjeta es el link. Las acciones secundarias son botones de icono con `aria-label` y tooltip, y no navegan.
+- **Como mucho un botón primario** por tarjeta o modal. El resto, secundario o de icono.
+- **Un estado por entidad.** Nunca dos badges de estado en la misma tarjeta. Los avisos (sin Kyro, setup sugerido) van como `hint` debajo de los metadatos, no como badge.
+
+### Color de estado según quién actúa
+
+El tono del `Badge` sale de quién tiene que moverse, igual para proyectos, trabajos y sesiones:
+
+| Tono | Cuándo |
+|---|---|
+| `accent` | El agente o el sistema están trabajando (clonando, planificando, probando) |
+| `warn` | **Te toca a vos** (pregunta, aprobación, permiso, bloqueado, interrumpido) |
+| `danger` | Error del sistema |
+| `ok` | Listo o terminado (proyecto listo, PR lista, mergeado) |
+| `neutral` | En cola, en pausa, archivado o cancelado |
+
+Las etiquetas son descriptivas y en español: «Esperando tu respuesta», «Probando · go test», «Cerrando sprint 2/4». Nunca un nombre técnico como «idle». Las etiquetas y los tonos viven en un solo módulo de la web, no en cada pantalla.
+
+### Acciones
+
+- **Destructivas** (borrar, cancelar, descartar): botón `danger` y confirmación en un `Modal` que nombra lo que se borra.
+- **Con secreto o cambio global** (`.env`, actualizar Kyro): `TotpModal`.
+- **Largas** (pull, push, setup, clonado): el botón se deshabilita y muestra el `Icon` girando. El resultado aparece en línea al terminar; si toca varios repos o worktrees, va como tabla por elemento (escrito / omitido con motivo).
+- Una acción que no se puede hacer ahora (por ejemplo, con un agente corriendo) se muestra deshabilitada y con el motivo en el tooltip, en vez de esconderla.
+
+### Listas y vacíos
+
+- Toda lista vacía tiene un `hint` que dice qué hacer y, si existe, el botón para hacerlo.
+- Las fechas son relativas («hace 2 min») y llevan la fecha completa en `title`.
+- Las listas que pueden crecer tienen filtros rápidos arriba (por ejemplo, Activos · Te toca · Terminados · Todos), no paginación.
+- Lo que te espera se marca también fuera de la pantalla: un contador en el ítem del proyecto o de la sección.
+
+### Celular
+
+- Se diseña primero para el ancho de un teléfono: margen lateral de 16 px y sin scroll horizontal.
+- La sidebar pasa a un panel desplegable con su botón en el header.
+- Los objetivos táctiles miden al menos 40 px de alto, incluidos los botones de icono.
