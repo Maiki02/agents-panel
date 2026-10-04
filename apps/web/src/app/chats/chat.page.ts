@@ -20,7 +20,13 @@ import { statusLabel } from './status';
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [RouterLink],
   template: `
-    <p><a routerLink="/">← Chats</a></p>
+    <p>
+      @if (chat(); as c) {
+        <a [routerLink]="['/projects', c.projectId]">← {{ c.projectName }}</a>
+      } @else {
+        <a routerLink="/">← Proyectos</a>
+      }
+    </p>
     @if (chat(); as c) {
       <header class="chat-head">
         <h1>{{ c.title }}</h1>

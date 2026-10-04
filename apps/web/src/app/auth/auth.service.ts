@@ -69,6 +69,12 @@ export class AuthService {
     }
   }
 
+  /** The server said the session is gone: forget it locally without calling the API. */
+  expire(): void {
+    this.state.set(null);
+    this.loaded = Promise.resolve();
+  }
+
   async logout(): Promise<void> {
     try {
       await firstValueFrom(this.http.post('/api/auth/logout', {}));

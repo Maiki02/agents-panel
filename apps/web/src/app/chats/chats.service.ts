@@ -14,6 +14,9 @@ export interface NewChatInput {
 export function apiErrorMessage(error: unknown): string {
   if (error instanceof HttpErrorResponse) {
     const body = error.error as { error?: unknown; message?: unknown } | null;
+    if (body?.error === 'invalid_totp') {
+      return 'Código incorrecto o ya usado. Esperá el próximo código de la app.';
+    }
     if (typeof body?.error === 'string') return body.error;
     if (typeof body?.message === 'string') return body.message;
     if (error.status === 0) return 'No se pudo conectar con el servidor.';
@@ -31,8 +34,9 @@ export class ChatsService {
     return firstValueFrom(this.http.get<Project[]>('/api/projects'));
   }
 
-  list(): Promise<Chat[]> {
-    return firstValueFrom(this.http.get<Chat[]>('/api/chats'));
+  list(projectId?: number): Promise<Chat[]> {
+    const params = projectId === undefined ? {} : { projectId: String(projectId) };
+    return firstValueFrom(this.http.get<Chat[]>('/api/chats', { params }));
   }
 
   get(id: number): Promise<Chat> {

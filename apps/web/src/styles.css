@@ -208,3 +208,53 @@ textarea {
   background: var(--bg);
   padding: 8px 0;
 }
+.bar .menu {
+  display: flex;
+  gap: 12px;
+}
+.bar .menu a {
+  text-decoration: none;
+  color: var(--muted);
+}
+.bar .menu a.active {
+  color: var(--text);
+  font-weight: 600;
+}
+.project-card .meta {
+  color: var(--muted);
+  font-size: 0.85rem;
+  margin: 4px 0;
+}
+.project-card .suggestion {
+  margin-top: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.env-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+label.check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+table.applied {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+table.applied td {
+  border-top: 1px solid var(--line);
+  padding: 4px 8px;
+}
+details.run pre {
+  max-height: 320px;
+  overflow: auto;
+  white-space: pre-wrap;
+}

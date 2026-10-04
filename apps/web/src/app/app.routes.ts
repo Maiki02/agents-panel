@@ -11,7 +11,17 @@ export const routes: Routes = [
     path: '',
     pathMatch: 'full',
     canActivate: [authGuard],
-    loadComponent: () => import('./chats/chat-list.page').then((m) => m.ChatListPage),
+    loadComponent: () => import('./projects/projects.page').then((m) => m.ProjectsPage),
+  },
+  {
+    path: 'projects/:id',
+    canActivate: [authGuard],
+    loadComponent: () => import('./projects/project.page').then((m) => m.ProjectPage),
+  },
+  {
+    path: 'versions',
+    canActivate: [authGuard],
+    loadComponent: () => import('./versions/versions.page').then((m) => m.VersionsPage),
   },
   {
     path: 'chats/:id',

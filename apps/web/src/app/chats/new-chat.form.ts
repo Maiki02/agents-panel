@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, input, signal } from '@angular/core';
 import { Router } from '@angular/router';
 import type { ChatKind, Project } from '@agents-panel/shared';
 import { ChatsService, apiErrorMessage } from './chats.service';
@@ -18,15 +18,10 @@ export function slugProblem(slug: string): string | null {
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <form class="card" (submit)="submit($event)">
-      <h2>Nuevo pedido</h2>
-      <label for="project">Proyecto</label>
-      <select id="project" [value]="projectId() ?? ''" (change)="projectId.set(toNumber($event))">
-        @for (p of projects(); track p.id) {
-          <option [value]="p.id">{{ p.name }}</option>
-        } @empty {
-          <option value="">No hay proyectos registrados</option>
-        }
-      </select>
+      <h2>Nuevo chat</h2>
+      @if (blockedReason(); as reason) {
+        <p class="hint" role="status">{{ reason }}</p>
+      }
 
       <label for="kind">Tipo</label>
       <select id="kind" [value]="kind()" (change)="kind.set(kindOf($event))">
@@ -70,8 +65,9 @@ export class NewChatForm {
   private readonly chats = inject(ChatsService);
   private readonly router = inject(Router);
 
-  protected readonly projects = signal<Project[]>([]);
-  protected readonly projectId = signal<number | null>(null);
+  /** The project the chat is created on; fixed by the page, never chosen here. */
+  readonly project = input.required<Project>();
+
   protected readonly kind = signal<ChatKind>('work');
   protected readonly slug = signal('');
   protected readonly prompt = signal('');
@@ -79,51 +75,41 @@ export class NewChatForm {
   protected readonly error = signal<string | null>(null);
 
   protected readonly slugError = computed(() => slugProblem(this.slug()));
+  /** Why the form is disabled; null while the project is ready (R7). */
+  protected readonly blockedReason = computed(() => {
+    const project = this.project();
+    if (project.status === 'cloning')
+      return 'El proyecto se está clonando: esperá a que esté listo.';
+    if (project.status === 'error') {
+      return `El proyecto no está listo (${project.statusDetail ?? 'error'}). Reintentá desde Proyectos.`;
+    }
+    return null;
+  });
   protected readonly canSubmit = computed(
     () =>
       !this.busy() &&
-      this.projectId() !== null &&
+      this.blockedReason() === null &&
       this.slug() !== '' &&
       this.slugError() === null &&
       this.prompt().trim() !== '',
   );
 
-  constructor() {
-    void this.loadProjects();
-  }
-
   protected text(event: Event): string {
     return (event.target as HTMLInputElement).value;
-  }
-
-  protected toNumber(event: Event): number | null {
-    const value = Number(this.text(event));
-    return Number.isInteger(value) && value > 0 ? value : null;
   }
 
   protected kindOf(event: Event): ChatKind {
     return this.text(event) === 'scope' ? 'scope' : 'work';
   }
 
-  private async loadProjects(): Promise<void> {
-    try {
-      const list = await this.chats.projects();
-      this.projects.set(list);
-      this.projectId.set(list[0]?.id ?? null);
-    } catch (cause) {
-      this.error.set(apiErrorMessage(cause));
-    }
-  }
-
   protected async submit(event: Event): Promise<void> {
     event.preventDefault();
-    const projectId = this.projectId();
-    if (projectId === null || !this.canSubmit()) return;
+    if (!this.canSubmit()) return;
     this.busy.set(true);
     this.error.set(null);
     try {
       const chat = await this.chats.create({
-        projectId,
+        projectId: this.project().id,
         kind: this.kind(),
         slug: this.slug(),
         prompt: this.prompt().trim(),
