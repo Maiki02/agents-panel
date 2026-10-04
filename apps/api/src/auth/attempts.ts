@@ -1,6 +1,7 @@
 import type { Db } from '../db/index.js';
 
-export type AttemptStep = 'password' | 'totp' | 'recovery';
+/** `reauth`: a fresh TOTP asked again, with a session, before a high-impact action. */
+export type AttemptStep = 'password' | 'totp' | 'recovery' | 'reauth';
 
 export interface Attempt {
   username: string;
@@ -11,7 +12,7 @@ export interface Attempt {
   reason: string | undefined;
 }
 
-/** Every login attempt is audited, successful or not. Passwords and codes are never stored. */
+/** Every login or re-auth attempt is audited, successful or not. Passwords and codes are never stored. */
 export class LoginAudit {
   constructor(
     private readonly db: Db,

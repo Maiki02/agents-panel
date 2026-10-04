@@ -1,4 +1,4 @@
-import { buildApp } from './app.js';
+import { LOGGER_OPTIONS, buildApp } from './app.js';
 import { ConfigError, loadConfig } from './config.js';
 import { openDatabase } from './db/index.js';
 
@@ -15,7 +15,7 @@ try {
 }
 
 const db = openDatabase(`${config.dataDir}/panel.sqlite`);
-const app = buildApp({ config, db }, { logger: true });
+const app = buildApp({ config, db }, { logger: LOGGER_OPTIONS });
 
 try {
   await app.listen({ host, port });

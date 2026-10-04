@@ -123,7 +123,7 @@ describe('CLI', () => {
 });
 
 describe('no web route manages users', () => {
-  it('registers no route that creates or edits users (only auth steps and chat actions mutate)', async () => {
+  it('registers no route that creates or edits users (only auth steps, chat actions, project actions, .env files and the Kyro update mutate)', async () => {
     const made = makeApp();
     app = made.app;
     await app.ready();
@@ -137,6 +137,12 @@ describe('no web route manages users', () => {
       '/api/chats',
       '/api/chats/:id/cancel',
       '/api/chats/:id/messages',
+      '/api/projects',
+      '/api/projects/:id',
+      '/api/projects/:id/env',
+      '/api/projects/:id/env',
+      '/api/projects/:id/retry',
+      '/api/versions/kyro/update',
     ]);
     for (const route of app.registeredRoutes) {
       expect(route.url).not.toMatch(/user|register|signup|password/i);

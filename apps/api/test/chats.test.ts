@@ -1,6 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
-import { mkdtempSync } from 'node:fs';
+import { existsSync, lstatSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AgentManager } from '../src/agent/manager.js';
@@ -13,10 +12,11 @@ import { SESSION_COOKIE, SessionService } from '../src/auth/sessions.js';
 import { UserRepository } from '../src/auth/users.js';
 import { buildInitialPrompt } from '../src/chats/service.js';
 import { ChatRepository } from '../src/chats/repo.js';
-import { openDatabase } from '../src/db/index.js';
+import { openDatabase, type Db } from '../src/db/index.js';
+import { EnvFileRepository } from '../src/env-files/repo.js';
 import { ProjectRepository } from '../src/projects/repo.js';
 import { FakeRunner } from './fake-runner.js';
-import { PASSWORD, makeApp, makeGitRepo, mutatingHeaders } from './helpers.js';
+import { PASSWORD, TEST_ENV, makeApp, makeGitRepo, mutatingHeaders } from './helpers.js';
 
 let apps: FastifyInstance[] = [];
 afterEach(async () => {
@@ -25,7 +25,9 @@ afterEach(async () => {
 });
 
 async function boot(runner = new FakeRunner(), db = openDatabase(':memory:')) {
-  const made = makeApp({}, undefined, { runner, db });
+  const bus = new ChatEventBus();
+  const manager = new AgentManager(new ChatRepository(db), runner, bus);
+  const made = makeApp({}, undefined, { runner, db, bus, manager });
   apps.push(made.app);
   await made.app.ready();
   const users = new UserRepository(made.db);
@@ -49,7 +51,7 @@ async function boot(runner = new FakeRunner(), db = openDatabase(':memory:')) {
     }
     throw new Error('chat never became idle');
   };
-  return { ...made, runner, project, post, get, waitIdle };
+  return { ...made, runner, manager, project, post, get, waitIdle };
 }
 
 describe('chats API', () => {
@@ -154,6 +156,36 @@ describe('chats API', () => {
     ).toBe(409);
   });
 
+  it('refuses unknown fields with 400 instead of dropping them, creating nothing', async () => {
+    const { project, post, get, worktreesDir, waitIdle } = await boot();
+    const res = await post('/api/chats', {
+      projectId: project.id,
+      kind: 'work',
+      slug: 'extra',
+      prompt: 'x',
+      worktreePath: '/tmp/elsewhere',
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toEqual({ error: 'Unknown field: worktreePath' });
+    expect((await get('/api/chats')).json()).toEqual([]);
+    expect(existsSync(join(worktreesDir, 'demo', 'extra'))).toBe(false);
+
+    const ok = await post('/api/chats', {
+      projectId: project.id,
+      kind: 'work',
+      slug: 'ok',
+      prompt: 'x',
+    });
+    const chat = ok.json<Chat>();
+    await waitIdle(chat.id);
+    const message = await post(`/api/chats/${String(chat.id)}/messages`, {
+      text: 'hi',
+      model: 'x',
+    });
+    expect(message.statusCode).toBe(400);
+    expect(message.json()).toEqual({ error: 'Unknown field: model' });
+  });
+
   it('answers 401 on every chat route without a session', async () => {
     const { app } = await boot();
     for (const [method, url] of [
@@ -191,6 +223,42 @@ describe('chats API', () => {
     ).toBe(202);
     await second.waitIdle(chat.id);
     expect(second.runner.calls[0]).toMatchObject({ resumeSessionId: 'sess-old', prompt: 'resume' });
+  });
+});
+
+describe('create on a project that is not ready', () => {
+  it.each(['cloning', 'error'] as const)(
+    'answers 409 for a %s project and creates no worktree, chat or event',
+    async (status) => {
+      const { runner, project, post, get, db, worktreesDir } = await boot();
+      db.prepare('UPDATE projects SET status = ? WHERE id = ?').run(status, project.id);
+      const res = await post('/api/chats', {
+        projectId: project.id,
+        kind: 'work',
+        slug: 'fix-a',
+        prompt: 'hola',
+      });
+      expect(res.statusCode).toBe(409);
+      expect(res.json<{ error: string }>().error).toContain(status);
+      expect((await get('/api/chats')).json<Chat[]>()).toEqual([]);
+      expect(db.prepare('SELECT COUNT(*) AS n FROM chat_events').get()).toEqual({ n: 0 });
+      expect(existsSync(join(worktreesDir, project.name))).toBe(false);
+      expect(runner.calls).toHaveLength(0);
+    },
+  );
+
+  it('keeps working on a ready project (a migrated one included)', async () => {
+    const { project, post, get, waitIdle } = await boot();
+    expect(project.status).toBe('ready');
+    const res = await post('/api/chats', {
+      projectId: project.id,
+      kind: 'work',
+      slug: 'ok',
+      prompt: 'hola',
+    });
+    expect(res.statusCode).toBe(201);
+    await waitIdle(res.json<Chat>().id);
+    expect((await get('/api/chats')).json<Chat[]>()).toHaveLength(1);
   });
 });
 
@@ -240,6 +308,64 @@ describe('create at the session limit', () => {
   });
 });
 
+describe('maintenance lock', () => {
+  const body = (project: { id: number }, slug: string) => ({
+    projectId: project.id,
+    kind: 'work' as const,
+    slug,
+    prompt: 'x',
+  });
+
+  it('is refused with a running session and does not activate', async () => {
+    const runner = new FakeRunner();
+    let release: () => void = () => undefined;
+    runner.gate = new Promise((resolve) => {
+      release = resolve;
+    });
+    const { manager, project, post, waitIdle } = await boot(runner);
+    const created = await post('/api/chats', body(project, 'busy'));
+    expect(manager.tryBeginMaintenance()).toEqual({ ok: false, running: 1 });
+    expect(manager.inMaintenance).toBe(false);
+    release();
+    await waitIdle(created.json<Chat>().id);
+    expect(manager.tryBeginMaintenance()).toEqual({ ok: true });
+    expect(manager.tryBeginMaintenance()).toEqual({ ok: false, reason: 'maintenance' });
+  });
+
+  it('answers 409 to create and to messages, leaving nothing behind; works again after endMaintenance', async () => {
+    const { manager, project, post, get, waitIdle, worktreesDir } = await boot();
+    const first = await post('/api/chats', body(project, 'before'));
+    expect(first.statusCode).toBe(201);
+    const chatId = first.json<Chat>().id;
+    await waitIdle(chatId);
+    const eventsBefore = (await get(`/api/chats/${String(chatId)}`)).json<Chat>();
+
+    expect(manager.tryBeginMaintenance()).toEqual({ ok: true });
+    const blocked = await post('/api/chats', body(project, 'during'));
+    expect(blocked.statusCode).toBe(409);
+    expect(blocked.json<{ error: string }>().error).toContain('Kyro se está actualizando');
+    expect((await get('/api/chats')).json<Chat[]>()).toHaveLength(1);
+    expect(existsSync(join(worktreesDir, 'demo', 'during'))).toBe(false);
+    expect(
+      execFileSync('git', ['-C', project.repoPath, 'branch', '--list', 'feature/during'], {
+        encoding: 'utf8',
+      }),
+    ).toBe('');
+    const message = await post(`/api/chats/${String(chatId)}/messages`, { text: 'hola' });
+    expect(message.statusCode).toBe(409);
+    expect((await get(`/api/chats/${String(chatId)}`)).json<Chat>().status).toBe(
+      eventsBefore.status,
+    );
+
+    manager.endMaintenance();
+    const again = await post('/api/chats', body(project, 'during'));
+    expect(again.statusCode).toBe(201);
+    await waitIdle(again.json<Chat>().id);
+    const resumed = await post(`/api/chats/${String(chatId)}/messages`, { text: 'hola' });
+    expect(resumed.statusCode).toBeLessThan(300);
+  });
+});
+
 describe('create rollback', () => {
   it('removes chat, worktree and branch when the session cannot start after they were created', async () => {
     const db = openDatabase(':memory:');
@@ -254,7 +380,13 @@ describe('create rollback', () => {
     // Capacity looks free at the check, then is gone by the time the turn starts (a real race).
     const racing = new AgentManager(chats, new FakeRunner(), new ChatEventBus(), 0);
     racing.hasCapacity = () => true;
-    const service = new ChatService({ chats, projects, manager: racing, worktreesDir });
+    const service = new ChatService({
+      chats,
+      projects,
+      manager: racing,
+      worktreesDir,
+      envFiles: new EnvFileRepository(db, SECRET),
+    });
     await expect(
       service.create({ projectId: project.id, kind: 'work', slug: 'racy', prompt: 'x' }),
     ).rejects.toMatchObject({ status: 409 });
@@ -265,6 +397,97 @@ describe('create rollback', () => {
         encoding: 'utf8',
       }),
     ).toBe('');
+  });
+});
+
+const SECRET = Buffer.from(TEST_ENV.PANEL_SECRET_KEY);
+const ENV_SENTINEL = 'S3NT1NEL_CHAT_ENV_93fa';
+
+describe('create with .env files', () => {
+  /** A project whose committed .gitignore ignores the .env files, with the given setup. */
+  async function envSetup(setupCommand?: string) {
+    const db: Db = openDatabase(':memory:');
+    const repoPath = makeGitRepo();
+    const git = (...args: string[]) =>
+      execFileSync('git', ['-C', repoPath, '-c', 'user.name=t', '-c', 'user.email=t@t', ...args]);
+    writeFileSync(join(repoPath, '.gitignore'), '/.env*\nbackend/.env\n');
+    git('add', '.gitignore');
+    git('commit', '-q', '-m', 'ignore env');
+    const projects = new ProjectRepository(db);
+    const project = await projects.add({
+      name: 'demo',
+      repoPath,
+      baseBranch: 'main',
+      setupCommand,
+    });
+    const chats = new ChatRepository(db);
+    const worktreesDir = mkdtempSync(join(tmpdir(), 'panel-env-wt-'));
+    const envFiles = new EnvFileRepository(db, SECRET);
+    const manager = new AgentManager(chats, new FakeRunner(), new ChatEventBus());
+    const service = new ChatService({ chats, projects, manager, worktreesDir, envFiles });
+    const create = (slug: string) =>
+      service.create({ projectId: project.id, kind: 'work', slug, prompt: 'x' });
+    const branches = (slug: string) =>
+      execFileSync('git', ['-C', repoPath, 'branch', '--list', `feature/${slug}`], {
+        encoding: 'utf8',
+      });
+    return { db, project, chats, worktreesDir, envFiles, create, branches };
+  }
+
+  it('writes backend/.env (600) after a setup that creates the folder; events carry paths only', async () => {
+    const { db, project, chats, envFiles, create } = await envSetup('mkdir backend');
+    envFiles.upsert(project.id, '.env', `A=${ENV_SENTINEL}\n`, ['A']);
+    envFiles.upsert(project.id, 'backend/.env', `B=${ENV_SENTINEL}\n`, ['B']);
+
+    const chat = await create('with-env');
+    const envPath = join(chat.worktreePath, 'backend', '.env');
+    expect(lstatSync(envPath).mode & 0o777).toBe(0o600);
+    expect(
+      execFileSync('git', ['-C', chat.worktreePath, 'status', '--porcelain'], { encoding: 'utf8' }),
+    ).toBe('');
+
+    const envEvent = chats
+      .eventsAfter(chat.id)
+      .find((e) => (e.payload as { step?: string }).step === 'env');
+    expect(envEvent).toMatchObject({
+      type: 'worktree_output',
+      payload: { step: 'env', paths: ['.env', 'backend/.env'] },
+    });
+    expect(JSON.stringify(db.prepare('SELECT * FROM chat_events').all())).not.toContain(
+      ENV_SENTINEL,
+    );
+  });
+
+  it('answers 422 when setup does not create the folder and rolls everything back', async () => {
+    const { project, chats, worktreesDir, envFiles, create, branches } = await envSetup();
+    envFiles.upsert(project.id, 'backend/.env', 'B=1\n', ['B']);
+
+    await expect(create('no-backend')).rejects.toMatchObject({
+      status: 422,
+      message: 'falta la carpeta backend para backend/.env',
+    });
+    expect(chats.list()).toHaveLength(0);
+    expect(existsSync(join(worktreesDir, 'demo', 'no-backend'))).toBe(false);
+    expect(branches('no-backend')).toBe('');
+  });
+
+  it('answers 422 when a .env is unreadable and rolls everything back', async () => {
+    const { db, project, chats, worktreesDir, create, branches } = await envSetup('mkdir backend');
+    new EnvFileRepository(db, Buffer.from('another-secret-key-another-secret-key-1')).upsert(
+      project.id,
+      '.env',
+      'A=1\n',
+      ['A'],
+    );
+
+    await expect(create('unreadable')).rejects.toMatchObject({
+      status: 422,
+      message: 'el .env .env está ilegible, volvé a subirlo',
+    });
+    expect(chats.list()).toHaveLength(0);
+    expect(db.prepare('SELECT COUNT(*) AS n FROM chat_events').get()).toEqual({ n: 0 });
+    expect(existsSync(join(worktreesDir, 'demo', 'unreadable'))).toBe(false);
+    expect(branches('unreadable')).toBe('');
   });
 });
 

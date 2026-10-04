@@ -32,11 +32,38 @@ describe('deny-by-default guard', () => {
     }
   });
 
+  it('registers the project routes and keeps them non-public', async () => {
+    app = makeApp().app;
+    await app.ready();
+    const routes = app.registeredRoutes.filter((r) => r.url.startsWith('/api/projects'));
+    const seen = routes.map((r) => `${r.method} ${r.url}`);
+    for (const expected of [
+      'GET /api/projects',
+      'POST /api/projects',
+      'GET /api/projects/:id',
+      'PATCH /api/projects/:id',
+      'POST /api/projects/:id/retry',
+      'GET /api/projects/:id/env',
+      'PUT /api/projects/:id/env',
+      'DELETE /api/projects/:id/env',
+    ]) {
+      expect(seen).toContain(expected);
+    }
+    expect(routes.every((r) => !r.public)).toBe(true);
+  });
+
   it('only health is public for now, and unknown paths are rejected too', async () => {
     app = makeApp().app;
     await app.ready();
     const publicRoutes = app.registeredRoutes.filter((r) => r.public).map((r) => r.url);
-    expect(publicRoutes).toContain('/api/health');
+    // GET /api/health also registers HEAD, hence the Set.
+    expect([...new Set(publicRoutes)].sort()).toEqual([
+      '/api/auth/login',
+      '/api/auth/totp',
+      '/api/health',
+    ]);
+    // The allowlist stays closed: nothing from the projects API is public.
+    expect(publicRoutes.filter((url) => url.startsWith('/api/projects'))).toEqual([]);
     expect((await app.inject({ url: '/api/health' })).statusCode).toBe(200);
     expect((await app.inject({ url: '/api/nope' })).statusCode).toBe(401);
   });

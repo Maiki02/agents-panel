@@ -1,0 +1,675 @@
+{
+  "n": 2,
+  "slug": "env-seguro",
+  "title": ".env cifrados y escritura en worktrees",
+  "objective": "Que la API guarde los .env de desarrollo de cada proyecto cifrados y validados, los suba, reemplace y borre solo con sesión y un TOTP nuevo, y los escriba con permisos 600 en cada worktree nuevo (y a pedido en los activos) sin que el contenido aparezca nunca en respuestas, logs, eventos ni en la base en claro.",
+  "status": "complete",
+  "phases": [
+    {
+      "id": "P1",
+      "title": "Validación y cifrado de .env",
+      "objective": "Tener las piezas puras y testeadas (validador de ruta y contenido, cifrado y repositorio) antes de exponer rutas.",
+      "status": "done",
+      "tasks": [
+        {
+          "id": "T1.1",
+          "title": "Validador único de ruta y contenido de .env con tests de tabla",
+          "description": "Crear apps/api/src/env-files/validate.ts con validateEnvPath(relPath) y parseEnvContent(content). validateEnvPath: ruta relativa con separador '/', sin ser absoluta, sin '..', sin '.', sin segmentos vacíos, sin '\\\\' ni NUL, sin segmento '.git', largo máximo 200; basename que cumpla ^\\.env(\\.[A-Za-z0-9_-]+)*$, que no contenga 'prod' (sin distinguir mayúsculas) y que no tenga como sufijo una plantilla (example, sample, ejemplo, template, sin distinguir mayúsculas). Devuelve la ruta normalizada. parseEnvContent: hasta 64 KB medidos en bytes UTF-8, sin NUL, finales LF o CRLF; cada línea es vacía, comentario (#) o CLAVE=valor con CLAVE ^[A-Za-z_][A-Za-z0-9_]*$ y prefijo 'export ' opcional; devuelve los nombres de clave únicos en orden de aparición. Un error lanza EnvFileError (subclase de ProjectError, así las rutas lo mapean a 400) con un motivo en español que cita el número de línea, nunca el texto de la línea ni el valor.",
+          "files_to_touch": [
+            "apps/api/src/env-files/validate.ts",
+            "apps/api/test/env-validate.test.ts"
+          ],
+          "context": "R14, R15 (parte de forma de la ruta; check-ignore va en T2.2 y T3.1) y R26. Plan: L5, D7 y la fila '.env con nombre o ruta inválida…' de garantías. Un solo módulo de validación (lo usan la subida y la escritura en worktrees). Sin dependencias nuevas. Los valores multilínea entre comillas no se admiten: un .env así se rechaza con la línea que falla (se acepta, el plan pide CLAVE=valor). Los mensajes no pueden contener el contenido: R13 aplica también a los errores 400.",
+          "acceptance_criteria": [
+            "Tests de tabla: aceptan .env, .env.local, .env.development, .env.test, .env.staging, backend/.env, be-ventas/.env.local",
+            "Tests de tabla: rechazan .env.production, .env.PROD, .env.prod.local, .env.example, .env.sample, .env.ejemplo, .env.template, env, .envrc, x.env, ../.env, a/../.env, /abs/.env, ./.env, a//.env, a\\\\.env, .git/.env y una ruta de más de 200 caracteres",
+            "parseEnvContent acepta comentarios, líneas vacías, CRLF y 'export CLAVE=valor' y devuelve las claves únicas en orden",
+            "parseEnvContent rechaza contenido de más de 65536 bytes UTF-8, con NUL o con una línea que no es CLAVE=valor, y el mensaje cita la línea por número sin incluir su texto (test con valor centinela que no aparece en error.message)",
+            "eslint y vitest del workspace api en verde"
+          ],
+          "depends_on": [],
+          "scenario_refs": [
+            "S12",
+            "S13",
+            "S14"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "Nuevo apps/api/src/env-files/validate.ts: EnvFileError (subclase de ProjectError → 400), validateEnvPath (relativa, sin .. . segmentos vacíos \\ NUL .git, máx 200, basename ^\\.env(\\.[A-Za-z0-9_-]+)*$, sin 'prod', sin sufijo plantilla) y parseEnvContent (≤65536 bytes UTF-8, sin NUL, LF/CRLF, comentarios, vacías, 'export ' opcional, claves únicas en orden; errores citan 'Línea N' sin texto). Tests de tabla en test/env-validate.test.ts.",
+            "validation": [
+              "npx vitest run test/env-validate.test.ts: 42 passed",
+              "npx eslint apps/api: exit 0 (prettier --check limpio)",
+              "npm run typecheck -w apps/api: ok",
+              "npm test -w apps/api: 254/254 en la primera corrida; después falla de forma intermitente un test previo de project-service (carrera ajena a T1.1, registrada como deuda)"
+            ],
+            "files_changed": [
+              "apps/api/src/env-files/validate.ts",
+              "apps/api/test/env-validate.test.ts"
+            ],
+            "notes": "Test con valor centinela comprueba que error.message no incluye el contenido. Valores multilínea entre comillas se rechazan con la línea que falla, según el contexto de la tarea.",
+            "by": "maker",
+            "recordedAt": "2026-10-04T19:34:10.118Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "Tests de tabla: aceptan .env, .env.local, .env.development, .env.test, .env.staging, backend/.env, be-ventas/.env.local",
+              "Tests de tabla: rechazan .env.production, .env.PROD, .env.prod.local, .env.example, .env.sample, .env.ejemplo, .env.template, env, .envrc, x.env, ../.env, a/../.env, /abs/.env, ./.env, a//.env, a\\\\.env, .git/.env y una ruta de más de 200 caracteres",
+              "parseEnvContent acepta comentarios, líneas vacías, CRLF y 'export CLAVE=valor' y devuelve las claves únicas en orden",
+              "parseEnvContent rechaza contenido de más de 65536 bytes UTF-8, con NUL o con una línea que no es CLAVE=valor, y el mensaje cita la línea por número sin incluir su texto (test con valor centinela que no aparece en error.message)",
+              "eslint y vitest del workspace api en verde"
+            ],
+            "findings": [],
+            "by": "checker",
+            "reviewedAt": "2026-10-04T19:34:12.754Z",
+            "requestDigest": "b7d9567157096f78b56ff445014eb8d539b740562a3cbb8398e87ca0c3f9c2aa",
+            "reviewedMaterialDigest": "b116c2edc02d89ef634ae3b060c3dd42513add2a1edf9f96e2310aab40e23566"
+          }
+        },
+        {
+          "id": "T1.2",
+          "title": "Cifrado AES-256-GCM y repositorio project_env_files",
+          "description": "Agregar a apps/api/src/auth/crypto.ts un par encryptParts/decryptParts que devuelva y reciba { ciphertext, iv, tag } como Buffer y acepte AAD. Crear apps/api/src/env-files/repo.ts (EnvFileRepository) sobre la tabla project_env_files ya migrada: clave deriveKey(secretKey, 'env-files-v1'); AAD = '<projectId>:<relPath>' para que un cifrado no pueda moverse a otra fila; upsert(projectId, relPath, content, keyNames) que devuelve si creó o reemplazó; list(projectId) solo con metadatos { path, keyNames, updatedAt, readable }; remove(projectId, relPath); readAll(projectId) que devuelve { path, content } o { path, unreadable: true } si falla el descifrado (clave rotada o datos alterados). 'readable' en list se calcula intentando descifrar, sin devolver el texto. Tipos EnvFileInfo y EnvApplyResult en packages/shared.",
+          "files_to_touch": [
+            "apps/api/src/auth/crypto.ts",
+            "apps/api/src/env-files/repo.ts",
+            "packages/shared/src/index.ts",
+            "apps/api/test/env-repo.test.ts"
+          ],
+          "context": "R11 (solo metadatos), R12. La tabla ya existe (migración del sprint 1: ciphertext, iv, tag, key_names, updated_at, UNIQUE(project_id, rel_path), FK a projects); no hace falta migración nueva. deriveKey ya separa claves por propósito con info 'agents-panel:<purpose>', así que el info efectivo es 'agents-panel:env-files-v1' (propósito versionado 'env-files-v1' de R12); se documenta en T4.1. key_names se guarda como JSON. No leer ningún .env real ni PANEL_SECRET_KEY: los tests usan TEST_ENV y valores centinela falsos.",
+          "acceptance_criteria": [
+            "Subir y volver a subir la misma ruta reemplaza la fila (sigue habiendo una) y actualiza updated_at",
+            "list nunca devuelve el contenido: test con centinela sobre JSON.stringify(list())",
+            "Con un repo construido con otra PANEL_SECRET_KEY, list marca readable=false y readAll devuelve unreadable para esa ruta sin lanzar",
+            "Alterar un byte de ciphertext o cambiar rel_path en la base hace que el archivo figure como ilegible (AAD)",
+            "Volcar todas las filas de project_env_files (y la base en archivo) no contiene el centinela en claro",
+            "typecheck de los 3 workspaces, eslint y vitest en verde"
+          ],
+          "depends_on": [],
+          "scenario_refs": [
+            "S15",
+            "S16"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "crypto.ts suma encryptParts/decryptParts (AES-256-GCM, {ciphertext, iv, tag} Buffer, AAD opcional). Nuevo env-files/repo.ts: EnvFileRepository con clave deriveKey(secret,'env-files-v1') (info efectivo agents-panel:env-files-v1), AAD '<projectId>:<relPath>', upsert (ON CONFLICT → 'created'|'replaced', key_names JSON), list solo metadatos con readable por intento de descifrado, remove, readAll con {path, unreadable:true} si falla. Tipos EnvFileInfo y EnvApplyResult en packages/shared.",
+            "validation": [
+              "npx vitest run test/env-repo.test.ts: 8 passed (reemplazo con una fila y updated_at nuevo, centinela ausente en JSON.stringify(list), otra clave → readable=false/unreadable, byte alterado y rel_path/project_id cambiados → ilegible, filas y archivos de la base (db+wal) sin centinela)",
+              "npm run typecheck --workspaces (shared, api, web): ok tras build de shared",
+              "npx eslint apps/api packages/shared: exit 0",
+              "npm test -w apps/api: 262/262 passed"
+            ],
+            "files_changed": [
+              "apps/api/src/auth/crypto.ts",
+              "apps/api/src/env-files/repo.ts",
+              "packages/shared/src/index.ts",
+              "apps/api/test/env-repo.test.ts"
+            ],
+            "notes": "Los tests usan TEST_ENV y centinelas falsos; no se leyó ningún .env real. EnvApplyResult = {chatId, worktreePath, status: written|skipped, reason} para R17.",
+            "by": "maker",
+            "recordedAt": "2026-10-04T19:36:43.307Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "Subir y volver a subir la misma ruta reemplaza la fila (sigue habiendo una) y actualiza updated_at",
+              "list nunca devuelve el contenido: test con centinela sobre JSON.stringify(list())",
+              "Con un repo construido con otra PANEL_SECRET_KEY, list marca readable=false y readAll devuelve unreadable para esa ruta sin lanzar",
+              "Alterar un byte de ciphertext o cambiar rel_path en la base hace que el archivo figure como ilegible (AAD)",
+              "Volcar todas las filas de project_env_files (y la base en archivo) no contiene el centinela en claro",
+              "typecheck de los 3 workspaces, eslint y vitest en verde"
+            ],
+            "findings": [],
+            "by": "checker",
+            "reviewedAt": "2026-10-04T19:36:43.557Z",
+            "requestDigest": "c4099bff8e6d42ed4bbccef3bdcf61ff1b3b07c985d32fe7fd06d72b2f932191",
+            "reviewedMaterialDigest": "dbeb34a0afb955138b945baa013e37032a629be370249283004198b9188cd96e"
+          }
+        }
+      ]
+    },
+    {
+      "id": "P2",
+      "title": "Re-autenticación TOTP, rutas y redacción",
+      "objective": "Exponer GET, PUT y DELETE de .env con sesión y TOTP nuevo, sin que el contenido llegue a respuestas ni logs.",
+      "status": "done",
+      "tasks": [
+        {
+          "id": "T2.1",
+          "title": "Paso de re-autenticación TOTP reutilizable",
+          "description": "Crear apps/api/src/auth/reauth.ts con un verificador que recibe la sesión (request.session) y el código: si falta, no es de 6 dígitos, el usuario está bloqueado, el código es incorrecto o ya se usó (consumeTotp quema el time step) responde 401 { error: 'invalid_totp' }; cada fallo llama users.registerFailure con MAX_FAILED_ATTEMPTS y LOCK_MS y se audita en login_attempts con step 'reauth'; un éxito llama clearFailures y se audita. No acepta códigos de recuperación. Exportar el verificador para que lo usen las rutas de .env ahora y la actualización de Kyro en el sprint 3.",
+          "files_to_touch": [
+            "apps/api/src/auth/reauth.ts",
+            "apps/api/src/auth/attempts.ts",
+            "apps/api/test/reauth.test.ts"
+          ],
+          "context": "R18, L7, D9. Reutilizar SecondFactorRepository.consumeTotp, UserRepository.isLocked/registerFailure/clearFailures y LoginAudit (AttemptStep suma 'reauth'; la columna step es TEXT sin CHECK, no hace falta migración). El 401 de re-auth lleva el cuerpo 'invalid_totp' para que la web (sprint 4) lo distinga de una sesión vencida. El código del login y el de re-auth comparten last_used_step: un código ya usado para entrar tampoco sirve para re-autenticar, y está bien.",
+          "acceptance_criteria": [
+            "Código faltante, mal formado, incorrecto o repetido (el mismo código dos veces en el mismo paso) → 401 invalid_totp",
+            "Cada fallo suma al contador del usuario; al quinto queda bloqueado y un código válido también da 401 mientras dura el bloqueo",
+            "Cada intento queda en login_attempts con step 'reauth' y nunca guarda el código",
+            "Un código de recuperación no sirve para re-autenticar",
+            "eslint y vitest en verde"
+          ],
+          "depends_on": [],
+          "scenario_refs": [
+            "S20"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "Nuevo auth/reauth.ts: ReauthVerifier.verify(request, reply, code) lee request.session; sin código, no-6-dígitos, usuario bloqueado, incorrecto o ya usado (consumeTotp quema el time step, compartido con el login) → 401 {error:'invalid_totp'}. Cada fallo (salvo estando bloqueado, igual que el login) llama registerFailure(MAX_FAILED_ATTEMPTS, LOCK_MS); éxito → clearFailures. Todo intento se audita en login_attempts con step 'reauth' y motivo (missing_code|bad_format|bad_code|locked), sin el código. No acepta códigos de recuperación. AttemptStep suma 'reauth' (sin migración). Exporta INVALID_TOTP.",
+            "validation": [
+              "npx vitest run test/reauth.test.ts: 11 passed (faltante/vacío/no-string/mal formado/largo/incorrecto → 401 invalid_totp y contador +1; mismo código dos veces → 401; recovery code → 401; 5 fallos → bloqueo y código válido 401 hasta que vence; login_attempts sin el código)",
+              "npx eslint apps/api: exit 0",
+              "npm run typecheck -w apps/api: ok",
+              "npm test -w apps/api: 272/273; la única falla es el test previo de project-service recoverInterrupted (carrera ajena, debt-5), que se arregla en la tarea emergente E1"
+            ],
+            "files_changed": [
+              "apps/api/src/auth/reauth.ts",
+              "apps/api/src/auth/attempts.ts",
+              "apps/api/test/reauth.test.ts"
+            ],
+            "by": "maker",
+            "recordedAt": "2026-10-04T19:39:52.128Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "Código faltante, mal formado, incorrecto o repetido (el mismo código dos veces en el mismo paso) → 401 invalid_totp",
+              "Cada fallo suma al contador del usuario; al quinto queda bloqueado y un código válido también da 401 mientras dura el bloqueo",
+              "Cada intento queda en login_attempts con step 'reauth' y nunca guarda el código",
+              "Un código de recuperación no sirve para re-autenticar",
+              "eslint y vitest en verde"
+            ],
+            "findings": [],
+            "by": "checker",
+            "reviewedAt": "2026-10-04T19:39:52.372Z",
+            "requestDigest": "0ad18ee4bd85cd4aec84ce4c7b4c8eea5e8e54ea23acef0b61a9d202d6eb6a6f",
+            "reviewedMaterialDigest": "e0cb0ce81b3acd39ecf55cbdfef3139c096da432c5c5823021a034df367a17d8"
+          }
+        },
+        {
+          "id": "T2.2",
+          "title": "Rutas GET, PUT y DELETE /api/projects/:id/env",
+          "description": "Crear apps/api/src/env-files/routes.ts y registrarlo en app.ts. GET /api/projects/:id/env devuelve la lista de metadatos. PUT /api/projects/:id/env con body { path, content, totp, applyToActive? }: valida claves (onlyKeys), forma, TOTP (T2.1), proyecto existente y 'ready', ruta (T1.1), contenido (T1.1) y que git ignora la ruta en el clon del proyecto (git -C <repoPath> check-ignore -q -- <path> por execFile; 0 = ignorado, 1 = no ignorado → 400, otro código → 400 con motivo genérico); recién entonces guarda (T1.2) y responde 201 si creó o 200 si reemplazó con { file, applied? }. DELETE /api/projects/:id/env con body { path, totp } borra la fila (404 si no existe). Mover onlyKeys a un helper compartido (apps/api/src/http/only-keys.ts) y reutilizarlo desde projects/routes.ts. El PUT tiene bodyLimit propio (256 KB) porque el global es 64 KB y el JSON escapa el contenido; el límite real de 64 KB lo impone parseEnvContent. Aplicar AUTH_RATE_LIMIT a PUT y DELETE. Ampliar la allowlist de rutas que mutan en cli.test.ts y la cobertura de guard.test.ts.",
+          "files_to_touch": [
+            "apps/api/src/env-files/routes.ts",
+            "apps/api/src/http/only-keys.ts",
+            "apps/api/src/projects/routes.ts",
+            "apps/api/src/app.ts",
+            "apps/api/test/env-routes.test.ts",
+            "apps/api/test/guard.test.ts",
+            "apps/api/test/cli.test.ts"
+          ],
+          "context": "R11, R15, R18, R22, R26. Patrón del sprint 1: errores de proyecto → HTTP con respond() por ruta (ProjectNotFoundError 404, ProjectConflictError 409, ProjectError/EnvFileError 400) y onlyKeys en preValidation porque el ajv de Fastify descarta campos extra en vez de rechazarlos. El orden de chequeos importa: TOTP antes de leer la ruta o el contenido para que un 401 no revele validaciones, y nada se guarda si algo falla (R26). Todo comando externo por execFile con argv y '--' antes de la ruta (L2). Los tests usan makeApp y repos git locales (makeGitRepo) con .gitignore propio; nunca red ni repos reales. La allowlist pública sigue siendo solo /api/health y los pasos del login. applyToActive se acepta en el schema pero su efecto llega en T3.3; hasta entonces responde sin 'applied'.",
+          "acceptance_criteria": [
+            "Sin sesión, GET, PUT y DELETE responden 401 (guard.test.ts las recorre) y la allowlist pública no cambia",
+            "PUT válido con TOTP nuevo → 201; mismo path otra vez con otro TOTP → 200; GET devuelve path, keyNames, updatedAt y readable, y ninguna respuesta contiene el centinela",
+            "PUT con .env.production, .env.example, ../.env, un archivo no ignorado por git, más de 64 KB, una línea inválida o un campo extra → 400 con motivo y la tabla queda igual",
+            "PUT o DELETE sin totp, con totp incorrecto o repetido → 401 invalid_totp y no se guarda ni borra nada",
+            "PUT sobre un proyecto que no está 'ready' → 409; proyecto inexistente → 404; DELETE de una ruta que no existe → 404",
+            "grep sin exec( ni shell: true en el código nuevo; cli.test.ts actualizado con las rutas nuevas",
+            "typecheck, eslint y vitest en verde"
+          ],
+          "depends_on": [
+            "T1.1",
+            "T1.2",
+            "T2.1"
+          ],
+          "scenario_refs": [
+            "S12",
+            "S13",
+            "S14",
+            "S15",
+            "S20",
+            "S10"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "Nuevo env-files/routes.ts (registrado en app.ts como plugin para que aplique el rate limit): GET /api/projects/:id/env (metadatos, 404 si no existe), PUT {path, content, totp, applyToActive?} con bodyLimit 256 KB y AUTH_RATE_LIMIT: onlyKeys → schema → TOTP (ReauthVerifier) → proyecto existente (404) y ready (409) → validateEnvPath → parseEnvContent → git -C repo check-ignore -q -- path por execFile (1 → 400, otro → 400 genérico) → upsert; 201 creado / 200 reemplazado con {file}. DELETE {path, totp} con TOTP, 404 si no hay fila. onlyKeys movido a http/only-keys.ts y reutilizado en projects/routes.ts (respond e idParams exportados). applyToActive aceptado sin efecto (T3.3).",
+            "validation": [
+              "npx vitest run test/env-routes.test.ts test/guard.test.ts test/cli.test.ts: 32 passed (201/200/GET solo metadatos sin centinela; 400 para .env.production, .env.example, ../.env, /abs/.env, a/../.env, config/.env no ignorado, >64 KB, NUL, línea inválida y campo extra con tabla vacía; 401 invalid_totp sin/incorrecto/repetido en PUT y DELETE sin cambios, TOTP antes que la ruta; 409 no ready; 404 proyecto inexistente y DELETE de ruta inexistente; 401 sin sesión)",
+              "guard.test.ts: rutas nuevas no públicas, allowlist pública exacta = /api/health + /api/auth/login + /api/auth/totp; cli.test.ts con /api/projects/:id/env (PUT y DELETE) en la allowlist de rutas que mutan",
+              "grep -nE 'exec\\(|shell: ?true' en código nuevo: solo RegExp.exec en validate.ts; ningún child_process exec ni shell:true (se usa execFile con '--')",
+              "npx eslint apps/api: exit 0; prettier --check limpio; npm run typecheck --workspaces: ok",
+              "npm test -w apps/api: 290/291; la única falla es el test previo recoverInterrupted (debt-5 / tarea emergente E1)"
+            ],
+            "files_changed": [
+              "apps/api/src/env-files/routes.ts",
+              "apps/api/src/http/only-keys.ts",
+              "apps/api/src/projects/routes.ts",
+              "apps/api/src/app.ts",
+              "apps/api/test/env-routes.test.ts",
+              "apps/api/test/guard.test.ts",
+              "apps/api/test/cli.test.ts"
+            ],
+            "by": "maker",
+            "recordedAt": "2026-10-04T19:43:37.532Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "Sin sesión, GET, PUT y DELETE responden 401 (guard.test.ts las recorre) y la allowlist pública no cambia",
+              "PUT válido con TOTP nuevo → 201; mismo path otra vez con otro TOTP → 200; GET devuelve path, keyNames, updatedAt y readable, y ninguna respuesta contiene el centinela",
+              "PUT con .env.production, .env.example, ../.env, un archivo no ignorado por git, más de 64 KB, una línea inválida o un campo extra → 400 con motivo y la tabla queda igual",
+              "PUT o DELETE sin totp, con totp incorrecto o repetido → 401 invalid_totp y no se guarda ni borra nada",
+              "PUT sobre un proyecto que no está 'ready' → 409; proyecto inexistente → 404; DELETE de una ruta que no existe → 404",
+              "grep sin exec( ni shell: true en el código nuevo; cli.test.ts actualizado con las rutas nuevas",
+              "typecheck, eslint y vitest en verde"
+            ],
+            "findings": [],
+            "by": "checker",
+            "reviewedAt": "2026-10-04T19:43:37.775Z",
+            "requestDigest": "7543af8cdfd202c7a52361426a1a00e469f91a61258320d34b257f0c2568c484",
+            "reviewedMaterialDigest": "4448635324ee50ea7e0a96f2834cb22d7f4c54c2f47fdbb24fba00fd593f8636"
+          }
+        },
+        {
+          "id": "T2.3",
+          "title": "Redacción en el logger y prueba de centinela de punta a punta",
+          "description": "Configurar la redacción del logger de Fastify (redact de req.body.content, body.content y content con censura fija) en un solo lugar que usen main.ts y los tests (por ejemplo una constante LOGGER_OPTIONS exportada desde app.ts). Agregar un test de punta a punta con una base SQLite en archivo y el logger en nivel trace escribiendo a un stream en memoria: sube un .env con un valor centinela (válido), lo reemplaza, provoca un 400 por línea inválida que contiene el centinela, un 401 por TOTP y un error de check-ignore, crea un chat que escribe el .env en su worktree (cuando T3.2 exista) y verifica que el centinela no aparece en ningún cuerpo de respuesta, en la salida del logger, en chat_events ni en los bytes del archivo de la base (incluido el -wal si existe).",
+          "files_to_touch": [
+            "apps/api/src/app.ts",
+            "apps/api/src/main.ts",
+            "apps/api/test/env-sentinel.test.ts"
+          ],
+          "context": "R13 y el riesgo 'Secreto en logs' del plan: el logger puede serializar el body o errores que lo citan. La parte de chat_events y worktree depende de T3.2; por eso esta tarea va después. No subir el nivel de log de producción.",
+          "acceptance_criteria": [
+            "La salida del logger en nivel trace no contiene el centinela en ninguno de los caminos (éxito, 400, 401, error de git)",
+            "Ninguna respuesta HTTP del test contiene el centinela",
+            "chat_events del chat creado no contiene el centinela",
+            "Los bytes del archivo SQLite (y su -wal) no contienen el centinela",
+            "main.ts usa la misma configuración de logger que el test",
+            "typecheck, eslint y vitest en verde"
+          ],
+          "depends_on": [
+            "T2.2",
+            "T3.2"
+          ],
+          "scenario_refs": [
+            "S17"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "app.ts exporta LOGGER_OPTIONS (level info, redact req.body.content / body.content / content con censura fija '[redacted]'); main.ts pasa { logger: LOGGER_OPTIONS } (antes logger: true; nivel de producción sin cambios). Nuevo test/env-sentinel.test.ts de punta a punta: SQLite en archivo, logger con LOGGER_OPTIONS en nivel trace a un stream en memoria y un hook que loguea el body completo (peor caso); sube un .env con centinela (201), lo reemplaza (200), 400 por línea inválida con el centinela, 401 por TOTP, 400 por ruta no ignorada, 400 por check-ignore fallido (clon sin .git), GET, crea un chat que escribe el .env en su worktree (verificado) y lee sus eventos.",
+            "validation": [
+              "npx vitest run test/env-sentinel.test.ts: 1 passed — centinela ausente en todas las respuestas, en la salida trace del logger (que sí contiene '[redacted]'), en chat_events y en los bytes de panel.sqlite y sus -wal/-shm",
+              "npm run typecheck --workspaces: ok; npx eslint apps/api: exit 0",
+              "npm test -w apps/api: 303/303 passed"
+            ],
+            "files_changed": [
+              "apps/api/src/app.ts",
+              "apps/api/src/main.ts",
+              "apps/api/test/env-sentinel.test.ts"
+            ],
+            "by": "maker",
+            "recordedAt": "2026-10-04T19:49:39.763Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "La salida del logger en nivel trace no contiene el centinela en ninguno de los caminos (éxito, 400, 401, error de git)",
+              "Ninguna respuesta HTTP del test contiene el centinela",
+              "chat_events del chat creado no contiene el centinela",
+              "Los bytes del archivo SQLite (y su -wal) no contienen el centinela",
+              "main.ts usa la misma configuración de logger que el test",
+              "typecheck, eslint y vitest en verde"
+            ],
+            "findings": [],
+            "by": "checker",
+            "reviewedAt": "2026-10-04T19:49:40.007Z",
+            "requestDigest": "a5cc45d9226532e4ec459fdef947e16cd0e1282957ddc6f86a81b1b41ca0d79d",
+            "reviewedMaterialDigest": "8e8a3c8c7dbea823c167b80cff393afa456b3d7739eb31d98cac4ef9f67023bb"
+          }
+        }
+      ]
+    },
+    {
+      "id": "P3",
+      "title": "Escritura de .env en worktrees",
+      "objective": "Que cada worktree nuevo arranque con sus .env (600, ignorados, después del setup) y que se puedan aplicar a los activos.",
+      "status": "done",
+      "tasks": [
+        {
+          "id": "T3.1",
+          "title": "Escritor seguro de .env en un worktree",
+          "description": "Crear apps/api/src/env-files/write.ts con writeEnvFiles(worktreePath, files). Para cada archivo: revalida la ruta con validateEnvPath; exige que la carpeta destino exista (si no, falla con 'falta la carpeta <dir> para <path>'); resuelve realpath de la carpeta y exige que quede dentro del realpath del worktree (sin escaparse por symlinks); exige que git ignore la ruta en ese worktree (git -C <worktree> check-ignore -q -- <path>); escribe en un archivo temporal de la misma carpeta con modo 0600 (flag wx) y lo renombra sobre el destino, así un symlink existente en el destino se reemplaza y no se sigue; deja el modo en 600. Si algún archivo viene ilegible, falla sin escribir ninguno ('el .env <path> está ilegible, volvé a subirlo'). Todos los chequeos se hacen antes de escribir el primer archivo, así un fallo no deja escrituras a medias en la validación.",
+          "files_to_touch": [
+            "apps/api/src/env-files/write.ts",
+            "apps/api/test/env-write.test.ts"
+          ],
+          "context": "R12 (ilegible → no se escribe), R15 (check-ignore también al escribir), R16 (600, carpeta faltante). Comandos por execFile con argv (L2). Errores con mensaje en español y sin contenido. Tests sobre worktrees reales de repos locales temporales (makeGitRepo + git worktree add); nunca ~/wt ni repos del usuario.",
+          "acceptance_criteria": [
+            "backend/.env se escribe con modo 600 (stat) y git status --porcelain del worktree queda vacío",
+            "Carpeta destino inexistente → error 'falta la carpeta backend para backend/.env' y no se escribe ningún archivo",
+            "Carpeta destino que es un symlink fuera del worktree → error y nada escrito fuera",
+            "Destino que ya existe como symlink → se reemplaza por un archivo regular 600 y el blanco del symlink no cambia",
+            "Ruta no ignorada en el worktree → error y nada escrito",
+            "Un archivo ilegible en la lista → error y ningún archivo escrito",
+            "eslint y vitest en verde"
+          ],
+          "depends_on": [
+            "T1.1",
+            "T1.2"
+          ],
+          "scenario_refs": [
+            "S18",
+            "S16"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "Nuevo env-files/write.ts: writeEnvFiles(worktreePath, files) rechaza toda la lista si hay un ilegible ('el .env <path> está ilegible, volvé a subirlo'); por archivo revalida con validateEnvPath, exige carpeta existente ('falta la carpeta <dir> para <path>'), realpath de la carpeta dentro del realpath del worktree y git check-ignore en el worktree (execFile con '--'); todos los chequeos antes de la primera escritura. Escribe a temp en la misma carpeta (0600, flag wx), chmod 600 y rename sobre el destino (un symlink se reemplaza, no se sigue). assertGitIgnored queda exportado acá y routes.ts lo reutiliza (se quitó el duplicado).",
+            "validation": [
+              "npx vitest run test/env-write.test.ts: 8 passed sobre worktrees reales (makeGitRepo + git worktree add): backend/.env 600 y git status --porcelain vacío; carpeta faltante → mensaje exacto y nada escrito; carpeta symlink fuera → error y nada fuera; destino symlink → archivo regular 600 y blanco intacto; ruta no ignorada → error y nada escrito; ilegible → error y nada escrito; ../.env rechazada",
+              "npx vitest run test/env-routes.test.ts: 18 passed tras mover assertGitIgnored",
+              "npx eslint apps/api: exit 0; typecheck api ok",
+              "npm test -w apps/api: 299/299 passed"
+            ],
+            "files_changed": [
+              "apps/api/src/env-files/write.ts",
+              "apps/api/test/env-write.test.ts",
+              "apps/api/src/env-files/routes.ts"
+            ],
+            "by": "maker",
+            "recordedAt": "2026-10-04T19:45:30.981Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "backend/.env se escribe con modo 600 (stat) y git status --porcelain del worktree queda vacío",
+              "Carpeta destino inexistente → error 'falta la carpeta backend para backend/.env' y no se escribe ningún archivo",
+              "Carpeta destino que es un symlink fuera del worktree → error y nada escrito fuera",
+              "Destino que ya existe como symlink → se reemplaza por un archivo regular 600 y el blanco del symlink no cambia",
+              "Ruta no ignorada en el worktree → error y nada escrito",
+              "Un archivo ilegible en la lista → error y ningún archivo escrito",
+              "eslint y vitest en verde"
+            ],
+            "findings": [],
+            "by": "checker",
+            "reviewedAt": "2026-10-04T19:45:31.230Z",
+            "requestDigest": "7b69cfe68e73e5b59d1529acde970c2c57f4ef0a96d45c00c36e504c5c7dcdde",
+            "reviewedMaterialDigest": "05fb9b639e51446c4d652c87fe57b25bdcc695217b40ef3ee00c3402fa402e9e"
+          }
+        },
+        {
+          "id": "T3.2",
+          "title": "Escribir los .env al crear el worktree de un chat, con rollback",
+          "description": "En ChatService.create, después de createWorktree (que ya corrió el setup) y antes de crear el chat, leer los .env del proyecto (readAll) y escribirlos con writeEnvFiles. Si falla, removeWorktree (worktree y rama) y ChatError 422 con el motivo; no queda chat, evento ni rama. Registrar en los eventos bufferizados solo { step: 'env', paths: [...] }, nunca contenido. Sin .env registrados, el flujo queda como hoy. No cambia el contrato de createWorktree. Pasar EnvFileRepository por ChatServiceDeps desde app.ts.",
+          "files_to_touch": [
+            "apps/api/src/chats/service.ts",
+            "apps/api/src/app.ts",
+            "apps/api/test/chats.test.ts"
+          ],
+          "context": "R16 y D8: los .env se escriben después del setup porque el setup puede crear las carpetas (repos hijos de NovaGent). Fail-closed: el agente no arranca sin sus .env, también si alguno está ilegible (R12). Los tests de chats ya usan fake runner y repos locales; sumar un setupCommand que crea la carpeta backend (por ejemplo 'mkdir backend') y otro que no.",
+          "acceptance_criteria": [
+            "Proyecto con backend/.env y setup que crea backend/ → chat creado, backend/.env con modo 600, git status limpio en el worktree y evento sin contenido",
+            "Setup que no crea backend/ → 422 'falta la carpeta backend para backend/.env'; no existen el worktree, la rama feature/<slug> ni el chat",
+            "Un .env ilegible → 422 con el motivo y rollback completo",
+            "Proyecto sin .env → comportamiento igual al actual (tests existentes en verde)",
+            "typecheck, eslint y vitest en verde"
+          ],
+          "depends_on": [
+            "T3.1"
+          ],
+          "scenario_refs": [
+            "S18"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "ChatService.create: tras createWorktree (setup incluido) y antes de crear el chat, writeEnv lee envFiles.readAll y llama writeEnvFiles; EnvFileError → ChatError 422 y el catch existente hace removeWorktree (worktree + rama), sin chat ni eventos. Evento bufferizado worktree_output { step: 'env', paths } sin contenido. Sin .env el flujo no cambia. EnvFileRepository llega por ChatServiceDeps.envFiles desde app.ts (una sola instancia compartida con las rutas). createWorktree sin cambios.",
+            "validation": [
+              "npx vitest run test/chats.test.ts: 14 passed; nuevos: setup 'mkdir backend' → backend/.env 600, git status --porcelain vacío, evento {step:'env', paths:['.env','backend/.env']} y chat_events sin centinela; sin setup → 422 'falta la carpeta backend para backend/.env' sin chat, worktree ni rama feature/no-backend; .env cifrado con otra clave → 422 'el .env .env está ilegible, volvé a subirlo' con rollback completo y 0 eventos; tests previos (sin .env) en verde",
+              "npx eslint apps/api: exit 0; npm run typecheck --workspaces: ok",
+              "npm test -w apps/api: 301/302; la única falla es el test previo recoverInterrupted (debt-5 / tarea emergente E1)"
+            ],
+            "files_changed": [
+              "apps/api/src/chats/service.ts",
+              "apps/api/src/app.ts",
+              "apps/api/test/chats.test.ts"
+            ],
+            "by": "maker",
+            "recordedAt": "2026-10-04T19:47:29.992Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "Proyecto con backend/.env y setup que crea backend/ → chat creado, backend/.env con modo 600, git status limpio en el worktree y evento sin contenido",
+              "Setup que no crea backend/ → 422 'falta la carpeta backend para backend/.env'; no existen el worktree, la rama feature/<slug> ni el chat",
+              "Un .env ilegible → 422 con el motivo y rollback completo",
+              "Proyecto sin .env → comportamiento igual al actual (tests existentes en verde)",
+              "typecheck, eslint y vitest en verde"
+            ],
+            "findings": [],
+            "by": "checker",
+            "reviewedAt": "2026-10-04T19:47:30.236Z",
+            "requestDigest": "3a4a04fba810cc64ed656b4dd15d2f888ae5d3cadf628e595be60256c96ffc62",
+            "reviewedMaterialDigest": "9eb21e981a2eb00f68e64ede0dc419d492c0fd49b8c6a61d86fd77a16bd8e0b2"
+          }
+        },
+        {
+          "id": "T3.3",
+          "title": "Aplicar un .env subido a los worktrees activos (applyToActive)",
+          "description": "Cuando el PUT trae applyToActive: true, después de guardar, escribir ese archivo en cada worktree activo del proyecto y devolver applied: [{ chatId, worktreePath, status: 'written' | 'skipped', reason? }]. Worktree activo = chat del proyecto cuyo worktreePath todavía existe en disco; los que no existen no se listan. Cada worktree se procesa por separado con writeEnvFiles y un fallo (carpeta faltante, no ignorado, symlink) queda como 'skipped' con su motivo sin frenar a los demás. El guardado ya está hecho aunque todos fallen.",
+          "files_to_touch": [
+            "apps/api/src/env-files/routes.ts",
+            "apps/api/src/env-files/apply.ts",
+            "apps/api/test/env-routes.test.ts"
+          ],
+          "context": "R17 (should): pedido del usuario para rotar un .env sin recrear worktrees. Reutilizar writeEnvFiles (T3.1) y ChatRepository para listar los chats del proyecto. No tocar chats en curso más allá de escribir el archivo.",
+          "acceptance_criteria": [
+            "Con dos chats activos donde uno no tiene la carpeta destino: el primero queda 'written' (archivo 600 con el contenido nuevo) y el segundo 'skipped' con 'falta la carpeta…'",
+            "Un chat cuyo worktree ya no existe no aparece en applied",
+            "Sin applyToActive, ningún worktree cambia",
+            "La respuesta no contiene el contenido",
+            "eslint y vitest en verde"
+          ],
+          "depends_on": [
+            "T2.2",
+            "T3.1"
+          ],
+          "scenario_refs": [
+            "S19"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "Nuevo env-files/apply.ts: applyEnvFileToWorktrees(chats, file) recorre los chats del proyecto cuyo worktree existe en disco (los demás no se listan) y llama writeEnvFiles por separado; EnvFileError → skipped con su motivo, otro error → skipped con motivo genérico, sin frenar a los demás. PUT con applyToActive: true, después de guardar, devuelve { file, applied: EnvApplyResult[] }; sin applyToActive (o false) responde { file } y no toca worktrees. EnvFileRouteDeps suma chats (ChatRepository); app.ts lo pasa (cableado necesario fuera de la lista de archivos).",
+            "validation": [
+              "npx vitest run test/env-routes.test.ts: 20 passed; nuevos: dos chats activos (uno sin backend/) → written (backend/.env 600 con el contenido) y skipped 'falta la carpeta backend para backend/.env'; chat con worktree borrado no aparece en applied; reemplazo con applyToActive deja el contenido nuevo; sin applyToActive o false no escribe en el worktree ni devuelve applied; la respuesta no contiene el centinela",
+              "npx eslint apps/api: exit 0; npm run typecheck --workspaces: ok",
+              "npm test -w apps/api: 304/305; la única falla es el test previo recoverInterrupted (debt-5 / tarea emergente E1)"
+            ],
+            "files_changed": [
+              "apps/api/src/env-files/apply.ts",
+              "apps/api/src/env-files/routes.ts",
+              "apps/api/src/app.ts",
+              "apps/api/test/env-routes.test.ts"
+            ],
+            "by": "maker",
+            "recordedAt": "2026-10-04T19:51:59.796Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "Con dos chats activos donde uno no tiene la carpeta destino: el primero queda 'written' (archivo 600 con el contenido nuevo) y el segundo 'skipped' con 'falta la carpeta…'",
+              "Un chat cuyo worktree ya no existe no aparece en applied",
+              "Sin applyToActive, ningún worktree cambia",
+              "La respuesta no contiene el contenido",
+              "eslint y vitest en verde"
+            ],
+            "findings": [],
+            "by": "checker",
+            "reviewedAt": "2026-10-04T19:52:00.046Z",
+            "requestDigest": "65e7dbdc1e4b98c704bb41bfb9f4a1f0910db733ec9717a05b8f0ecbcc0bf21c",
+            "reviewedMaterialDigest": "db487d01a9f727aac7c8a68d3a62615d4bb3711e667e6ea17b162a7e5f6ebd9d"
+          }
+        }
+      ]
+    },
+    {
+      "id": "P4",
+      "title": "Docs y deuda chica",
+      "objective": "Dejar documentado lo que hace el sprint y pagar la deuda que queda al lado del código tocado.",
+      "status": "done",
+      "tasks": [
+        {
+          "id": "T4.1",
+          "title": "Docs: .env en plan.md, panel-desarrollo.md, estados.md y CLAUDE.md",
+          "description": "docs/plan.md: sección de .env (cifrado AES-256-GCM con HKDF y info 'agents-panel:env-files-v1', validaciones de nombre, ruta y contenido, check-ignore, re-autenticación TOTP, escritura después del setup con 600 y fail-closed, ilegibles al rotar PANEL_SECRET_KEY, applyToActive). docs/panel-desarrollo.md: cómo subir, reemplazar, listar y borrar un .env por la API mientras no haya web (con valores falsos, nunca reales). docs/estados.md: el nuevo motivo de fallo al crear un worktree ('falta la carpeta X para .env' o .env ilegible). CLAUDE.md, sección 'Proyectos registrados': los .env de desarrollo los pone el panel en cada worktree; panel-setup.sh puede seguir copiando el suyo (el panel escribe después y gana). No tocar la regla de bitácora (R24, sprint 3).",
+          "files_to_touch": [
+            "docs/plan.md",
+            "docs/panel-desarrollo.md",
+            "docs/estados.md",
+            "CLAUDE.md"
+          ],
+          "context": "R24 (parte de .env) y la regla de CLAUDE.md: si una decisión cambia, se actualiza el doc en el mismo cambio. Docs en español. Los secretos no se pegan en docs: se describe dónde están, no qué valen. Sin cambios en la VM en este sprint (costo US$0, sin paso nuevo en vm-setup.md).",
+          "acceptance_criteria": [
+            "Rutas, campos y códigos de los docs contrastados con env-files/routes.ts y sus tests",
+            "Ningún valor que parezca secreto en los docs (grep)",
+            "CLAUDE.md suma solo lo de .env en 'Proyectos registrados'; la regla de bitácora queda igual"
+          ],
+          "depends_on": [
+            "T2.2",
+            "T3.2",
+            "T3.3"
+          ],
+          "scenario_refs": [],
+          "status": "done",
+          "evidence": {
+            "summary": "docs/plan.md: nueva sección '.env de desarrollo por proyecto' (tabla project_env_files, AES-256-GCM con HKDF info agents-panel:env-files-v1 y AAD projectId:ruta, solo metadatos hacia afuera y LOGGER_OPTIONS con redacción, validaciones de ruta/nombre/contenido y check-ignore, re-auth TOTP con 401 invalid_totp y step reauth, escritura 600 después del setup con fail-closed 422 y rollback, ilegibles al rotar PANEL_SECRET_KEY, applyToActive). docs/panel-desarrollo.md: cómo subir/reemplazar (PUT con ejemplo de valores falsos), listar, borrar y los códigos 200/201/400/401/404/409/422. docs/estados.md: el paso instalando_dependencias incluye la escritura de .env y sus motivos de fallo (422 con rollback, sin chat). CLAUDE.md 'Proyectos registrados': una viñeta sobre los .env que pone el panel (panel-setup.sh puede copiar el suyo; el panel escribe después y gana). Sin cambios en la VM.",
+            "validation": [
+              "Contraste con apps/api/src/env-files/routes.ts y test/env-routes.test.ts: rutas GET/PUT/DELETE /api/projects/:id/env, campos path/content/totp/applyToActive, 201/200, 400, 401 invalid_totp, 404, 409, DELETE {ok:true}; 422 y mensajes con test/chats.test.ts y write.ts",
+              "grep -iE 'sk-|ghp_|gho_|AKIA|PRIVATE KEY|password=|secret=|token=|api_key=' sobre las líneas agregadas: sin coincidencias (el ejemplo usa API_KEY=valor-de-prueba y totp 123456)",
+              "git diff CLAUDE.md: solo +1 línea en 'Proyectos registrados'; la regla de bitácora sin cambios"
+            ],
+            "files_changed": [
+              "docs/plan.md",
+              "docs/panel-desarrollo.md",
+              "docs/estados.md",
+              "CLAUDE.md"
+            ],
+            "by": "maker",
+            "recordedAt": "2026-10-04T19:53:18.757Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "Rutas, campos y códigos de los docs contrastados con env-files/routes.ts y sus tests",
+              "Ningún valor que parezca secreto en los docs (grep)",
+              "CLAUDE.md suma solo lo de .env en 'Proyectos registrados'; la regla de bitácora queda igual"
+            ],
+            "findings": [],
+            "by": "checker",
+            "reviewedAt": "2026-10-04T19:53:19.004Z",
+            "requestDigest": "d8b567e1789bec33384c7bedc08b126e7ce2d6d9e93d4bb3dd022f5d9a37b255",
+            "reviewedMaterialDigest": "13b034e59dae9c34323cc35e802e50cbbf88bf544d4788e946c204b8fd01bf20"
+          }
+        },
+        {
+          "id": "T4.2",
+          "title": "Pagar debt-1 y debt-2: campos extra en chats y mensaje de duplicado",
+          "description": "debt-1: usar el helper onlyKeys (T2.2) en las rutas de chats que tienen body (POST /api/chats y POST /api/chats/:id/messages) para que un campo extra dé 400 en vez de descartarse. debt-2: el mensaje de proyecto duplicado pasa a español ('El proyecto ya existe: <nombre>' o equivalente con 'ya existe'). Ajustar los tests de chats y de proyectos.",
+          "files_to_touch": [
+            "apps/api/src/chats/routes.ts",
+            "apps/api/src/projects/repo.ts",
+            "apps/api/src/projects/service.ts",
+            "apps/api/test/chats.test.ts",
+            "apps/api/test/projects.test.ts"
+          ],
+          "context": "Deuda abierta del sprint 1, prioridad low, al lado del código que este sprint ya toca (onlyKeys se extrae en T2.2). Tarea sin requisito de spec propio (scenario_refs vacío): R4 pide 'ya existe' y debt-2 lo corrige; debt-1 refuerza R22. debt-3 (índice único en repo_url) y debt-4 (serializar kyro install) se dejan abiertas para el sprint 3, que toca Kyro y el alta.",
+          "acceptance_criteria": [
+            "POST /api/chats con un campo extra → 400 'Unknown field: …' y no se crea worktree ni chat",
+            "Registrar dos veces el mismo repo responde 409 con 'ya existe'",
+            "Tests existentes de chats y proyectos en verde"
+          ],
+          "depends_on": [
+            "T2.2"
+          ],
+          "scenario_refs": [
+            "S4"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "debt-1: chats/routes.ts usa onlyKeys (http/only-keys.ts) en POST /api/chats y POST /api/chats/:id/messages (schemas extraídos a createBody/messageBody); un campo extra da 400 'Unknown field: …' antes de crear nada. debt-2: el duplicado de proyecto pasa a 'El proyecto ya existe: <nombre>' en repo.ts (insertGithub y add) y service.ts.",
+            "validation": [
+              "npx vitest run test/chats.test.ts test/projects.test.ts test/project-service.test.ts test/cli.test.ts: 73 passed; nuevos: POST /api/chats con worktreePath extra → 400 'Unknown field: worktreePath', sin chat ni worktree; messages con campo extra → 400; segundo POST /api/projects del mismo repo → 409 con /ya existe/",
+              "npx eslint apps/api: exit 0; typecheck api ok",
+              "npm test -w apps/api: 306/306 passed"
+            ],
+            "files_changed": [
+              "apps/api/src/chats/routes.ts",
+              "apps/api/src/projects/repo.ts",
+              "apps/api/src/projects/service.ts",
+              "apps/api/test/chats.test.ts",
+              "apps/api/test/projects.test.ts"
+            ],
+            "by": "maker",
+            "recordedAt": "2026-10-04T19:55:00.024Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "POST /api/chats con un campo extra → 400 'Unknown field: …' y no se crea worktree ni chat",
+              "Registrar dos veces el mismo repo responde 409 con 'ya existe'",
+              "Tests existentes de chats y proyectos en verde"
+            ],
+            "findings": [],
+            "by": "checker",
+            "reviewedAt": "2026-10-04T19:55:00.262Z",
+            "requestDigest": "f0582305a2b124e7d87ed625220bb477c0da6be2cf8954c21efb3c8f1add34d9",
+            "reviewedMaterialDigest": "ad84039f18f8ea2e48dc625bc74b37cc1aaac10a62b2fcb1d1504a8be6b1395d"
+          }
+        }
+      ]
+    }
+  ],
+  "emergentTasks": [
+    {
+      "id": "E1",
+      "title": "Estabilizar test recoverInterrupted de project-service",
+      "description": "test/project-service.test.ts:315 hace mkdirSync(join(projectsDir,'r')) mientras el clon en segundo plano de service.add ya pudo crear la carpeta con mkdir(dest): EEXIST intermitente (casi siempre con la suite completa). Bloquea el criterio 'vitest en verde' de las tareas del sprint. Ver debt-5.",
+      "files_to_touch": [],
+      "context": "",
+      "acceptance_criteria": [
+        "El test crea la carpeta de forma idempotente (o espera a que el servicio la cree) sin perder lo que verifica: recoverInterrupted pasa el proyecto a error 'interrumpido' y borra la carpeta parcial",
+        "npx vitest run test/project-service.test.ts pasa 10 corridas seguidas y npm test -w apps/api queda en verde"
+      ],
+      "depends_on": [],
+      "scenario_refs": [],
+      "status": "done",
+      "evidence": {
+        "summary": "test/project-service.test.ts 'recoverInterrupted…': en vez de mkdirSync en paralelo con el job de clonado (EEXIST intermitente), el clonador falso resuelve una promesa al ser llamado; el test la espera (el servicio ya creó la carpeta con mkdir(dest) justo antes de clonar), escribe un archivo parcial y sigue verificando lo mismo: estado cloning → recoverInterrupted = 1, error 'interrumpido', carpeta borrada, segunda corrida = 0. Solo cambia el test.",
+        "validation": [
+          "npx vitest run test/project-service.test.ts x10: 30/30 en las 10 corridas",
+          "npm test -w apps/api x3: 306/306 en las 3 corridas",
+          "npx eslint apps/api: exit 0"
+        ],
+        "files_changed": [
+          "apps/api/test/project-service.test.ts"
+        ],
+        "by": "maker",
+        "recordedAt": "2026-10-04T19:57:17.450Z"
+      },
+      "verdict": {
+        "result": "pass",
+        "checked_criteria": [
+          "El test crea la carpeta de forma idempotente (o espera a que el servicio la cree) sin perder lo que verifica: recoverInterrupted pasa el proyecto a error 'interrumpido' y borra la carpeta parcial",
+          "npx vitest run test/project-service.test.ts pasa 10 corridas seguidas y npm test -w apps/api queda en verde"
+        ],
+        "findings": [],
+        "by": "checker",
+        "reviewedAt": "2026-10-04T19:57:17.703Z",
+        "requestDigest": "daaeda8fc9e9690126c9422614d2479e6281c2d3e78d401dc57da4ec421239dc",
+        "reviewedMaterialDigest": "65fb215110a4395c3f0f4731ff945d7390f2c0898a3979e1a8c9e95bfafe3085"
+      }
+    }
+  ],
+  "definitionOfDone": [
+    "Todas las tareas done con evidencia y verdict pass",
+    "npm run typecheck (raíz, 3 workspaces) en verde",
+    "cd apps/api && npx eslint src test && npx vitest run en verde",
+    "kyro doctor --artifacts --kyro-scope proyectos-y-versiones sin errores",
+    "Prueba de centinela: el valor no aparece en respuestas, logs, chat_events ni en la base",
+    "Ninguna ruta nueva sin sesión; allowlist pública sin cambios; sin exec ni shell en código nuevo",
+    "Sin cambios en la VM ni en costos (US$0)"
+  ]
+}

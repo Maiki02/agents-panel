@@ -18,11 +18,34 @@ export const TEST_ENV = {
 export function makeApp(
   overrides: Record<string, string> = {},
   now?: () => number,
-  extra: Partial<Pick<AppDeps, 'runner' | 'db' | 'bus' | 'heartbeatMs'>> = {},
-): { app: FastifyInstance; db: ReturnType<typeof openDatabase>; worktreesDir: string } {
+  extra: Partial<
+    Pick<
+      AppDeps,
+      | 'runner'
+      | 'db'
+      | 'bus'
+      | 'heartbeatMs'
+      | 'projectService'
+      | 'manager'
+      | 'kyroVersions'
+      | 'kyroScriptRunner'
+    >
+  > = {},
+): {
+  app: FastifyInstance;
+  db: ReturnType<typeof openDatabase>;
+  worktreesDir: string;
+  projectsDir: string;
+} {
   const db = extra.db ?? openDatabase(':memory:');
   const worktreesDir = mkdtempSync(join(tmpdir(), 'panel-wt-'));
-  const config = loadConfig({ ...TEST_ENV, PANEL_WORKTREES_DIR: worktreesDir, ...overrides });
+  const projectsDir = mkdtempSync(join(tmpdir(), 'panel-projects-'));
+  const config = loadConfig({
+    ...TEST_ENV,
+    PANEL_WORKTREES_DIR: worktreesDir,
+    PANEL_PROJECTS_DIR: projectsDir,
+    ...overrides,
+  });
   const app = buildApp({
     config,
     db,
@@ -30,8 +53,12 @@ export function makeApp(
     ...(extra.runner ? { runner: extra.runner } : {}),
     ...(extra.bus ? { bus: extra.bus } : {}),
     ...(extra.heartbeatMs ? { heartbeatMs: extra.heartbeatMs } : {}),
+    ...(extra.projectService ? { projectService: extra.projectService } : {}),
+    ...(extra.manager ? { manager: extra.manager } : {}),
+    ...(extra.kyroVersions ? { kyroVersions: extra.kyroVersions } : {}),
+    ...(extra.kyroScriptRunner ? { kyroScriptRunner: extra.kyroScriptRunner } : {}),
   });
-  return { app, db, worktreesDir };
+  return { app, db, worktreesDir, projectsDir };
 }
 
 export function cookieHeader(setCookie: string | string[] | undefined, name: string): string {

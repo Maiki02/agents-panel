@@ -27,6 +27,29 @@ export function decrypt(key: Buffer, payload: string): string {
   return Buffer.concat([decipher.update(raw.subarray(28)), decipher.final()]).toString('utf8');
 }
 
+export interface EncryptedParts {
+  ciphertext: Buffer;
+  iv: Buffer;
+  tag: Buffer;
+}
+
+/** AES-256-GCM with separate parts (for BLOB columns); `aad` binds the ciphertext to its context. */
+export function encryptParts(key: Buffer, plaintext: string, aad?: Buffer): EncryptedParts {
+  const iv = randomBytes(12);
+  const cipher = createCipheriv('aes-256-gcm', key, iv);
+  if (aad) cipher.setAAD(aad);
+  const ciphertext = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
+  return { ciphertext, iv, tag: cipher.getAuthTag() };
+}
+
+/** Throws if the key, the AAD or any part does not match what was encrypted. */
+export function decryptParts(key: Buffer, parts: EncryptedParts, aad?: Buffer): string {
+  const decipher = createDecipheriv('aes-256-gcm', key, parts.iv);
+  if (aad) decipher.setAAD(aad);
+  decipher.setAuthTag(parts.tag);
+  return Buffer.concat([decipher.update(parts.ciphertext), decipher.final()]).toString('utf8');
+}
+
 function sign(key: Buffer, data: string): string {
   return createHmac('sha256', key).update(data).digest('base64url');
 }

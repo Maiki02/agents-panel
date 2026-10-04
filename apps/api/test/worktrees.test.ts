@@ -10,7 +10,19 @@ import { makeGitRepo } from './helpers.js';
 function setup(setupCommand: string | null = null) {
   const repoPath = makeGitRepo();
   const root = mkdtempSync(join(tmpdir(), 'panel-wt-'));
-  const project: Project = { id: 1, name: 'demo', repoPath, baseBranch: 'main', setupCommand };
+  const project: Project = {
+    id: 1,
+    name: 'demo',
+    displayName: null,
+    repoUrl: null,
+    repoPath,
+    baseBranch: 'main',
+    setupCommand,
+    status: 'ready',
+    statusDetail: null,
+    hasKyro: false,
+    kyroWarning: null,
+  };
   const git = (...args: string[]) =>
     execFileSync('git', ['-C', repoPath, ...args], { encoding: 'utf8' });
   return { project, root, git };

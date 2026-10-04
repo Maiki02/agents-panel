@@ -205,6 +205,45 @@ Kyro 6.1 solo ofrece los adapters `standard`, `opencode` y `codex` (ya no existe
 - **Verificar:** `ls -l ~/.claude/skills | grep kyro-` (8 enlaces) y, en una sesión nueva de Claude Code, que `/kyro-work`, `/kyro-forge`, etc. aparezcan en la lista de skills. Las sesiones y los servers `rc-*` que ya estaban corriendo hay que reiniciarlos (`05-remote-control.sh --stop` y de nuevo sin flags).
 - Los repos con `.claude/skills/kyro-*` propias de una instalación vieja (hoy `ventas`: le faltan `kyro-work` y `kyro-scope-retire`, y tiene `merge-dev`) usan esa copia en vez de la global. Si molesta, borrar esas carpetas del repo en un cambio aparte.
 
+### 12. uv (gestor de Python): `scripts/vm/07-uv.sh`
+
+```bash
+bash ~/proyectos/agents-panel/scripts/vm/07-uv.sh
+```
+
+Algunos proyectos (hoy `expedientes-ai`, con setup `uv sync --project backend`) necesitan `uv`; el setup de un worktree corre sin shell y con el PATH del panel, así que `uv` tiene que estar instalado en la VM.
+
+- Usa el instalador oficial (`https://astral.sh/uv/install.sh`), que baja el binario de `releases.astral.sh` y verifica su checksum. Lo deja en `~/.local/bin` (`uv` y `uvx`) con `UV_NO_MODIFY_PATH=1`: no toca `.bashrc` ni `.profile` (`~/.local/bin` ya está en el PATH por el `.bashrc` de la VM).
+- Sin privilegios de root y sin salir del home. Costo US$0 (sin recursos de Oracle).
+- Idempotente: si `~/.local/bin/uv` ya existe, solo corre `uv self update` (sin cambios si ya es la última versión).
+- **Verificar:** `uv --version` (en una sesión nueva) y `ls -l ~/.local/bin/uv ~/.local/bin/uvx`. Una segunda corrida del script termina con `You're already on version … (the latest version)`.
+
+### 13. Alta de proyectos desde la web: hallazgos de `gh` y `kyro` (verificación, sin cambios en la VM)
+
+Verificado el 2026-10-04 con `gh` 2.102.0 y Kyro 6.1.0, siempre dentro de una carpeta temporal y con argv (sin shell), como lo hace el panel. Sirve de referencia para el alta por GitHub (`ProjectService`).
+
+- **Clonar:** `gh repo clone <owner/repo> <directorio>`. Con un repo válido sale con código 0, escribe `Cloning into '<dir>'...` en stderr y el origin queda `https://github.com/<owner>/<repo>.git` (protocolo https, el configurado en `gh`); se queda en la rama por defecto del remoto. Probado con un repo público ajeno (`octocat/Hello-World`); ningún repo del usuario se clonó para la prueba.
+- **Errores:** con un `owner/repo` inexistente sale con código 1 y stderr `GraphQL: Could not resolve to a Repository with the name '<owner>/<repo>'. (repository)`; no crea la carpeta. Con el destino ya existente y no vacío sale con código 1 (`fatal: destination path '<dir>' already exists and is not an empty directory.` y `failed to run git: exit status 128`). El panel usa stderr como detalle del error.
+- **Kyro en un repo con `.agents/kyro/`:** `kyro install --scope workspace --init-workspace --yes` (CLI global, cwd en el repo) sale con código 0 y crea `.agents/kyro/local.json` (ignorado por git: el árbol queda limpio). Una segunda corrida también sale con 0 y solo cambia `installedAt` dentro de `local.json`. Equivale al `npx --yes kyro-ai@latest install --init-workspace --yes` del paso 7.
+- **Ojo:** ese comando no es local al proyecto: también refresca el runtime global (`~/.agents/kyro/current`) y las skills (`~/.agents/skills/*`), aunque la versión sea la misma. Es lo mismo que hace una actualización de Kyro, así que no rompe nada, pero instalar en un proyecto toca lo global de toda la VM.
+- **Validar:** `kyro doctor` (13 checks `PASS` y código 0 en un clon recién inicializado).
+
+### 14. Actualizar Kyro: `scripts/vm/08-kyro-update.sh`
+
+```bash
+bash ~/proyectos/agents-panel/scripts/vm/08-kyro-update.sh ~/proyectos/agents-panel ~/proyectos/ventas
+```
+
+Kyro es global de la VM (CLI en `~/.npm-global/bin/kyro`, runtime en `~/.agents/kyro/current`, skills en `~/.agents/skills`), pero cada proyecto con Kyro tiene además su workspace (`.agents/kyro/`). Este script es lo que corre el botón Actualizar de la pantalla Versiones, y también se puede correr a mano.
+
+- **H1 verificada (Kyro 6.1.0, 2026-10-04):** `kyro update --help` dice que verifica el registro, actualiza el paquete global si está atrás y refresca el runtime y el workspace del directorio actual; `--check` y `--dry-run` no cambian nada, `--yes` evita la pregunta. Por eso la secuencia es `npm i -g kyro-ai@latest` y después `kyro update --yes` con el cwd en cada raíz. Con `--yes` no pidió nada interactivo en ninguna de las dos raíces, así que no hace falta el plan B (`kyro install --scope workspace --init-workspace --yes`).
+- **Qué hace, en orden:** (1) valida todas las raíces recibidas (cada una tiene que ser un directorio con `.agents/kyro/`; si no, sale con error antes de tocar nada); (2) `npm i -g kyro-ai@latest`; (3) `kyro update --yes` en cada raíz; (4) `06-kyro-skills.sh`; (5) `kyro doctor`. Sin argumentos solo hace lo global, las skills y el doctor.
+- La última línea es `KYRO_VERSION=<x.y.z>` (salida de `kyro --version`): la versión que realmente quedó. No imprime secretos ni lee `.env`.
+- Idempotente: con Kyro al día, `npm` responde `changed 1 package`, `kyro update` dice `is the latest release` y los symlinks quedan iguales.
+- Sin costo (US$0): no toca recursos de Oracle ni planes pagos.
+- **Verificar:** exit 0, 13 checks `PASS` de `kyro doctor`, última línea `KYRO_VERSION=…`, y `ls -l ~/.claude/skills | grep kyro-` igual antes y después. Las corridas desde el panel quedan en `maintenance_runs`, no en la bitácora (ver `CLAUDE.md`).
+- Las sesiones que ya estaban abiertas siguen con el runtime anterior: el panel no actualiza mientras haya sesiones corriendo.
+
 ### Pendiente (etapas siguientes del plan)
 
 
@@ -221,7 +260,9 @@ Regla del repo (`CLAUDE.md`): todo cambio que pueda modificar lo que se paga se 
 | 2026-10-03 | Etapa 1 (paquetes, swap en el disco existente, Node, Go, gh, Claude Code, Kyro, repos) | US$0: no agrega recursos de Oracle | — |
 | 2026-10-03 | Permisos de Claude Code y Remote Control (servicio systemd de usuario) | US$0 (usa la suscripción Claude Pro existente) | — |
 | 2026-10-04 | Skills de Kyro enlazadas a `~/.claude/skills` (symlinks locales) | US$0: sin recursos de Oracle | — |
+| 2026-10-04 | uv instalado en `~/.local/bin` con el instalador oficial (`07-uv.sh`) | US$0: sin recursos de Oracle ni planes pagos | — |
 | 2026-10-04 | Panel en desarrollo (etapa 4): `.env`, base SQLite local, worktrees en `~/wt`, sesiones del Agent SDK con la suscripción existente | US$0: sin recursos nuevos de Oracle ni planes pagos | — |
+| 2026-10-04 | Actualización de Kyro con `08-kyro-update.sh` (paquete npm global, runtime y symlinks locales) | US$0: sin recursos de Oracle ni planes pagos | — |
 
 ## Bitácora
 
@@ -249,3 +290,7 @@ Regla del repo (`CLAUDE.md`): todo cambio que pueda modificar lo que se paga se 
 | 2026-10-04 | Paso 10: `apps/api/.env` de desarrollo (clave generada, 600), recorrido de punta a punta con API y web reales sobre datos descartables | OK: login+TOTP, work en worktree, SSE, reinicio (`interrupted`) y resume con la misma sesión. Usuario real y proyecto real: los crea la persona (`user:create`, `project:add`) |
 | 2026-10-03 | `panel-setup.sh` en el repo `ventas` (setup de worktrees multi-repo para el panel) y receta de `project:add novagent` en el paso 10 | Escrito y subido, **sin correr todavía en la VM** (falta `git pull` en `~/proyectos/ventas` y probar con un work). Sin costo |
 | 2026-10-03 | Regla en `CLAUDE.md`: cuándo un repo lleva `scripts/panel-setup.sh` | Solo documentación. Sin cambios en la VM ni costo |
+| 2026-10-04 | Scope `proyectos-y-versiones`: verificación de `gh repo clone` y de `kyro install --init-workspace` sobre carpetas temporales (paso 13) | OK: sin cambios de configuración en la VM; `kyro install` refrescó el runtime y las skills globales (misma versión 6.1.0). Sin costo |
+| 2026-10-04 | Paso 12: `bash scripts/vm/07-uv.sh` dos veces | OK: 1ª corrida instaló uv 0.12.23 (aarch64) en `~/.local/bin` (`uv`, `uvx`; `.bashrc`/`.profile` intactos); 2ª corrida `You're already on version v0.12.23 (the latest version)`, mismos sha256 de los binarios. Sin costo |
+| 2026-10-04 | Paso 14: `bash scripts/vm/08-kyro-update.sh ~/proyectos/agents-panel ~/proyectos/ventas` (1ª corrida; la raíz de NovaGent es `ventas`) | OK: exit 0, `kyro update --yes` sin preguntas en las dos raíces (6.1.0 ya era la última), `kyro doctor` 13/13 PASS, `KYRO_VERSION=6.1.0`. Raíz inexistente o sin `.agents/kyro/`: falla con mensaje claro antes de tocar nada. Sin costo |
+| 2026-10-04 | Paso 14: misma corrida, 2ª vez seguida | OK: exit 0, `kyro doctor` 13/13 PASS, `KYRO_VERSION=6.1.0`; los 8 symlinks de skills quedaron idénticos (mismo hash del listado). Sin costo |

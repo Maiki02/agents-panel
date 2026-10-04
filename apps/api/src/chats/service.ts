@@ -1,7 +1,15 @@
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import type { Chat, ChatKind } from '@agents-panel/shared';
-import { AgentManager, AlreadyRunningError, SessionLimitError } from '../agent/manager.js';
+import {
+  AgentManager,
+  AlreadyRunningError,
+  MaintenanceError,
+  SessionLimitError,
+} from '../agent/manager.js';
+import type { EnvFileRepository } from '../env-files/repo.js';
+import { EnvFileError } from '../env-files/validate.js';
+import { writeEnvFiles } from '../env-files/write.js';
 import type { ProjectRepository } from '../projects/repo.js';
 import {
   WorktreeError,
@@ -53,6 +61,8 @@ export interface ChatServiceDeps {
   projects: ProjectRepository;
   manager: AgentManager;
   worktreesDir: string;
+  /** The project's development .env files, written into every new worktree after setup. */
+  envFiles: EnvFileRepository;
 }
 
 export class ChatService {
@@ -67,6 +77,10 @@ export class ChatService {
     const { chats, projects, manager, worktreesDir } = this.deps;
     const project = projects.findById(input.projectId);
     if (!project) throw new ChatError('Project not found', 404);
+    // A clone still running (or failed) means an incomplete repo: no worktree, no chat.
+    if (project.status !== 'ready') {
+      throw new ChatError(`El proyecto todavía no está listo: ${project.status}`, 409);
+    }
     try {
       validateSlug(input.slug);
     } catch (error) {
@@ -76,7 +90,8 @@ export class ChatService {
       throw new ChatError(`A chat with slug "${input.slug}" already exists in this project`, 409);
     }
 
-    // Fail before touching git when there is no room; startTurn re-checks after the awaits below.
+    // Fail before touching git during a Kyro update or when there is no room; startTurn re-checks after the awaits below.
+    if (manager.inMaintenance) throw new ChatError(new MaintenanceError().message, 409);
     if (!manager.hasCapacity()) throw new ChatError('Too many sessions are running', 409);
 
     const buffered: { type: string; payload: Record<string, unknown> }[] = [];
@@ -91,6 +106,7 @@ export class ChatService {
     }
 
     try {
+      await this.writeEnv(project.id, worktree.path, buffered);
       const chat = chats.create({
         projectId: project.id,
         kind: input.kind,
@@ -115,6 +131,29 @@ export class ChatService {
     }
   }
 
+  /**
+   * After setup (it may create the folders, e.g. child repos): the agent never starts without its
+   * .env files, so any failure, an unreadable file included, aborts the create. Events carry paths only.
+   */
+  private async writeEnv(
+    projectId: number,
+    worktreePath: string,
+    buffered: { type: string; payload: Record<string, unknown> }[],
+  ): Promise<void> {
+    const files = this.deps.envFiles.readAll(projectId);
+    if (files.length === 0) return;
+    try {
+      await writeEnvFiles(worktreePath, files);
+    } catch (error) {
+      if (error instanceof EnvFileError) throw new ChatError(error.message, 422);
+      throw error;
+    }
+    buffered.push({
+      type: 'worktree_output',
+      payload: { step: 'env', paths: files.map((file) => file.path) },
+    });
+  }
+
   sendMessage(chatId: number, text: string): void {
     this.requireChat(chatId);
     this.startTurn(chatId, text);
@@ -135,7 +174,11 @@ export class ChatService {
     try {
       this.deps.manager.start(chatId, text);
     } catch (error) {
-      if (error instanceof AlreadyRunningError || error instanceof SessionLimitError) {
+      if (
+        error instanceof AlreadyRunningError ||
+        error instanceof SessionLimitError ||
+        error instanceof MaintenanceError
+      ) {
         throw new ChatError(error.message, 409);
       }
       throw error;

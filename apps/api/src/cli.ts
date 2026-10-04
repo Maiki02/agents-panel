@@ -41,6 +41,7 @@ try {
   await runCli(process.argv.slice(2), terminalIo(), {
     db,
     secretKey: config.secretKey,
+    projectConfig: { projectsDir: config.projectsDir, minFreeDiskGb: config.minFreeDiskGb },
     sessionTimings: {
       idleTtlSeconds: config.sessionIdleTtlSeconds,
       absoluteTtlSeconds: config.sessionAbsoluteTtlSeconds,

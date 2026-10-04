@@ -28,6 +28,8 @@ Si una decisión cambia, se actualiza el doc correspondiente en el mismo cambio.
 
 El objetivo: poder rehacer la VM desde cero siguiendo solo el runbook.
 
+**Excepción: actualizar Kyro desde el panel.** Cada corrida del botón Actualizar de Versiones corre `scripts/vm/08-kyro-update.sh` (ya documentado en el paso 14 de `docs/vm-setup.md`) y queda registrada en la tabla `maintenance_runs` de la base del panel (versión anterior, versión nueva, resultado y salida recortada): esas corridas **no** suman línea a la bitácora. La bitácora sí registra la creación del script, sus cambios de procedimiento y las corridas hechas a mano.
+
 ## Regla de costos
 
 **Cualquier cambio en la VM o en la cuenta de Oracle que pueda modificar lo que se paga se avisa al usuario antes de hacerlo**, con el costo estimado y la alternativa gratis si existe. Sin su OK explícito, no se hace.
@@ -69,6 +71,7 @@ El setup de un proyecto (`project:add … ["comando de setup"]`) es opcional y s
 - Si no necesita nada, no lleva comando.
 - Si alcanza con un comando, se pasa directo (por ejemplo `"npm ci"`).
 - Si necesita más de un paso (clonar repos hijos, copiar `.env`, instalar dependencias), el repo lleva `scripts/panel-setup.sh` y se registra con `"bash scripts/panel-setup.sh"`. Tiene que ser idempotente, con `set -euo pipefail`, LF, clonar desde GitHub (no desde la copia local) y copiar solo `.env` de desarrollo. Modelo: `scripts/panel-setup.sh` del repo `ventas`.
+- Los `.env` de desarrollo los pone el panel en cada worktree: se suben cifrados por proyecto (`/api/projects/:id/env`, con TOTP) y se escriben con modo 600 después del setup. Un `panel-setup.sh` puede seguir copiando el suyo; el panel escribe después y su versión gana. Detalle en `docs/plan.md` y `docs/panel-desarrollo.md`.
 
 ## Seguridad del panel
 

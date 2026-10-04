@@ -29,6 +29,12 @@ printf 'PANEL_SECRET_KEY=%s\nPANEL_ORIGIN=http://localhost:4200\nHOST=127.0.0.1\
 - `PANEL_ORIGIN` tiene que ser **exactamente** la URL que se escribe en el navegador. Con el túnel de abajo es `http://localhost:4200`. Si se usa otro puerto local, cambiarlo acá y reiniciar la API.
 - La clave no se muestra ni se pega en ningún lado. Variables opcionales (`PANEL_DATA_DIR`, `PANEL_WORKTREES_DIR`, TTL de sesión): ver `apps/api/.env.example`.
 
+| Variable | Por defecto | Para qué sirve |
+|---|---|---|
+| `PANEL_PROJECTS_DIR` | `~/proyectos` | Carpeta donde el panel clona los proyectos agregados desde GitHub (`<carpeta>/<proyecto>`). Coincide con donde ya viven `ventas` y `agents-panel` en la VM. |
+| `PANEL_MIN_FREE_DISK_GB` | `10` | Espacio libre mínimo (entero positivo, en GB) para empezar un clon; con menos, el proyecto queda en error «sin espacio». |
+| `PANEL_KYRO_UPDATE_SCRIPT` | `scripts/vm/08-kyro-update.sh` del repo | Script que corre la actualización de Kyro (`POST /api/versions/kyro/update`). Se cambia para probar con uno falso. |
+
 ## 2. Crear la cuenta
 
 No hay registro público: las cuentas se crean solo desde la terminal de la VM, y las crea la persona (elige la contraseña y escanea el QR; no se le pasan a un agente).
@@ -58,13 +64,72 @@ Mantenimiento de cuentas:
 
 ## 3. Registrar un proyecto (una vez por proyecto)
 
+### Desde GitHub (API; la pantalla web llega en el sprint 2)
+
+Con la API levantada y una sesión iniciada, `POST /api/projects` clona el repo en `PANEL_PROJECTS_DIR` (por defecto `~/proyectos`) y lo registra. Hace falta la cookie de sesión y el token CSRF de `GET /api/auth/me`, más el header `Origin` igual a `PANEL_ORIGIN`:
+
+```json
+{
+  "repo": "owner/repo",
+  "name": "mi-proyecto",
+  "displayName": "Mi Proyecto",
+  "baseBranch": "dev",
+  "setupCommand": "bash scripts/panel-setup.sh"
+}
+```
+
+- Solo `repo` es obligatorio: `owner/repo` o `https://github.com/owner/repo` (con o sin `.git`). El resto es opcional: `name` (kebab-case; si falta sale del repo), `displayName` (nombre visible), `baseBranch` (si falta, la rama por defecto del clon) y `setupCommand`.
+- Cualquier otro campo (por ejemplo una ruta de carpeta) o un repo que no sea de GitHub se rechaza con 400: el destino lo decide siempre el panel.
+- **202**: el clon sigue en segundo plano y el proyecto está en `cloning`. **201**: la carpeta ya existía con ese origin y se adoptó (queda `ready`). **409**: el proyecto ya existe, o la carpeta existe con otro origin.
+- Seguir el estado con `GET /api/projects/:id` (`cloning`, `ready` o `error` con `statusDetail`). Si falló, `POST /api/projects/:id/retry`. Un chat sobre un proyecto que no está `ready` responde 409.
+- `GET /api/projects/:id` incluye `suggestedSetupCommand` (`bash scripts/panel-setup.sh`) cuando el repo trae ese script y el setup está vacío. No se aplica solo: se guarda con `PATCH /api/projects/:id` (`displayName`, `baseBranch`, `setupCommand`).
+- `hasKyro` indica si el repo trae `.agents/kyro/`; en ese caso se inicializa Kyro al quedar listo y, si falla, `kyroWarning` lo avisa sin revertir el proyecto.
+- Requiere `gh` autenticado en la VM (`gh auth status`) y al menos `PANEL_MIN_FREE_DISK_GB` GB libres.
+
+### Una carpeta ya clonada (CLI)
+
+`project:add` sigue sirviendo para registrar un repo que ya está en disco:
+
 ```bash
 npm run -w @agents-panel/api cli -- project:add <nombre> <ruta-del-repo> <rama-base> ["comando de setup"]
 # NovaGent (multi-repo):
 npm run -w @agents-panel/api cli -- project:add novagent ~/proyectos/ventas dev "bash scripts/panel-setup.sh"
+npm run -w @agents-panel/api cli -- project:list   # id, nombre, nombre visible, estado, ruta y rama base
 ```
 
 Detalle del comando de setup y de `panel-setup.sh` en `vm-setup.md` (paso 10) y en `CLAUDE.md`.
+
+### `.env` de desarrollo del proyecto (API; la pantalla web llega en el sprint 4)
+
+El panel guarda los `.env` de desarrollo de cada proyecto cifrados y los escribe (modo 600) en cada worktree nuevo, después del setup. Se manejan en `/api/projects/:id/env` con la sesión, el token CSRF y el `Origin` de siempre; subir, reemplazar y borrar piden además un código **TOTP nuevo** de la app (uno que no se haya usado para entrar ni en otra acción).
+
+Subir o reemplazar (`PUT`). El ejemplo usa valores falsos: nunca pegues un `.env` real en un doc, un issue o un chat.
+
+```json
+{
+  "path": "backend/.env",
+  "content": "DB_HOST=localhost\nAPI_KEY=valor-de-prueba\n",
+  "totp": "123456",
+  "applyToActive": false
+}
+```
+
+- **201** si se creó, **200** si reemplazó uno con la misma ruta. Responde `{ "file": { "path", "keyNames", "updatedAt", "readable" } }`; con `"applyToActive": true` suma `applied`: por cada worktree activo del proyecto, `written` o `skipped` con el motivo.
+- **400** con el motivo: ruta o nombre inválido (`.env.production`, `.env.example`, `../.env`…), contenido de más de 64 KB, con NUL o con una línea que no es `CLAVE=valor` (cita el número de línea), un campo de más, o una ruta que git **no** ignora en el clon (sumala al `.gitignore` del repo).
+- **401** `{ "error": "invalid_totp" }`: falta el código, es incorrecto o ya se usó. Cuenta para el bloqueo por intentos (`user:unlock` si hace falta).
+- **404** si el proyecto no existe; **409** si todavía no está `ready`.
+
+Listar (`GET /api/projects/:id/env`): devuelve ruta, nombres de las claves, fecha y `readable`. El contenido no se puede ver: para cambiarlo, se vuelve a subir.
+
+Borrar (`DELETE /api/projects/:id/env`, body `{ "path": "backend/.env", "totp": "123456" }`): **200**, o **404** si esa ruta no tiene `.env`.
+
+Si se cambia `PANEL_SECRET_KEY`, los `.env` guardados quedan con `readable: false` y crear un chat en ese proyecto responde 422 hasta volver a subirlos. Si el setup no crea la carpeta de algún `.env` (por ejemplo `backend/`), crear el chat también responde 422 («falta la carpeta backend para backend/.env») y no queda nada creado.
+
+### Actualizar Kyro (API; la pantalla web llega en el sprint 4)
+
+`POST /api/versions/kyro/update` con la sesión, el token CSRF y `{ "code": "123456" }` (un TOTP vigente que no se haya usado) corre `scripts/vm/08-kyro-update.sh` con las raíces de los proyectos listos que tienen Kyro. Responde **202** `{ "runId": 1 }`, **401** `{ "error": "invalid_totp" }`, o **409** si hay sesiones corriendo (`running` trae la cantidad) o ya hay una actualización en curso. `GET /api/versions` muestra la versión instalada y la última publicada (`null` sin red), y `GET /api/maintenance-runs?kind=kyro-update` el historial con la salida recortada.
+
+Para probarlo en desarrollo sin tocar el Kyro real de la VM, apuntar `PANEL_KYRO_UPDATE_SCRIPT` en `apps/api/.env` a un script propio (por ejemplo uno que imprima `KYRO_VERSION=9.9.9` y salga con 0 o con 1) y reiniciar la API. Mientras la corrida está `running`, crear un chat o mandar un mensaje responde 409. Para correr el script verdadero a mano: `bash scripts/vm/08-kyro-update.sh ~/proyectos/agents-panel` (ver `vm-setup.md`, paso 14).
 
 ## 4. Levantar backend y frontend en la VM
 

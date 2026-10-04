@@ -6,13 +6,46 @@ export interface HealthResponse {
   version: string;
 }
 
+/** Where a project stands: being cloned from GitHub, usable, or failed (see statusDetail). */
+export type ProjectStatus = 'cloning' | 'ready' | 'error';
+
 /** A registered project (a git repo the panel can open worktrees on). */
 export interface Project {
   id: number;
+  /** Internal kebab-case name: used in paths and worktrees, never changes. */
   name: string;
+  /** Free-form name shown in the web; falls back to `name` when null. */
+  displayName: string | null;
+  /** Canonical GitHub URL (https://github.com/owner/repo), null for projects added by path. */
+  repoUrl: string | null;
   repoPath: string;
   baseBranch: string;
   setupCommand: string | null;
+  status: ProjectStatus;
+  statusDetail: string | null;
+  /** The repo ships `.agents/kyro/`. Computed on read, never stored. */
+  hasKyro: boolean;
+  /** Set when a ready project could not initialize Kyro (the project stays usable). */
+  kyroWarning: string | null;
+}
+
+/** Metadata of a project's development .env; the content never leaves the API. */
+export interface EnvFileInfo {
+  /** Relative path inside the worktree, e.g. `.env` or `backend/.env.local`. */
+  path: string;
+  keyNames: string[];
+  updatedAt: number;
+  /** False when it cannot be decrypted (rotated PANEL_SECRET_KEY or tampered data). */
+  readable: boolean;
+}
+
+/** Outcome of writing a project's .env files into one active worktree. */
+export interface EnvApplyResult {
+  chatId: number;
+  worktreePath: string;
+  status: 'written' | 'skipped';
+  /** Why it was skipped; null when written. */
+  reason: string | null;
 }
 
 /** A Kyro scope (big stage) or work (small change); each one owns one worktree. */
@@ -44,4 +77,25 @@ export interface ChatEvent {
   type: string;
   payload: unknown;
   createdAt: number;
+}
+
+export type MaintenanceStatus = 'running' | 'ok' | 'error';
+
+/** One Kyro update run (see docs/vm-setup.md, step 14). */
+export interface MaintenanceRun {
+  id: number;
+  kind: 'kyro-update';
+  fromVersion: string | null;
+  toVersion: string | null;
+  status: MaintenanceStatus;
+  /** Last 16 KB of the script output; null while running. */
+  output: string | null;
+  startedAt: number;
+  finishedAt: number | null;
+}
+
+/** Installed Kyro version and the latest published one; null when unknown (no network, error). */
+export interface KyroVersionInfo {
+  installed: string | null;
+  latest: string | null;
 }

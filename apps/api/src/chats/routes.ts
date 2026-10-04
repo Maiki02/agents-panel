@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { onlyKeys } from '../http/only-keys.js';
 import { ChatError, type ChatService } from './service.js';
 import type { ChatRepository } from './repo.js';
 
@@ -6,6 +7,25 @@ const idParams = {
   type: 'object',
   required: ['id'],
   properties: { id: { type: 'integer', minimum: 1 } },
+} as const;
+
+const createBody = {
+  type: 'object',
+  required: ['projectId', 'kind', 'slug', 'prompt'],
+  additionalProperties: false,
+  properties: {
+    projectId: { type: 'integer', minimum: 1 },
+    kind: { enum: ['scope', 'work'] },
+    slug: { type: 'string', minLength: 1, maxLength: 50 },
+    prompt: { type: 'string', minLength: 1, maxLength: 20000 },
+  },
+} as const;
+
+const messageBody = {
+  type: 'object',
+  required: ['text'],
+  additionalProperties: false,
+  properties: { text: { type: 'string', minLength: 1, maxLength: 20000 } },
 } as const;
 
 export function registerChatRoutes(
@@ -23,21 +43,8 @@ export function registerChatRoutes(
 
   app.post<{ Body: { projectId: number; kind: 'scope' | 'work'; slug: string; prompt: string } }>(
     '/api/chats',
-    {
-      schema: {
-        body: {
-          type: 'object',
-          required: ['projectId', 'kind', 'slug', 'prompt'],
-          additionalProperties: false,
-          properties: {
-            projectId: { type: 'integer', minimum: 1 },
-            kind: { enum: ['scope', 'work'] },
-            slug: { type: 'string', minLength: 1, maxLength: 50 },
-            prompt: { type: 'string', minLength: 1, maxLength: 20000 },
-          },
-        },
-      },
-    },
+    // Unknown fields are refused, not silently dropped by ajv.
+    { schema: { body: createBody }, preValidation: onlyKeys(Object.keys(createBody.properties)) },
     async (request, reply) => {
       const chat = await service.create(request.body);
       return reply.code(201).send(chat);
@@ -72,15 +79,8 @@ export function registerChatRoutes(
   app.post<{ Params: { id: number }; Body: { text: string } }>(
     '/api/chats/:id/messages',
     {
-      schema: {
-        params: idParams,
-        body: {
-          type: 'object',
-          required: ['text'],
-          additionalProperties: false,
-          properties: { text: { type: 'string', minLength: 1, maxLength: 20000 } },
-        },
-      },
+      schema: { params: idParams, body: messageBody },
+      preValidation: onlyKeys(Object.keys(messageBody.properties)),
     },
     (request, reply) => {
       service.sendMessage(request.params.id, request.body.text);

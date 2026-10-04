@@ -4,6 +4,8 @@ import { SessionService } from '../auth/sessions.js';
 import { SecondFactorRepository, checkTotp, generateTotpSecret, totpUri } from '../auth/totp.js';
 import { UserRepository, type User } from '../auth/users.js';
 import { ProjectRepository } from '../projects/repo.js';
+import { ProjectService } from '../projects/service.js';
+import type { Config } from '../config.js';
 import { PROJECT_USAGE, runProjectCommand } from './projects.js';
 
 export interface CliIo {
@@ -19,6 +21,8 @@ export interface CliDeps {
   secretKey: Buffer;
   sessionTimings: { idleTtlSeconds: number; absoluteTtlSeconds: number };
   now?: () => number;
+  /** Clone settings; `project:add` only registers local folders, so tests may leave it out. */
+  projectConfig?: Pick<Config, 'projectsDir' | 'minFreeDiskGb'>;
 }
 
 export class CliError extends Error {
@@ -41,7 +45,17 @@ export async function runCli(argv: readonly string[], io: CliIo, deps: CliDeps):
   const factor = new SecondFactorRepository(deps.db, deps.secretKey, now);
   const sessions = new SessionService(deps.db, deps.sessionTimings, now);
   const [command, username] = argv;
-  if (await runProjectCommand(command, argv.slice(1), io, new ProjectRepository(deps.db, now))) {
+  const projectRepo = new ProjectRepository(deps.db, now);
+  const projectService = new ProjectService({
+    repo: projectRepo,
+    config: deps.projectConfig ?? { projectsDir: '', minFreeDiskGb: 10 },
+  });
+  if (
+    await runProjectCommand(command, argv.slice(1), io, {
+      projects: projectRepo,
+      service: projectService,
+    })
+  ) {
     return;
   }
 

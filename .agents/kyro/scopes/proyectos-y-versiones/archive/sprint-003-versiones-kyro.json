@@ -1,0 +1,431 @@
+{
+  "n": 3,
+  "slug": "versiones-kyro",
+  "title": "Versiones y actualización de Kyro",
+  "objective": "Que la API muestre la versión instalada y la última de Kyro y lo actualice con un script idempotente versionado, con TOTP, sin sesiones corriendo y bloqueando sesiones nuevas mientras corre, registrando cada corrida en maintenance_runs.",
+  "status": "complete",
+  "phases": [
+    {
+      "id": "P1",
+      "title": "VM: H1 y script de actualización",
+      "objective": "Confirmar la secuencia de actualización de Kyro 6.x y dejarla en un script idempotente documentado en el runbook.",
+      "status": "done",
+      "tasks": [
+        {
+          "id": "T1.1",
+          "title": "Verificar H1 y escribir scripts/vm/08-kyro-update.sh con su paso en el runbook",
+          "description": "Verificar H1 a mano y documentar el resultado en docs/vm-setup.md (paso nuevo '14. Actualizar Kyro: scripts/vm/08-kyro-update.sh'). Hallazgo previo al plan (2026-10-04, kyro 6.1.0): 'kyro update --help' dice que verifica el registro, actualiza el paquete global si está atrás y refresca runtime + workspace actual; 'kyro update --check' y '--dry-run' no cambian nada. Escribir scripts/vm/08-kyro-update.sh (bash, set -euo pipefail, LF), idempotente: (1) npm i -g kyro-ai@latest; (2) por cada raíz recibida por argumento: validar que sea un directorio con .agents/kyro/ y correr 'kyro update --yes' con cwd en esa raíz; (3) bash 06-kyro-skills.sh (ruta relativa al propio script); (4) kyro doctor. Imprime al final una línea 'KYRO_VERSION=<x.y.z>' con la salida de 'kyro --version' para que la API lea la versión que realmente quedó. Sin argumentos, solo actualiza lo global, enlaza skills y corre doctor. Correrlo dos veces en la VM con las raíces de los proyectos con Kyro (agents-panel y NovaGent) y registrar ambas corridas en la bitácora.",
+          "files_to_touch": [
+            "scripts/vm/08-kyro-update.sh",
+            "docs/vm-setup.md"
+          ],
+          "context": "R20, H1, D10. Regla de oro de CLAUDE.md: comando exacto, por qué y cómo se verifica + línea de bitácora con fecha y resultado. Sin costo (no cambia nada facturable de Oracle ni Tailscale). Kyro es global: CLI en ~/.npm-global/bin/kyro (npm prefix ~/.npm-global), runtime en ~/.agents/kyro/current, skills en ~/.agents/skills enlazadas a ~/.claude/skills por 06-kyro-skills.sh. Si 'kyro update' en una raíz pide algo interactivo pese a --yes, documentarlo y usar 'kyro install --scope workspace --init-workspace --yes' (el mismo comando de kyroInstall en projects/service.ts). El script nunca imprime secretos ni lee .env.",
+          "acceptance_criteria": [
+            "docs/vm-setup.md tiene el paso 14 con H1 verificado (qué hace kyro update en 6.x, comando exacto, por qué y cómo se verifica) y 'Pendiente' ya no lista la actualización de Kyro como pendiente",
+            "scripts/vm/08-kyro-update.sh con set -euo pipefail, LF y shellcheck limpio (si shellcheck está instalado; si no, bash -n)",
+            "Una raíz sin .agents/kyro/ o inexistente hace fallar el script con un mensaje claro antes de tocar nada",
+            "La última línea de salida es KYRO_VERSION=<versión de kyro --version>",
+            "Dos corridas reales seguidas en la VM terminan con exit 0, kyro doctor sano y la segunda no cambia la versión ni los symlinks de skills; ambas quedan en la bitácora con fecha y resultado"
+          ],
+          "depends_on": [],
+          "scenario_refs": [
+            "S23"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "Escrito scripts/vm/08-kyro-update.sh (npm i -g, kyro update --yes por raíz, 06-kyro-skills.sh, kyro doctor, KYRO_VERSION al final); H1 verificada; paso 14, costo y 2 líneas de bitácora en docs/vm-setup.md",
+            "validation": [
+              "bash -n OK, sin CRLF (shellcheck no instalado)",
+              "raíz inexistente y /tmp: exit 1 con mensaje claro antes de tocar nada",
+              "2 corridas reales con agents-panel y ventas: exit 0, doctor 13/13 PASS, KYRO_VERSION=6.1.0, hash de symlinks idéntico"
+            ],
+            "files_changed": [
+              "scripts/vm/08-kyro-update.sh",
+              "docs/vm-setup.md"
+            ],
+            "by": "maker",
+            "recordedAt": "2026-10-04T20:28:03.504Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "docs/vm-setup.md tiene el paso 14 con H1 verificado (qué hace kyro update en 6.x, comando exacto, por qué y cómo se verifica) y 'Pendiente' ya no lista la actualización de Kyro como pendiente",
+              "scripts/vm/08-kyro-update.sh con set -euo pipefail, LF y shellcheck limpio (si shellcheck está instalado; si no, bash -n)",
+              "Una raíz sin .agents/kyro/ o inexistente hace fallar el script con un mensaje claro antes de tocar nada",
+              "La última línea de salida es KYRO_VERSION=<versión de kyro --version>",
+              "Dos corridas reales seguidas en la VM terminan con exit 0, kyro doctor sano y la segunda no cambia la versión ni los symlinks de skills; ambas quedan en la bitácora con fecha y resultado"
+            ],
+            "findings": [],
+            "by": "checker",
+            "reviewedAt": "2026-10-04T20:28:05.301Z",
+            "requestDigest": "5b4a5b3518cf0d847ec90e7082d1e93f8c61291eced67c88a5a25eca4ab42ab7",
+            "reviewedMaterialDigest": "c02e9388f57c67436f4eb2db0adf4708af8f21bc8e5f9793af6c2cf6a8102750"
+          }
+        }
+      ]
+    },
+    {
+      "id": "P2",
+      "title": "API: bloqueo de mantenimiento, versiones y actualización",
+      "objective": "Rutas de Versiones con TOTP, L8 y registro en maintenance_runs, probadas con el script reemplazado por un fake.",
+      "status": "done",
+      "tasks": [
+        {
+          "id": "T2.1",
+          "title": "Bloqueo de mantenimiento en AgentManager y ChatService",
+          "description": "Sumar a AgentManager un bloqueo de mantenimiento: tryBeginMaintenance() devuelve { ok: true } y activa el bloqueo solo si runningCount === 0 y no hay otro mantenimiento en curso; si no, devuelve { ok: false, running: n } (o reason 'maintenance'). endMaintenance() lo libera. Mientras está activo, start() lanza MaintenanceError (409, mensaje en español 'Kyro se está actualizando; probá de nuevo cuando termine'). ChatService.create lo chequea antes de crear el worktree (igual que hasCapacity) y sendMessage lo hereda de start(). Las rutas de chats mapean MaintenanceError a 409.",
+          "files_to_touch": [
+            "apps/api/src/agent/manager.ts",
+            "apps/api/src/chats/service.ts",
+            "apps/api/src/chats/routes.ts",
+            "apps/api/test/chats.test.ts"
+          ],
+          "context": "R21 (L8). El chequeo y la activación son sincrónicos en un solo tick (Node es de un hilo), así no hay carrera entre 'no hay sesiones' y 'bloqueo puesto'. create() ya re-chequea capacidad en startTurn después de los await; el bloqueo se re-chequea igual vía start(), y si falla ahí el create ya limpia worktree, rama y chat.",
+          "acceptance_criteria": [
+            "Con una sesión corriendo, tryBeginMaintenance devuelve ok=false con running=1 y no activa el bloqueo",
+            "Con el bloqueo activo, POST /api/chats responde 409 sin crear worktree, rama, chat ni evento, y POST /api/chats/:id/messages responde 409",
+            "Después de endMaintenance, crear chats y mandar mensajes funciona como antes",
+            "eslint, typecheck y vitest del workspace api en verde"
+          ],
+          "depends_on": [],
+          "scenario_refs": [
+            "S24",
+            "S25"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "AgentManager: MaintenanceError, tryBeginMaintenance/endMaintenance/inMaintenance (check y flag sincrónicos); start() lanza MaintenanceError; ChatService.create lo chequea antes del worktree y startTurn lo mapea a 409; AppDeps.manager inyectable para tests",
+            "validation": [
+              "tsc --noEmit sin errores",
+              "eslint src test sin hallazgos",
+              "vitest run: 20 archivos, 308 tests OK (incluye 2 nuevos de bloqueo de mantenimiento: running=1 sin activar; 409 en create y mensajes sin worktree/rama/chat y recuperación tras endMaintenance)"
+            ],
+            "files_changed": [
+              "apps/api/src/agent/manager.ts",
+              "apps/api/src/chats/service.ts",
+              "apps/api/src/app.ts",
+              "apps/api/test/chats.test.ts",
+              "apps/api/test/helpers.ts"
+            ],
+            "by": "maker",
+            "recordedAt": "2026-10-04T20:29:27.538Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "Con una sesión corriendo, tryBeginMaintenance devuelve ok=false con running=1 y no activa el bloqueo",
+              "Con el bloqueo activo, POST /api/chats responde 409 sin crear worktree, rama, chat ni evento, y POST /api/chats/:id/messages responde 409",
+              "Después de endMaintenance, crear chats y mandar mensajes funciona como antes",
+              "eslint, typecheck y vitest del workspace api en verde"
+            ],
+            "findings": [],
+            "by": "checker",
+            "reviewedAt": "2026-10-04T20:29:27.790Z",
+            "requestDigest": "b3d4130c4be02a58f956b51713dac4d07688d7edca3e4bd65c9d6ad40c5ed974",
+            "reviewedMaterialDigest": "3ccb06e12daa6c619a890071605dce7703803de046ae2dda473cb91fb40bba30"
+          }
+        },
+        {
+          "id": "T2.2",
+          "title": "KyroVersions y MaintenanceRunRepository",
+          "description": "Crear apps/api/src/maintenance/ con: MaintenanceRunRepository sobre la tabla maintenance_runs existente (create running con kind 'kyro-update' y from_version, finish con status 'ok'|'error', to_version y output, list más nuevo primero con límite, failInterrupted() que pasa las corridas 'running' a 'error' con output 'interrumpido'); y KyroVersions con installed() (execFile 'kyro' ['--version'], timeout 5 s) y latest() (execFile 'npm' ['view','kyro-ai','version'], timeout 10 s; sin red, error o salida que no es semver devuelve null). Ambos inyectables para tests. Recortar output a los últimos 16 KB en bytes UTF-8 con una marca de recorte.",
+          "files_to_touch": [
+            "apps/api/src/maintenance/runs.ts",
+            "apps/api/src/maintenance/versions.ts",
+            "packages/shared/src/index.ts",
+            "apps/api/test/maintenance.test.ts"
+          ],
+          "context": "R19, R20. Tipos compartidos en packages/shared (MaintenanceRun, KyroVersionInfo { installed: string | null; latest: string | null }) para que la web del sprint 4 los consuma. Todo comando por execFile, sin shell. La tabla maintenance_runs ya existe (migración del sprint 1): no se cambia su esquema.",
+          "acceptance_criteria": [
+            "latest() devuelve null cuando el ejecutor falla, vence el timeout o la salida no es una versión; installed() igual con kyro",
+            "El repositorio crea, termina, lista (más nuevo primero) y failInterrupted pasa las 'running' a 'error' con 'interrumpido'",
+            "Un output de más de 16 KB queda recortado a los últimos 16 KB con marca de recorte",
+            "eslint, typecheck y vitest del workspace api en verde"
+          ],
+          "depends_on": [],
+          "scenario_refs": [
+            "S21",
+            "S28"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "Nuevo apps/api/src/maintenance/: MaintenanceRunRepository (create/finish/findById/list newest-first/failInterrupted, output recortado a los últimos 16 KB en bytes UTF-8 con marca) y KyroVersions (installed/latest/info por execFile con timeouts 5 s/10 s, null ante error, timeout o no-semver; Exec inyectable). Tipos MaintenanceRun, MaintenanceStatus y KyroVersionInfo en packages/shared",
+            "validation": [
+              "tsc --noEmit sin errores (tras rebuild de packages/shared)",
+              "eslint src test sin hallazgos",
+              "vitest run: 21 archivos, 318 tests OK (10 nuevos en maintenance.test.ts)"
+            ],
+            "files_changed": [
+              "apps/api/src/maintenance/runs.ts",
+              "apps/api/src/maintenance/versions.ts",
+              "packages/shared/src/index.ts",
+              "apps/api/test/maintenance.test.ts"
+            ],
+            "by": "maker",
+            "recordedAt": "2026-10-04T20:31:33.339Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "latest() devuelve null cuando el ejecutor falla, vence el timeout o la salida no es una versión; installed() igual con kyro",
+              "El repositorio crea, termina, lista (más nuevo primero) y failInterrupted pasa las 'running' a 'error' con 'interrumpido'",
+              "Un output de más de 16 KB queda recortado a los últimos 16 KB con marca de recorte",
+              "eslint, typecheck y vitest del workspace api en verde"
+            ],
+            "findings": [],
+            "by": "checker",
+            "reviewedAt": "2026-10-04T20:31:33.591Z",
+            "requestDigest": "33b23615f856b0c9fc945a30fc48ab5b2807899b62ef7c9a3c04e82cd4cf4314",
+            "reviewedMaterialDigest": "af2ffb086f96c42883b9e9fe25d6db0880fe4d4a8a95a0ec83e11a5d52076355"
+          }
+        },
+        {
+          "id": "T2.3",
+          "title": "KyroUpdater: corrida en segundo plano con lock compartido con kyro install (debt-4)",
+          "description": "Crear apps/api/src/maintenance/updater.ts con KyroUpdater.start(): pide manager.tryBeginMaintenance() (si falla lanza UpdateBlockedError 409 con la cantidad de sesiones o 'ya hay una actualización en curso'), mide from_version, crea la fila 'running' y corre en segundo plano el script (execFile 'bash' [scriptPath, ...raíces], timeout 10 min) con las raíces de los proyectos 'ready' con hasKyro. Al terminar mide to_version con installed() (si falla, usa la línea KYRO_VERSION=), guarda status, to_version y salida recortada (stdout+stderr) y libera el bloqueo en finally. Devuelve el id de la corrida. whenIdle() para tests. Un KyroLock (mutex de promesas) compartido serializa la actualización con el kyroInit de ProjectService: la actualización espera a que termine un kyro install en curso y un alta que llega durante la actualización espera a que termine antes de su kyro install.",
+          "files_to_touch": [
+            "apps/api/src/maintenance/updater.ts",
+            "apps/api/src/maintenance/lock.ts",
+            "apps/api/src/projects/service.ts",
+            "apps/api/src/config.ts",
+            "apps/api/.env.example",
+            "apps/api/test/maintenance.test.ts",
+            "apps/api/test/project-service.test.ts"
+          ],
+          "context": "R20, R21, debt-4, recomendación 1 del sprint 2. La ruta del script sale de config (PANEL_KYRO_UPDATE_SCRIPT, por defecto scripts/vm/08-kyro-update.sh resuelto desde la raíz del repo del panel); en tests se inyecta un script fake. La salida guardada nunca incluye variables de entorno ni contenido de .env (el script no los lee). El estado de error queda visible: la versión mostrada es la medida después, no la pedida.",
+          "acceptance_criteria": [
+            "Con un script fake que sale 0 e imprime KYRO_VERSION=9.9.9, la corrida queda 'ok' con from_version, to_version medida y salida",
+            "Con un script fake que sale 1, la corrida queda 'error' con la salida recortada y to_version igual a la versión realmente instalada",
+            "El script recibe como argumentos solo las raíces de proyectos 'ready' con .agents/kyro/",
+            "Con una sesión corriendo, start() lanza 409 con la cantidad, no crea fila ni ejecuta el script",
+            "Un segundo start() mientras corre el primero responde 409; al terminar (ok o error) el bloqueo se libera",
+            "Test de debt-4: un kyroInit lento y una actualización nunca se ejecutan superpuestos",
+            "eslint, typecheck y vitest del workspace api en verde"
+          ],
+          "depends_on": [
+            "T2.1",
+            "T2.2"
+          ],
+          "scenario_refs": [
+            "S22",
+            "S24",
+            "S25",
+            "S26"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "Corrección QA: execute() protege runs.finish del catch (la corrida queda running y se recupera al arrancar); sin rechazos sin manejar. Test nuevo",
+            "validation": [
+              "tsc y eslint sin hallazgos",
+              "vitest api: 22 archivos, 346 tests OK (incluye falla de finish con bloqueo liberado y whenIdle resuelto)"
+            ],
+            "files_changed": [
+              "apps/api/src/maintenance/updater.ts",
+              "apps/api/test/maintenance.test.ts"
+            ],
+            "by": "maker",
+            "recordedAt": "2026-10-04T20:45:32.993Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "Con un script fake que sale 0 e imprime KYRO_VERSION=9.9.9, la corrida queda 'ok' con from_version, to_version medida y salida",
+              "Con un script fake que sale 1, la corrida queda 'error' con la salida recortada y to_version igual a la versión realmente instalada",
+              "El script recibe como argumentos solo las raíces de proyectos 'ready' con .agents/kyro/",
+              "Con una sesión corriendo, start() lanza 409 con la cantidad, no crea fila ni ejecuta el script",
+              "Un segundo start() mientras corre el primero responde 409; al terminar (ok o error) el bloqueo se libera",
+              "Test de debt-4: un kyroInit lento y una actualización nunca se ejecutan superpuestos",
+              "eslint, typecheck y vitest del workspace api en verde"
+            ],
+            "findings": [],
+            "by": "checker",
+            "reviewedAt": "2026-10-04T20:45:33.239Z",
+            "requestDigest": "8eb71f8c2f05ce82e9a5cd40919bf63250d09cc217d5083264b6c6850ab3be87",
+            "reviewedMaterialDigest": "0e3d537560e0370bd98e54376120b4d2daad313a1587837109de1de1b0d1c3e0"
+          }
+        },
+        {
+          "id": "T2.4",
+          "title": "Rutas de Versiones con TOTP, guard y recuperación al arrancar",
+          "description": "Crear apps/api/src/maintenance/routes.ts: GET /api/versions → { kyro: { installed, latest, updateRunning } }; POST /api/versions/kyro/update con body { code } (onlyKeys) → ReauthVerifier.verify primero, después updater.start(); responde 202 { runId }, 409 { error, running } si hay sesiones o actualización en curso; GET /api/maintenance-runs?kind=kyro-update → lista más nueva primero (límite 50). Cablear en app.ts y llamar a runs.failInterrupted() al arrancar, junto a projectService.recoverInterrupted().",
+          "files_to_touch": [
+            "apps/api/src/maintenance/routes.ts",
+            "apps/api/src/app.ts",
+            "apps/api/src/main.ts",
+            "apps/api/test/maintenance-routes.test.ts",
+            "apps/api/test/guard.test.ts",
+            "apps/api/test/helpers.ts"
+          ],
+          "context": "R18, R19, R21, R22. Reutiliza ReauthVerifier tal cual (recomendación 1 del sprint 2): 401 invalid_totp distinto de sesión vencida, cuenta para el bloqueo de login. Deny-by-default: no se amplía la allowlist pública del guard; CSRF y origin aplican a la POST. Mensajes en español.",
+          "acceptance_criteria": [
+            "Las tres rutas sin sesión responden 401 y la allowlist pública del guard no cambia",
+            "POST sin code, con uno inválido o ya usado responde 401 invalid_totp, no crea fila ni corre el script",
+            "POST con TOTP válido y sin sesiones responde 202 con runId; con una sesión corriendo responde 409 con running=1",
+            "GET /api/versions con latest no disponible devuelve latest null y el POST sigue aceptándose",
+            "Al arrancar con una corrida 'running' en la base, queda 'error' con 'interrumpido'",
+            "eslint, typecheck y vitest de todos los workspaces en verde"
+          ],
+          "depends_on": [
+            "T2.3"
+          ],
+          "scenario_refs": [
+            "S21",
+            "S22",
+            "S24",
+            "S27",
+            "S28"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "Corrección QA: code opcional en el schema, así que POST sin code responde 401 invalid_totp; test exige 401 exacto. Además cache de 60 s de latest en KyroVersions (un npm view por minuto)",
+            "validation": [
+              "tsc y eslint sin hallazgos",
+              "vitest api: 22 archivos, 346 tests OK"
+            ],
+            "files_changed": [
+              "apps/api/src/maintenance/routes.ts",
+              "apps/api/src/maintenance/versions.ts",
+              "apps/api/test/maintenance-routes.test.ts",
+              "apps/api/test/maintenance.test.ts"
+            ],
+            "by": "maker",
+            "recordedAt": "2026-10-04T20:45:33.512Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "Las tres rutas sin sesión responden 401 y la allowlist pública del guard no cambia",
+              "POST sin code, con uno inválido o ya usado responde 401 invalid_totp, no crea fila ni corre el script",
+              "POST con TOTP válido y sin sesiones responde 202 con runId; con una sesión corriendo responde 409 con running=1",
+              "GET /api/versions con latest no disponible devuelve latest null y el POST sigue aceptándose",
+              "Al arrancar con una corrida 'running' en la base, queda 'error' con 'interrumpido'",
+              "eslint, typecheck y vitest de todos los workspaces en verde"
+            ],
+            "findings": [],
+            "by": "checker",
+            "reviewedAt": "2026-10-04T20:45:33.767Z",
+            "requestDigest": "9f774bc13ad631f9c0ec60ba04e4d087c9c1721bf87cfe3ce18fba90970acc56",
+            "reviewedMaterialDigest": "e97983666d8f55005a6158b19a3e896d0ab37ee3ebabe5acf8fb09308ca6893f"
+          }
+        },
+        {
+          "id": "T2.5",
+          "title": "Índice único en repo_url (debt-3)",
+          "description": "Migración nueva: CREATE UNIQUE INDEX projects_repo_url_unique ON projects(lower(repo_url)) WHERE repo_url IS NOT NULL. ProjectRepository.create traduce la violación a ProjectError 'El proyecto ya existe: <repo>' (409, igual que el duplicado por nombre), así dos altas concurrentes del mismo repo con nombres distintos dejan una sola fila y un solo clon.",
+          "files_to_touch": [
+            "apps/api/src/db/migrations.ts",
+            "apps/api/src/projects/repo.ts",
+            "apps/api/src/projects/service.ts",
+            "apps/api/test/db.test.ts",
+            "apps/api/test/project-service.test.ts"
+          ],
+          "context": "debt-3 (recomendación 1 del sprint 2: resolverla junto al alta). Antes de escribir la migración verificar en la base de desarrollo que no hay repo_url duplicados (consulta de solo lectura); si los hay, la migración falla con un mensaje claro en vez de borrar filas. findByRepoUrl ya compara en minúsculas.",
+          "acceptance_criteria": [
+            "La migración aplica sobre una base con proyectos sin repo_url y con repo_url distintos, y es no-op al correrla dos veces",
+            "Dos altas concurrentes del mismo repo con nombres distintos: una queda y la otra responde 'ya existe' sin clonar",
+            "eslint, typecheck y vitest del workspace api en verde"
+          ],
+          "depends_on": [],
+          "scenario_refs": [
+            "S29"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "Migración 5 projects_repo_url_unique (índice único sobre lower(repo_url) parcial, con check previo que falla con mensaje claro si hay repos duplicados, sin borrar filas); insertGithub traduce la violación a ProjectConflictError 'El proyecto ya existe: <repo>'. Base de desarrollo verificada en solo lectura: aún está en v3 (sin columna repo_url), así que no puede haber duplicados",
+            "validation": [
+              "tsc --noEmit sin errores",
+              "eslint src test sin hallazgos",
+              "vitest run: 22 archivos, 344 tests OK (migración sobre base con urls nulas y distintas, no-op en la 2ª corrida, falla clara con duplicados sin borrar nada, dos altas concurrentes del mismo repo con otro nombre dejan un proyecto y un clon)"
+            ],
+            "files_changed": [
+              "apps/api/src/db/migrations.ts",
+              "apps/api/src/projects/repo.ts",
+              "apps/api/test/db.test.ts",
+              "apps/api/test/project-service.test.ts"
+            ],
+            "by": "maker",
+            "recordedAt": "2026-10-04T20:41:06.147Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "La migración aplica sobre una base con proyectos sin repo_url y con repo_url distintos, y es no-op al correrla dos veces",
+              "Dos altas concurrentes del mismo repo con nombres distintos: una queda y la otra responde 'ya existe' sin clonar",
+              "eslint, typecheck y vitest del workspace api en verde"
+            ],
+            "findings": [],
+            "by": "checker",
+            "reviewedAt": "2026-10-04T20:41:06.393Z",
+            "requestDigest": "ada911c04fb5bde5e98129c685a1a9b61278f6278b62f96983ed4d1e1987e22a",
+            "reviewedMaterialDigest": "e0b56d01b2a40cd906e6dc12008c92df5f62f66515c15233b5210d17d4902de8"
+          }
+        }
+      ]
+    },
+    {
+      "id": "P3",
+      "title": "Docs del tramo Versiones",
+      "objective": "Dejar escrito lo que este sprint cambia: regla de bitácora para corridas desde el panel y API de Versiones.",
+      "status": "done",
+      "tasks": [
+        {
+          "id": "T3.1",
+          "title": "CLAUDE.md (regla D10), plan.md y panel-desarrollo.md para Versiones",
+          "description": "CLAUDE.md, regla de oro: las actualizaciones de Kyro hechas desde el panel quedan en maintenance_runs y no suman línea a la bitácora; la bitácora registra la creación de 08-kyro-update.sh y los cambios de procedimiento. docs/plan.md: Versiones y la API (GET /api/versions, POST /api/versions/kyro/update con TOTP y L8, GET /api/maintenance-runs) y el resultado de H1. docs/panel-desarrollo.md: variable PANEL_KYRO_UPDATE_SCRIPT y cómo probar la actualización en desarrollo.",
+          "files_to_touch": [
+            "CLAUDE.md",
+            "docs/plan.md",
+            "docs/panel-desarrollo.md"
+          ],
+          "context": "Parte de R24 que toca a este sprint. El resto de R24 (registro de proyectos desde la web reemplaza .panel/project.yaml, docs de la web) y R25 (alta real que hace el usuario) quedan para el sprint 4 según el roadmap. Por eso no se enlazan escenarios: es trabajo de documentación sin comportamiento verificable por test. Docs en español; nunca valores de secretos.",
+          "acceptance_criteria": [
+            "CLAUDE.md tiene la excepción D10 en la regla de oro",
+            "plan.md y panel-desarrollo.md describen las rutas, PANEL_KYRO_UPDATE_SCRIPT y H1 sin contradecir el código",
+            "prettier --check limpio sobre los docs tocados"
+          ],
+          "depends_on": [
+            "T1.1",
+            "T2.4"
+          ],
+          "scenario_refs": [],
+          "status": "done",
+          "evidence": {
+            "summary": "CLAUDE.md: excepción D10 en la regla de oro (corridas desde el panel van a maintenance_runs, no a la bitácora). plan.md: sección Versiones y actualización de Kyro (3 rutas, TOTP, L8, KyroLock, historial, H1). panel-desarrollo.md: PANEL_KYRO_UPDATE_SCRIPT y cómo probar la actualización",
+            "validation": [
+              "prettier --check limpio en CLAUDE.md, plan.md, panel-desarrollo.md y vm-setup.md",
+              "contenido contrastado con el código: rutas, campo code, 202/401/409, timeouts 5s/10s/10min, 50 corridas, 16 KB, mensaje 409"
+            ],
+            "files_changed": [
+              "CLAUDE.md",
+              "docs/plan.md",
+              "docs/panel-desarrollo.md"
+            ],
+            "by": "maker",
+            "recordedAt": "2026-10-04T20:41:32.677Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "CLAUDE.md tiene la excepción D10 en la regla de oro",
+              "plan.md y panel-desarrollo.md describen las rutas, PANEL_KYRO_UPDATE_SCRIPT y H1 sin contradecir el código",
+              "prettier --check limpio sobre los docs tocados"
+            ],
+            "findings": [],
+            "by": "checker",
+            "reviewedAt": "2026-10-04T20:41:32.930Z",
+            "requestDigest": "ffded8b3213d8a0fc5bc818bb23c3d617bf6ad5fc8c5a204378dfc5d73d33b15",
+            "reviewedMaterialDigest": "22eed55961444b2e10bc363d644f54e1983b280609e5998004d2ffc7e792a42c"
+          }
+        }
+      ]
+    }
+  ],
+  "emergentTasks": [],
+  "definitionOfDone": [
+    "Todas las tareas done con evidencia y verdict pass",
+    "npm run typecheck, npm run lint, npm run format:check y npm test en verde",
+    "08-kyro-update.sh corrido dos veces en la VM sin cambios en la segunda, documentado en vm-setup.md con línea de bitácora",
+    "Ninguna ruta nueva fuera del guard; el contenido de .env no aparece en maintenance_runs",
+    "debt-3 y debt-4 resueltas o con disposición explícita"
+  ]
+}

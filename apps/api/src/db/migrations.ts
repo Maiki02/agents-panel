@@ -4,6 +4,8 @@ export interface Migration {
   readonly version: number;
   readonly name: string;
   readonly sql: string;
+  /** Runs inside the transaction before `sql`; throw to abort with a clear message. */
+  readonly check?: (db: DatabaseSync) => void;
 }
 
 export const migrations: readonly Migration[] = [
@@ -100,6 +102,58 @@ export const migrations: readonly Migration[] = [
       );
     `,
   },
+  {
+    version: 4,
+    name: 'projects_from_github_env_files_maintenance',
+    sql: `
+      ALTER TABLE projects ADD COLUMN display_name TEXT;
+      ALTER TABLE projects ADD COLUMN repo_url TEXT;
+      ALTER TABLE projects ADD COLUMN status TEXT NOT NULL DEFAULT 'ready' CHECK (status IN ('cloning', 'ready', 'error'));
+      ALTER TABLE projects ADD COLUMN status_detail TEXT;
+      CREATE TABLE project_env_files (
+        id INTEGER PRIMARY KEY,
+        project_id INTEGER NOT NULL REFERENCES projects(id),
+        rel_path TEXT NOT NULL,
+        ciphertext BLOB NOT NULL,
+        iv BLOB NOT NULL,
+        tag BLOB NOT NULL,
+        key_names TEXT NOT NULL,
+        updated_at INTEGER NOT NULL,
+        UNIQUE (project_id, rel_path)
+      );
+      CREATE TABLE maintenance_runs (
+        id INTEGER PRIMARY KEY,
+        kind TEXT NOT NULL,
+        from_version TEXT,
+        to_version TEXT,
+        status TEXT NOT NULL,
+        output TEXT,
+        started_at INTEGER NOT NULL,
+        finished_at INTEGER
+      );
+    `,
+  },
+  {
+    version: 5,
+    name: 'projects_repo_url_unique',
+    // Never deletes rows: duplicates must be resolved by hand before the index can exist.
+    check: (db) => {
+      const duplicates = db
+        .prepare(
+          `SELECT lower(repo_url) AS repo_url, count(*) AS total FROM projects
+           WHERE repo_url IS NOT NULL GROUP BY lower(repo_url) HAVING count(*) > 1`,
+        )
+        .all();
+      if (duplicates.length > 0) {
+        const urls = duplicates.map((row) => String(row['repo_url'])).join(', ');
+        throw new Error(
+          `No se puede crear el índice único de repo_url: hay proyectos con el mismo repo (${urls}). ` +
+            'Resolverlo a mano y volver a arrancar.',
+        );
+      }
+    },
+    sql: 'CREATE UNIQUE INDEX projects_repo_url_unique ON projects(lower(repo_url)) WHERE repo_url IS NOT NULL;',
+  },
 ];
 
 /** Applies pending migrations in order, each in its own transaction. Safe to run repeatedly. */
@@ -118,6 +172,7 @@ export function runMigrations(db: DatabaseSync, list: readonly Migration[] = mig
     if (applied.has(migration.version)) continue;
     db.exec('BEGIN');
     try {
+      migration.check?.(db);
       db.exec(migration.sql);
       db.prepare('INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)').run(
         migration.version,

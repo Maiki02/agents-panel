@@ -4,6 +4,8 @@ Cada scope o work de Kyro corre en su propio worktree. El panel muestra en todo 
 
 Regla de oro: el estado se deduce de señales verificables (Kyro, git, `gh`, hooks del Agent SDK, el propio orquestador), nunca del texto que escribe el agente.
 
+> **No confundir con el estado del proyecto.** Un *proyecto* tiene su propio estado, mucho más simple y previo a cualquier worktree: `cloning` (clonando), `ready` (listo) o `error` (ver [`plan.md`](plan.md), «Registro de proyectos»). No es un estado de worktree ni aparece en este catálogo: solo decide si se puede crear un chat (un proyecto que no está `ready` responde 409).
+
 ## Fases
 
 Los estados se agrupan en seis fases, que son las que se ven en el stepper de la tarjeta:
@@ -22,7 +24,9 @@ Actor: **A** = agente · **S** = sistema/panel · **Vos** = espera tu acción.
 |---|---|---|---|---|
 | `en_cola` | En cola | S | No hay cupo de sesiones libres | `creando_worktree` |
 | `creando_worktree` | Creando worktree | S | Orquestador corre `git worktree add` + clones de fe/be | `instalando_dependencias` |
-| `instalando_dependencias` | Instalando dependencias | S | Script de setup (`go mod download`, `npm install`) | `planificando` |
+| `instalando_dependencias` | Instalando dependencias | S | Script de setup (`go mod download`, `npm install`), y después el panel escribe los `.env` del proyecto | `planificando` |
+
+Si el setup o la escritura de los `.env` fallan, el worktree no llega a existir: la creación del chat responde 422 con el motivo y se borran worktree, rama y chat (no queda en `error`, porque no hay chat). Motivos de los `.env`: «falta la carpeta X para Y» (el setup no creó la carpeta), «el .env Y está ilegible, volvé a subirlo» (se rotó `PANEL_SECRET_KEY` o el dato se alteró), una ruta que git no ignora en el worktree o una carpeta que sale del worktree. El evento `worktree_output` con `step: 'env'` registra solo las rutas escritas.
 
 ### Planificación
 

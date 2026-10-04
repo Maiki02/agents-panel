@@ -1,10 +1,17 @@
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 export interface Config {
   readonly dataDir: string;
   /** Root under which worktrees are created: <root>/<project>/<slug>. */
   readonly worktreesDir: string;
+  /** Directory where GitHub projects are cloned: <root>/<project>. */
+  readonly projectsDir: string;
+  /** Cloning is refused when the disk has less free space than this (GB). */
+  readonly minFreeDiskGb: number;
+  /** Script run by the Kyro update (scripts/vm/08-kyro-update.sh of this repo by default). */
+  readonly kyroUpdateScript: string;
   readonly origin: string;
   /** Raw key bytes. Never log this object's secretKey. */
   readonly secretKey: Buffer;
@@ -66,9 +73,23 @@ export function loadConfig(env: Env = process.env): Config {
     rawWorktrees === undefined || rawWorktrees === '' ? '~/wt' : rawWorktrees,
   );
 
+  const rawProjects = env['PANEL_PROJECTS_DIR'];
+  const projectsDir = expandHome(
+    rawProjects === undefined || rawProjects === '' ? '~/proyectos' : rawProjects,
+  );
+
+  const rawScript = env['PANEL_KYRO_UPDATE_SCRIPT'];
+  const kyroUpdateScript =
+    rawScript === undefined || rawScript === ''
+      ? fileURLToPath(new URL('../../../scripts/vm/08-kyro-update.sh', import.meta.url))
+      : expandHome(rawScript);
+
   return {
     dataDir,
     worktreesDir,
+    projectsDir,
+    minFreeDiskGb: positiveInt(env, 'PANEL_MIN_FREE_DISK_GB', 10),
+    kyroUpdateScript,
     origin,
     secretKey,
     sessionIdleTtlSeconds: positiveInt(env, 'PANEL_SESSION_IDLE_TTL_SECONDS', 30 * 60),
