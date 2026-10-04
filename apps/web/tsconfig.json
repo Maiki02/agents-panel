@@ -17,5 +17,5 @@
     "strictTemplates": true,
     "strictStandalone": true
   },
-  "include": ["src/**/*.ts"]
+  "include": ["src/**/*.ts", "vitest.config.ts"]
 }
