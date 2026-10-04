@@ -168,6 +168,30 @@
         "statement": "Un archivo .env ilegible, con nombre o ruta inválidos, no ignorado, demasiado grande o sin formato CLAVE=valor se rechaza con 400 y el motivo; no se guarda nada.",
         "priority": "must",
         "rationale": "Garantía de fallo del plan: entrada inválida no deja estado parcial."
+      },
+      {
+        "id": "R27",
+        "statement": "La web sigue una identidad visual única: todo color, tipografía, tamaño, radio y espaciado sale de tokens en un solo archivo (Tailwind v4 con variables CSS), la letra es Inter autoalojada, los links no usan el azul del navegador y la identidad queda documentada en docs/identidad-visual.md para replicarla.",
+        "priority": "must",
+        "rationale": "Pedido del usuario (ajustes 3, 4 y 12, 'de vital importancia'): poder cambiar colores, tipografías y tamaños en un lugar y replicar la identidad. Sin pedidos a Google Fonts: la URL es pública."
+      },
+      {
+        "id": "R28",
+        "statement": "Todo pedido de código TOTP (subir o borrar un .env, actualizar Kyro) y el alta de un proyecto se hacen en un modal con cruz para cerrar; el código se vacía al enviar, al cerrar y al fallar, y un error se muestra dentro del modal.",
+        "priority": "must",
+        "rationale": "Ajustes 7 y 9. R18 sigue valiendo: el código se pide en cada acción y nunca se guarda."
+      },
+      {
+        "id": "R29",
+        "statement": "El proyecto se agrega con la URL completa de GitHub (https://github.com/usuario/repo, con /tree/<rama> opcional); de la URL salen usuario, repo y rama base, y la tarjeta muestra la URL completa. La API sigue aceptando owner/repo como referencia y rechaza lo demás con 400.",
+        "priority": "must",
+        "rationale": "Ajuste 5, decidido con el usuario. Compatible con R3 (misma validación de owner y repo)."
+      },
+      {
+        "id": "R30",
+        "statement": "/projects/:id es un layout con sidebar Chats y Configuración: arriba un botón Nuevo chat y la lista de chats del proyecto (título, rama y estado); por defecto abre Nuevo chat y recuerda el último chat elegido por proyecto al volver; la Configuración se divide en tabs General y Environment, con la tab elegida en la URL. /chats/:id redirige a su proyecto.",
+        "priority": "must",
+        "rationale": "Ajustes 10 y 11. Estado fino, fase y 'te toca actuar' en la lista de chats son del plan de ejecución automática, fuera de este scope."
       }
     ],
     "scenarios": [
@@ -443,6 +467,76 @@
         "given": "la web de Proyectos, .env y Versiones implementada",
         "when": "se revisan plan.md, panel-desarrollo.md y CLAUDE.md",
         "then": "describen el alta, la configuración, los .env y la actualización desde la web, sin 'la pantalla web llega en el sprint', y coinciden con rutas, campos (totp/code) y códigos del código"
+      },
+      {
+        "id": "S40",
+        "requirement": "R1",
+        "given": "un usuario logueado",
+        "when": "abre cualquier pantalla",
+        "then": "el nav muestra Proyectos y Versiones una sola vez y el título dice 'Panel de agentes'"
+      },
+      {
+        "id": "S41",
+        "requirement": "R1",
+        "given": "la identidad visual definida en tokens",
+        "when": "se cambia un token de color o de letra",
+        "then": "toda la app lo refleja sin tocar componentes, y la letra es Inter autoalojada"
+      },
+      {
+        "id": "S42",
+        "requirement": "R1",
+        "given": "un modal abierto",
+        "when": "se aprieta la cruz o Esc",
+        "then": "el modal se cierra; un click dentro no lo cierra"
+      },
+      {
+        "id": "S43",
+        "requirement": "R1",
+        "given": "las pantallas existentes migradas",
+        "when": "se navega por login, Proyectos, Versiones y chat",
+        "then": "se ven con la identidad nueva y funcionan igual"
+      },
+      {
+        "id": "S44",
+        "requirement": "R18",
+        "given": "el usuario sube o borra un .env o actualiza Kyro",
+        "when": "la acción pide código",
+        "then": "se abre un modal con input, Enviar y cruz; el código se vacía al enviar o cerrar y un invalid_totp se ve dentro del modal"
+      },
+      {
+        "id": "S45",
+        "requirement": "R3",
+        "given": "la URL https://github.com/o/r/tree/dev",
+        "when": "se agrega el proyecto",
+        "then": "queda con repo o/r y rama base dev; otros hosts o esquemas dan 400"
+      },
+      {
+        "id": "S46",
+        "requirement": "R2",
+        "given": "una tarjeta de proyecto",
+        "when": "se muestra en Proyectos",
+        "then": "el estado queda a la derecha del todo y se ve la URL completa del repo"
+      },
+      {
+        "id": "S47",
+        "requirement": "R19",
+        "given": "la pantalla Versiones",
+        "when": "se mira la tarjeta de Kyro",
+        "then": "la actualización es un icono de refresh accesible que abre el modal TOTP"
+      },
+      {
+        "id": "S48",
+        "requirement": "R1",
+        "given": "un proyecto con chats",
+        "when": "se abre /projects/:id",
+        "then": "hay una sidebar con Nuevo chat y los chats del proyecto (título, rama, estado); sin chat guardado abre Nuevo chat y con uno guardado lo reabre al volver"
+      },
+      {
+        "id": "S49",
+        "requirement": "R9",
+        "given": "la configuración de un proyecto",
+        "when": "se elige General o Environment",
+        "then": "se muestra solo la tab elegida, que queda en la URL"
       }
     ],
     "nonGoals": [
@@ -461,7 +555,7 @@
   "conventions": [],
   "adrs": [],
   "roadmap": {
-    "plannedSprintCount": 4,
+    "plannedSprintCount": 6,
     "sizingRationale": "Cuatro sprints porque el trabajo tiene una cadena de dependencias y cada tramo tiene un resultado verificable por separado. Orden del plan: WS1 (modelo y migración) primero porque las tablas projects ampliada, project_env_files y maintenance_runs las usan todos; después WS2, WS3 y WS4 en ese orden porque comparten la migración y WS3 necesita el estado 'listo' y el worktree de WS2; WS5 (web) al final de las APIs porque consume las tres; WS6 (docs) y WS7 (alta real, manual del usuario) al cierre. Sprint 1 (WS1 + WS2 + 07-uv.sh): modelo, alta por GitHub con clon, adopción, setup por convención, estados y 07-uv.sh, que no depende de nada. Dividir el sprint 1 si la fase del clon crece más que la del modelo. Sprint 2 (WS3): .env cifrados, validación, TOTP de re-autenticación y escritura en worktrees; se separa porque es la superficie de seguridad más sensible y su gate (valor centinela) es independiente. Sprint 3 (WS4): Versiones y actualización de Kyro; se separa porque toca el runtime global de la VM y exige verificar H1 a mano antes de escribir el script. Sprint 4 (WS5 + WS6 + WS7): web completa, docs y alta real por el usuario; requiere las tres APIs terminadas. No se parte la web de los docs porque los docs describen lo que la web ya hace. Hipótesis H1 (actualización de Kyro 6.x) se verifica en el sprint 3 y H2 (kyro install --init-workspace con el CLI global) en el sprint 1. Orden de las decisiones de entrega: D1 el usuario hace el clon real desde la web; D8 los .env se escriben después del setup; D10 las corridas desde el panel se registran en maintenance_runs.",
     "sprints": [
       {
@@ -487,6 +581,18 @@
         "slug": "web-docs-alta-real",
         "title": "Web de proyectos, docs y alta real",
         "state": "closed"
+      },
+      {
+        "n": 5,
+        "slug": "ui-identidad-layout",
+        "title": "Identidad visual, modales y layout de proyecto",
+        "state": "active"
+      },
+      {
+        "n": 6,
+        "slug": "operacion-proyectos",
+        "title": "Operación de proyectos: sin Kyro, inicializar, pull y borrado",
+        "state": "planned"
       }
     ]
   },
@@ -542,7 +648,454 @@
     "outcome": "partial",
     "summary": "Que la web tenga Proyectos como pantalla inicial (alta por GitHub, configuración, .env con TOTP), una página por proyecto con sus chats, la pantalla Versiones, los docs al día y que el usuario dé de alta los tres proyectos reales desde ahí."
   },
-  "activeSprint": null,
+  "activeSprint": {
+    "n": 5,
+    "slug": "ui-identidad-layout",
+    "title": "Identidad visual, modales y layout de proyecto",
+    "objective": "Que la web siga una identidad visual única y documentada (Tailwind, tokens, Inter) y que Proyectos, Versiones y la página del proyecto (layout con sidebar de chats y configuración en tabs) usen modales y componentes consistentes.",
+    "status": "planned",
+    "phases": [
+      {
+        "id": "P1",
+        "title": "Fundamentos de la identidad visual",
+        "objective": "Sistema de diseño único (tokens, Inter, Tailwind) y componentes base reutilizables, documentados.",
+        "status": "active",
+        "tasks": [
+          {
+            "id": "T1.1",
+            "title": "Arreglar el nav duplicado y renombrar a 'Panel de agentes'",
+            "description": "app.ts renderiza dos veces el bloque <nav class=\"menu\"> (parche aplicado dos veces en el Sprint 4). Dejar uno solo y cambiar el título visible del header y el <title> de index.html de 'agents-panel' a 'Panel de agentes'.",
+            "files_to_touch": [
+              "apps/web/src/app/app.ts",
+              "apps/web/src/index.html"
+            ],
+            "context": "Identidad visual: todo color, tipografía, tamaño, radio y espaciado sale de tokens en un solo archivo (no hex ni px sueltos en componentes). Código en inglés, strict TS, Angular standalone + signals + OnPush. Tests vitest en node sin DOM: lógica pura testeada, UI por build y revisión. Sprint 4 dejó un bug propio: el nav está duplicado en app.ts. Ajustes 1 y 2 del usuario.",
+            "acceptance_criteria": [
+              "El header muestra Proyectos y Versiones una sola vez (grep de '<nav class=\"menu\"' en app.ts da 1)",
+              "El título del header y el <title> dicen 'Panel de agentes'",
+              "web typecheck, lint y build en verde"
+            ],
+            "depends_on": [],
+            "scenario_refs": [
+              "S40"
+            ],
+            "status": "pending",
+            "evidence": null,
+            "verdict": null
+          },
+          {
+            "id": "T1.2",
+            "title": "Tailwind v4, Inter autoalojada y tokens de diseño en un solo lugar",
+            "description": "Instalar tailwindcss y @tailwindcss/postcss con .postcssrc.json (Angular 22 lo soporta) y @fontsource-variable/inter. Crear apps/web/src/styles/tokens.css (@theme: colores semánticos con modo claro y oscuro, familia de letra, escala de tamaños, radios, sombras, espaciado), base.css (reset, body, links sin azul por defecto, foco visible) y dejar styles.css solo como índice de imports. Inter para todo el proyecto. Documentar en docs/identidad-visual.md cómo cambiar colores/tipografías/tamaños y qué clases usar, y enlazarlo desde CLAUDE.md (tabla de documentación).",
+            "files_to_touch": [
+              "apps/web/package.json",
+              "apps/web/.postcssrc.json",
+              "apps/web/src/styles.css",
+              "apps/web/src/styles/tokens.css",
+              "apps/web/src/styles/base.css",
+              "apps/web/src/index.html",
+              "docs/identidad-visual.md",
+              "CLAUDE.md"
+            ],
+            "context": "Identidad visual: todo color, tipografía, tamaño, radio y espaciado sale de tokens en un solo archivo (no hex ni px sueltos en componentes). Código en inglés, strict TS, Angular standalone + signals + OnPush. Tests vitest en node sin DOM: lógica pura testeada, UI por build y revisión. Sprint 4 dejó un bug propio: el nav está duplicado en app.ts. Ajustes 3, 4 y 12 (VITAL: identidad replicable y registrada, CSS fácil de modificar). Decisión: Tailwind v4 con tokens como variables CSS. La fuente va autoalojada (la URL del panel es pública; sin pedidos a Google Fonts). Los links no usan el azul por defecto.",
+            "acceptance_criteria": [
+              "Cambiar un token de color en tokens.css cambia el color en toda la app (se prueba cambiándolo y compilando)",
+              "grep de colores hex fuera de tokens.css en apps/web/src devuelve 0",
+              "Inter se sirve desde el propio bundle: ningún pedido a dominios externos para la letra",
+              "Los <a> usan el color de enlace de la identidad, no el azul del navegador",
+              "docs/identidad-visual.md existe, explica tokens, componentes y cómo replicar la identidad, y CLAUDE.md lo enlaza",
+              "npm run lint, format:check y build de web en verde"
+            ],
+            "depends_on": [
+              "T1.1"
+            ],
+            "scenario_refs": [
+              "S41"
+            ],
+            "status": "pending",
+            "evidence": null,
+            "verdict": null
+          },
+          {
+            "id": "T1.3",
+            "title": "Componentes base: Modal, Tabs, Button, Badge, Icon",
+            "description": "Crear apps/web/src/app/ui/ con: Modal (role=dialog, aria-modal, cruz para cerrar, Esc, click en el fondo, foco que entra y vuelve), Tabs, Button (variantes primaria, secundaria, peligro, icono), Badge de estado e Icon (refresh, cerrar, más; SVG en línea). Todos con las clases y tokens de T1.2. Lógica de teclado y selección de pestaña en funciones puras con spec.",
+            "files_to_touch": [
+              "apps/web/src/app/ui/modal.ts",
+              "apps/web/src/app/ui/tabs.ts",
+              "apps/web/src/app/ui/button.ts",
+              "apps/web/src/app/ui/badge.ts",
+              "apps/web/src/app/ui/icon.ts",
+              "apps/web/src/app/ui/modal.spec.ts",
+              "apps/web/src/app/ui/tabs.spec.ts"
+            ],
+            "context": "Identidad visual: todo color, tipografía, tamaño, radio y espaciado sale de tokens en un solo archivo (no hex ni px sueltos en componentes). Código en inglés, strict TS, Angular standalone + signals + OnPush. Tests vitest en node sin DOM: lógica pura testeada, UI por build y revisión. Sprint 4 dejó un bug propio: el nav está duplicado en app.ts. Base de los ajustes 7, 8, 9 y 11. El modal es el único contenedor de diálogos de la app.",
+            "acceptance_criteria": [
+              "Spec: Esc y la cruz piden cerrar el modal; un click dentro no lo cierra",
+              "Spec: Tabs elige la pestaña pedida y cae en la primera si la pedida no existe",
+              "Los componentes no tienen colores ni tamaños propios: usan tokens",
+              "web typecheck, lint, vitest y build en verde"
+            ],
+            "depends_on": [
+              "T1.2"
+            ],
+            "scenario_refs": [
+              "S42"
+            ],
+            "status": "pending",
+            "evidence": null,
+            "verdict": null
+          },
+          {
+            "id": "T1.4",
+            "title": "Migrar las pantallas existentes a la identidad y borrar el CSS viejo",
+            "description": "Pasar login, lista y detalle de chat, Proyectos, Versiones y el header a los tokens y componentes de T1.2/T1.3, y eliminar de styles.css las clases antiguas (.bar, .card, .badge, .chat-row…) que ya no se usen. Sin cambios de comportamiento.",
+            "files_to_touch": [
+              "apps/web/src/app/auth/login.page.ts",
+              "apps/web/src/app/chats/chat.page.ts",
+              "apps/web/src/app/chats/new-chat.form.ts",
+              "apps/web/src/app/projects/projects.page.ts",
+              "apps/web/src/app/versions/versions.page.ts",
+              "apps/web/src/app/app.ts",
+              "apps/web/src/styles.css"
+            ],
+            "context": "Identidad visual: todo color, tipografía, tamaño, radio y espaciado sale de tokens en un solo archivo (no hex ni px sueltos en componentes). Código en inglés, strict TS, Angular standalone + signals + OnPush. Tests vitest en node sin DOM: lógica pura testeada, UI por build y revisión. Sprint 4 dejó un bug propio: el nav está duplicado en app.ts. Pantallas y rutas siguen funcionando igual; solo cambia la presentación.",
+            "acceptance_criteria": [
+              "El header, el login y las pantallas existentes usan Inter y los tokens",
+              "styles.css no contiene reglas de componentes ni colores sueltos",
+              "web typecheck, lint, vitest y build en verde"
+            ],
+            "depends_on": [
+              "T1.3"
+            ],
+            "scenario_refs": [
+              "S43"
+            ],
+            "status": "pending",
+            "evidence": null,
+            "verdict": null
+          }
+        ]
+      },
+      {
+        "id": "P2",
+        "title": "Modales y alta por URL completa",
+        "objective": "Todo pedido de código TOTP y el alta de proyectos pasan por modales; el repo se identifica por su URL completa.",
+        "status": "active",
+        "tasks": [
+          {
+            "id": "T2.1",
+            "title": "Pedido de código TOTP en un modal",
+            "description": "Reemplazar el uso en línea de TotpDialog por un modal (sobre Modal) con el input de 6 dígitos, el botón Enviar y la cruz para cerrar. Se usa en subir un .env, borrar un .env y actualizar Kyro (Versiones). El código se vacía al enviar, al cerrar y al fallar; un error (401 invalid_totp) se muestra dentro del modal sin sacar de la página.",
+            "files_to_touch": [
+              "apps/web/src/app/shared/totp-dialog.ts",
+              "apps/web/src/app/projects/env-files.section.ts",
+              "apps/web/src/app/versions/versions.page.ts"
+            ],
+            "context": "Identidad visual: todo color, tipografía, tamaño, radio y espaciado sale de tokens en un solo archivo (no hex ni px sueltos en componentes). Código en inglés, strict TS, Angular standalone + signals + OnPush. Tests vitest en node sin DOM: lógica pura testeada, UI por build y revisión. Sprint 4 dejó un bug propio: el nav está duplicado en app.ts. Ajuste 9. R18: el código se pide en cada acción y nunca se guarda.",
+            "acceptance_criteria": [
+              "Subir .env, borrar .env y actualizar Kyro abren el mismo modal con input, Enviar y cruz",
+              "Spec: cerrar el modal y enviar vacían el código",
+              "Un 401 invalid_totp se muestra dentro del modal y el modal sigue abierto",
+              "web typecheck, lint, vitest y build en verde"
+            ],
+            "depends_on": [
+              "T1.3",
+              "T1.4"
+            ],
+            "scenario_refs": [
+              "S44"
+            ],
+            "status": "pending",
+            "evidence": null,
+            "verdict": null
+          },
+          {
+            "id": "T2.2",
+            "title": "API: la URL de GitHub trae usuario, repo y rama",
+            "description": "parseGithubRepo acepta https://github.com/usuario/repo con /tree/<rama> opcional (también .git y barra final) y devuelve owner, repo y branch; ProjectService.add usa branch como rama base cuando no se pasa baseBranch. La validación de owner/repo no cambia (R3) y owner/repo suelto sigue aceptado por la API como referencia; la web exigirá la URL.",
+            "files_to_touch": [
+              "apps/api/src/projects/github.ts",
+              "apps/api/src/projects/service.ts",
+              "apps/api/test/github.test.ts",
+              "apps/api/test/project-service.test.ts",
+              "docs/panel-desarrollo.md"
+            ],
+            "context": "Identidad visual: todo color, tipografía, tamaño, radio y espaciado sale de tokens en un solo archivo (no hex ni px sueltos en componentes). Código en inglés, strict TS, Angular standalone + signals + OnPush. Tests vitest en node sin DOM: lógica pura testeada, UI por build y revisión. Sprint 4 dejó un bug propio: el nav está duplicado en app.ts. Ajuste 5, decidido con el usuario: solo URL completa en la web; de la URL salen usuario, repo y rama. Cualquier otro host, esquema o query se rechaza como hoy (400 antes de ejecutar nada).",
+            "acceptance_criteria": [
+              "Con https://github.com/o/r/tree/dev el proyecto queda con rama base dev y repo o/r",
+              "Sin /tree, la rama base sigue siendo la por defecto del clon",
+              "Ramas con barra (feature/x) se aceptan; query, fragmento, otro host y rutas extra distintas de /tree/<rama> responden 400",
+              "tsc, eslint y vitest de api en verde"
+            ],
+            "depends_on": [],
+            "scenario_refs": [
+              "S45"
+            ],
+            "status": "pending",
+            "evidence": null,
+            "verdict": null
+          },
+          {
+            "id": "T2.3",
+            "title": "Botón 'Nuevo proyecto' con el formulario en un modal y URL completa",
+            "description": "En Proyectos, un botón 'Nuevo proyecto' abre un modal con el formulario de alta (hoy en línea). El campo pide la URL completa de GitHub (repo-input solo acepta https://github.com/usuario/repo[/tree/rama]) y muestra la rama y el repo detectados. Cierra con la cruz y al agregar con éxito. 409 y 400 se muestran dentro del modal y conservan lo escrito.",
+            "files_to_touch": [
+              "apps/web/src/app/projects/projects.page.ts",
+              "apps/web/src/app/projects/add-project.form.ts",
+              "apps/web/src/app/projects/repo-input.ts",
+              "apps/web/src/app/projects/repo-input.spec.ts"
+            ],
+            "context": "Identidad visual: todo color, tipografía, tamaño, radio y espaciado sale de tokens en un solo archivo (no hex ni px sueltos en componentes). Código en inglés, strict TS, Angular standalone + signals + OnPush. Tests vitest en node sin DOM: lógica pura testeada, UI por build y revisión. Sprint 4 dejó un bug propio: el nav está duplicado en app.ts. Ajustes 5 y 7. El servidor sigue siendo la autoridad de la validación.",
+            "acceptance_criteria": [
+              "Spec de repo-input: acepta URL con y sin .git, barra final y /tree/rama; rechaza owner/repo suelto, otros hosts, git@, file://, http",
+              "El formulario ya no está en línea: se abre desde 'Nuevo proyecto' y se cierra con la cruz",
+              "Un 409 'ya existe' queda dentro del modal con lo escrito",
+              "web typecheck, lint, vitest y build en verde"
+            ],
+            "depends_on": [
+              "T1.4",
+              "T2.2"
+            ],
+            "scenario_refs": [
+              "S45"
+            ],
+            "status": "pending",
+            "evidence": null,
+            "verdict": null
+          }
+        ]
+      },
+      {
+        "id": "P3",
+        "title": "Pantallas: Proyectos, Versiones y layout del proyecto",
+        "objective": "Tarjetas con estado a la derecha, Versiones con icono de refresh y el proyecto como layout con sidebar Chats / Configuración.",
+        "status": "blocked",
+        "tasks": [
+          {
+            "id": "T3.1",
+            "title": "Tarjetas de Proyectos: estado a la derecha y URL completa",
+            "description": "La tarjeta muestra nombre visible, la URL completa de GitHub como link (usuario/repo y rama base) y el estado (Clonando/Listo/Error) alineado a la derecha del todo. Mantiene Reintentar, el aviso de proyecto sin Kyro, el setup sugerido y el refresco mientras clona.",
+            "files_to_touch": [
+              "apps/web/src/app/projects/projects.page.ts"
+            ],
+            "context": "Identidad visual: todo color, tipografía, tamaño, radio y espaciado sale de tokens en un solo archivo (no hex ni px sueltos en componentes). Código en inglés, strict TS, Angular standalone + signals + OnPush. Tests vitest en node sin DOM: lógica pura testeada, UI por build y revisión. Sprint 4 dejó un bug propio: el nav está duplicado en app.ts. Ajustes 5 y 6.",
+            "acceptance_criteria": [
+              "El estado queda a la derecha del todo en cada tarjeta, también en pantallas angostas",
+              "La tarjeta muestra la URL completa del repo como link y la rama base",
+              "Reintentar, el aviso sin Kyro y el setup sugerido siguen funcionando",
+              "web typecheck, lint, vitest y build en verde"
+            ],
+            "depends_on": [
+              "T1.4"
+            ],
+            "scenario_refs": [
+              "S46"
+            ],
+            "status": "pending",
+            "evidence": null,
+            "verdict": null
+          },
+          {
+            "id": "T3.2",
+            "title": "Versiones: Kyro con un icono de refresh en lugar del botón",
+            "description": "En la tarjeta de Kyro el botón 'Actualizar' pasa a un botón de solo icono (refresh) con aria-label y tooltip 'Actualizar Kyro'. Sigue abriendo el modal TOTP, se deshabilita y gira mientras hay una actualización en curso. Si quedan otras acciones en Versiones, también usan iconos.",
+            "files_to_touch": [
+              "apps/web/src/app/versions/versions.page.ts"
+            ],
+            "context": "Identidad visual: todo color, tipografía, tamaño, radio y espaciado sale de tokens en un solo archivo (no hex ni px sueltos en componentes). Código en inglés, strict TS, Angular standalone + signals + OnPush. Tests vitest en node sin DOM: lógica pura testeada, UI por build y revisión. Sprint 4 dejó un bug propio: el nav está duplicado en app.ts. Ajuste 8. Interpretación: el icono dispara la misma actualización de siempre.",
+            "acceptance_criteria": [
+              "Kyro no tiene un botón de texto 'Actualizar': hay un icono de refresh accesible (aria-label)",
+              "El icono abre el modal TOTP y se deshabilita mientras updateRunning",
+              "web typecheck, lint, vitest y build en verde"
+            ],
+            "depends_on": [
+              "T2.1"
+            ],
+            "scenario_refs": [
+              "S47"
+            ],
+            "status": "pending",
+            "evidence": null,
+            "verdict": null
+          },
+          {
+            "id": "T3.3",
+            "title": "Layout de /projects/:id: sidebar, rutas hijas y chat seleccionado recordado",
+            "description": "ProjectLayout (/projects/:id) con sidebar fija 'Chats' y 'Configuración' y un router-outlet. Rutas hijas: chats/new (por defecto), chats/:chatId y settings/:tab. Al entrar en /projects/:id sin hijo, redirige al último chat abierto de ese proyecto o, si no hay, a Nuevo chat. El último chat se recuerda por proyecto en localStorage (con try/catch; la app funciona sin él) y se mantiene al navegar a otras pantallas y volver. /chats/:id sigue funcionando y redirige a su proyecto.",
+            "files_to_touch": [
+              "apps/web/src/app/app.routes.ts",
+              "apps/web/src/app/projects/project-layout.ts",
+              "apps/web/src/app/projects/last-chat.ts",
+              "apps/web/src/app/projects/last-chat.spec.ts",
+              "apps/web/src/app/projects/project.page.ts"
+            ],
+            "context": "Identidad visual: todo color, tipografía, tamaño, radio y espaciado sale de tokens en un solo archivo (no hex ni px sueltos en componentes). Código en inglés, strict TS, Angular standalone + signals + OnPush. Tests vitest en node sin DOM: lógica pura testeada, UI por build y revisión. Sprint 4 dejó un bug propio: el nav está duplicado en app.ts. Ajuste 10 (estructura). El estado fino/fase del chat y los permisos del agente son del plan de ejecución automática, no de este sprint. R1 se amplía: la página del proyecto pasa a ser un layout con sidebar.",
+            "acceptance_criteria": [
+              "Spec: last-chat guarda y devuelve el último chat por proyecto, ignora ids inválidos y no falla sin almacenamiento",
+              "/projects/A sin chat guardado abre Nuevo chat; con uno guardado abre ese chat",
+              "Salir a Proyectos o Versiones y volver reabre el chat seleccionado",
+              "/chats/:id redirige a /projects/:projectId/chats/:id",
+              "web typecheck, lint, vitest y build en verde"
+            ],
+            "depends_on": [
+              "T1.4"
+            ],
+            "scenario_refs": [
+              "S48"
+            ],
+            "status": "pending",
+            "evidence": null,
+            "verdict": null
+          },
+          {
+            "id": "T3.4",
+            "title": "Sidebar de chats al estilo de las IA actuales",
+            "description": "En la sidebar de Chats: arriba un botón 'Nuevo chat' (lleva a chats/new) y debajo la lista de chats del proyecto con título, rama/worktree que lo identifica y estado (badge). El elegido queda resaltado. La lista se refresca al crear un chat y cada pocos segundos mientras haya alguno corriendo. Usa ChatsService.list(projectId).",
+            "files_to_touch": [
+              "apps/web/src/app/projects/project-layout.ts",
+              "apps/web/src/app/chats/chat-sidebar.ts",
+              "apps/web/src/app/chats/status.ts"
+            ],
+            "context": "Identidad visual: todo color, tipografía, tamaño, radio y espaciado sale de tokens en un solo archivo (no hex ni px sueltos en componentes). Código en inglés, strict TS, Angular standalone + signals + OnPush. Tests vitest en node sin DOM: lógica pura testeada, UI por build y revisión. Sprint 4 dejó un bug propio: el nav está duplicado en app.ts. Ajuste 10 (lista). Solo los datos que ya tiene Chat (título, rama, worktreePath, estado). Estado fino, fase y 'te toca actuar' son del plan automático.",
+            "acceptance_criteria": [
+              "La lista muestra solo chats del proyecto con título, rama y estado",
+              "'Nuevo chat' arriba lleva a chats/new y el chat activo queda resaltado",
+              "Crear un chat lo agrega a la lista y lo selecciona",
+              "web typecheck, lint, vitest y build en verde"
+            ],
+            "depends_on": [
+              "T3.3"
+            ],
+            "scenario_refs": [
+              "S48"
+            ],
+            "status": "pending",
+            "evidence": null,
+            "verdict": null
+          },
+          {
+            "id": "T3.5",
+            "title": "Nuevo chat y chat dentro del layout",
+            "description": "chats/new muestra el formulario de nuevo chat (proyecto fijo, deshabilitado con el motivo si no está listo) y al crear navega a chats/:chatId dentro del layout. chats/:chatId muestra el chat existente (ChatPage reutilizado) sin selector de proyecto ni cambios de comportamiento del streaming.",
+            "files_to_touch": [
+              "apps/web/src/app/chats/new-chat.form.ts",
+              "apps/web/src/app/chats/chat.page.ts",
+              "apps/web/src/app/projects/project-layout.ts"
+            ],
+            "context": "Identidad visual: todo color, tipografía, tamaño, radio y espaciado sale de tokens en un solo archivo (no hex ni px sueltos en componentes). Código en inglés, strict TS, Angular standalone + signals + OnPush. Tests vitest en node sin DOM: lógica pura testeada, UI por build y revisión. Sprint 4 dejó un bug propio: el nav está duplicado en app.ts. Ajuste 10 (panel de conversación). El streaming y los eventos no cambian.",
+            "acceptance_criteria": [
+              "Crear un chat desde chats/new abre chats/:chatId dentro del layout",
+              "Con el proyecto clonando o en error el formulario queda deshabilitado con el motivo",
+              "El chat sigue recibiendo eventos en vivo igual que antes",
+              "web typecheck, lint, vitest y build en verde"
+            ],
+            "depends_on": [
+              "T3.3",
+              "T3.4"
+            ],
+            "scenario_refs": [
+              "S48"
+            ],
+            "status": "pending",
+            "evidence": null,
+            "verdict": null
+          },
+          {
+            "id": "T3.6",
+            "title": "Configuración del proyecto en tabs: General y Environment",
+            "description": "settings/:tab con Tabs: 'General' (nombre visible, rama base, comando de setup) y 'Environment' (archivos .env con el modal TOTP). La tab activa va en la URL. El código deja lugar para sumar tabs sin tocar las existentes.",
+            "files_to_touch": [
+              "apps/web/src/app/projects/project-settings.ts",
+              "apps/web/src/app/projects/env-files.section.ts",
+              "apps/web/src/app/projects/project-layout.ts"
+            ],
+            "context": "Identidad visual: todo color, tipografía, tamaño, radio y espaciado sale de tokens en un solo archivo (no hex ni px sueltos en componentes). Código en inglés, strict TS, Angular standalone + signals + OnPush. Tests vitest en node sin DOM: lógica pura testeada, UI por build y revisión. Sprint 4 dejó un bug propio: el nav está duplicado en app.ts. Ajuste 11. Las tabs futuras se agregan declarando una entrada, sin reescribir el layout.",
+            "acceptance_criteria": [
+              "Se ve una tab por vez: General o Environment, y la elegida queda en la URL",
+              "General guarda nombre visible, rama base y setup como antes",
+              "Environment sube, reemplaza y borra .env con el modal TOTP",
+              "web typecheck, lint, vitest y build en verde"
+            ],
+            "depends_on": [
+              "T2.1",
+              "T3.3"
+            ],
+            "scenario_refs": [
+              "S49"
+            ],
+            "status": "pending",
+            "evidence": null,
+            "verdict": null
+          }
+        ]
+      },
+      {
+        "id": "P4",
+        "title": "Docs y verificación",
+        "objective": "Docs al día con la nueva web e identidad, y verificación automática completa.",
+        "status": "blocked",
+        "tasks": [
+          {
+            "id": "T4.1",
+            "title": "Docs al día con el nuevo layout, modales e identidad",
+            "description": "Actualizar plan.md (pantallas web: layout del proyecto con sidebar, modales, tabs, alta por URL completa), panel-desarrollo.md (cómo se usa cada pantalla) y verificar que docs/identidad-visual.md y CLAUDE.md reflejan lo implementado.",
+            "files_to_touch": [
+              "docs/plan.md",
+              "docs/panel-desarrollo.md",
+              "docs/identidad-visual.md",
+              "CLAUDE.md"
+            ],
+            "context": "Docs en español. Si algo cambió respecto de T1.2, ajustar identidad-visual.md.",
+            "acceptance_criteria": [
+              "plan.md y panel-desarrollo.md describen el layout con sidebar, los modales TOTP, 'Nuevo proyecto' y las tabs",
+              "Lo documentado coincide con las rutas del router y los nombres de campos",
+              "npm run format:check limpio"
+            ],
+            "depends_on": [
+              "T3.2",
+              "T3.5",
+              "T3.6",
+              "T2.3"
+            ],
+            "scenario_refs": [],
+            "status": "pending",
+            "evidence": null,
+            "verdict": null
+          },
+          {
+            "id": "T4.2",
+            "title": "Verificación automática del sprint",
+            "description": "Correr typecheck, lint, format:check, tests y build de todo el repo; comprobar con grep que no quedan colores hex fuera de tokens.css, que no hay pedidos a dominios externos para fuentes y que el nav aparece una sola vez. El recorrido visual por el usuario es opcional y se registra aparte si se hace.",
+            "files_to_touch": [
+              "apps/web/src",
+              "docs"
+            ],
+            "context": "El usuario prefiere no hacer recorridos manuales largos: la evidencia de este sprint es automática y se dice con honestidad qué no se probó en un navegador.",
+            "acceptance_criteria": [
+              "npm run typecheck, lint, format:check, test y build en verde",
+              "grep de hex fuera de tokens.css y de URLs externas de fuentes da 0",
+              "La evidencia lista qué no se probó en navegador"
+            ],
+            "depends_on": [
+              "T4.1"
+            ],
+            "scenario_refs": [],
+            "status": "pending",
+            "evidence": null,
+            "verdict": null
+          }
+        ]
+      }
+    ],
+    "emergentTasks": [],
+    "definitionOfDone": [
+      "Todas las tareas con evidencia y verdict pass",
+      "La identidad visual está en tokens y documentada en docs/identidad-visual.md",
+      "Typecheck, lint, format:check, tests y build en verde",
+      "Deudas debt-7, debt-8 y debt-9 reubicadas al Sprint 6"
+    ]
+  },
   "debt": [
     {
       "id": "debt-1",
@@ -603,18 +1156,18 @@
       "title": "El prompt inicial del chat invoca siempre el flujo Kyro (kyro-work/kyro-forge) aunque el proyecto no tenga Kyro (hasKyro=false); el agente crea Work y archivos .agents/ en el worktree. Pendiente: pedido directo sin Kyro, 'Inicializar Kyro' desde la web, permisos de lectura (cat/ls/grep) y revisión independiente (scope del piloto automático)",
       "origin": 4,
       "priority": "medium",
-      "status": "open",
-      "targetSprint": 5,
-      "note": ""
+      "status": "deferred",
+      "targetSprint": 6,
+      "note": "Reubicada al Sprint 6 (operación de proyectos) al planificar el Sprint 5 de UI"
     },
     {
       "id": "debt-8",
       "title": "Actualizar un proyecto desde GitHub desde la web (git fetch + pull --ff-only del clon base por execFile, rechazando si hay cambios locales o divergencia, y mostrando el resultado): hoy lo subido a GitHub después del clon no llega a la VM y los worktrees nuevos parten de un clon viejo",
       "origin": 4,
       "priority": "medium",
-      "status": "open",
-      "targetSprint": 5,
-      "note": ""
+      "status": "deferred",
+      "targetSprint": 6,
+      "note": "Reubicada al Sprint 6 (operación de proyectos) al planificar el Sprint 5 de UI"
     },
     {
       "id": "debt-9",
@@ -622,23 +1175,16 @@
       "origin": 4,
       "priority": "high",
       "status": "deferred",
-      "targetSprint": 5,
-      "note": "El usuario difiere las pruebas manuales de Versiones, 'agente en curso' y logs; las hará cuando termine otro scope"
+      "targetSprint": 6,
+      "note": "Reubicada al Sprint 6 (operación de proyectos) al planificar el Sprint 5 de UI"
     }
   ],
   "handoff": {
-    "nextAction": "await_scope_completion",
-    "nextTaskId": null,
-    "blockers": [
-      {
-        "code": "no_ready_work",
-        "object": "active_sprint",
-        "reason": "No dependency-ready task remains in the active sprint.",
-        "remedyCommand": "node dist/cli.js plan --update-active --kyro-scope proyectos-y-versiones --from <approved-input.json> --dry-run --json"
-      }
-    ],
-    "note": "Sprint 4 (web-docs-alta-real) closed as partial. Roadmap exhausted; await explicit scope completion or an expansion decision.",
-    "lastUpdated": "2026-10-04"
+    "nextAction": "execute_task",
+    "nextTaskId": "T1.1",
+    "blockers": [],
+    "note": "Active plan updated: Registrar los requisitos de UI pedidos por el usuario al ampliar el scope (Sprint 5).. Revalidate affected tasks: none. Previous evidence is retained for reference, not renewed approval.",
+    "lastUpdated": "2026-10-04T22:55:57.571Z"
   },
   "author": {
     "name": "Maiki02",
