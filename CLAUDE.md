@@ -61,6 +61,14 @@ El objetivo: poder rehacer la VM desde cero siguiendo solo el runbook.
 - El estado de un worktree se deduce de señales verificables (Kyro, git, `gh`, hooks del SDK), nunca del texto del agente. Si se agrega o cambia un estado, se actualiza `docs/estados.md`.
 - Scripts de shell en bash con `set -euo pipefail` y finales de línea LF.
 
+## Proyectos registrados en el panel
+
+El setup de un proyecto (`project:add … ["comando de setup"]`) es opcional y se ejecuta sin shell dentro del worktree nuevo:
+
+- Si no necesita nada, no lleva comando.
+- Si alcanza con un comando, se pasa directo (por ejemplo `"npm ci"`).
+- Si necesita más de un paso (clonar repos hijos, copiar `.env`, instalar dependencias), el repo lleva `scripts/panel-setup.sh` y se registra con `"bash scripts/panel-setup.sh"`. Tiene que ser idempotente, con `set -euo pipefail`, LF, clonar desde GitHub (no desde la copia local) y copiar solo `.env` de desarrollo. Modelo: `scripts/panel-setup.sh` del repo `ventas`.
+
 ## Seguridad del panel
 
 La URL es pública (Tailscale Funnel), así que el login es la única puerta:
