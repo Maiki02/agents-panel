@@ -43,6 +43,7 @@ Una vez aprobado el plan, un scope o un work tiene que llegar solo a la PR: el p
 | Hoy no existe commit, pull ni push desde la web; el badge del chat muestra el estado de la **sesión** (`En curso`, `En espera`, `Error`…) | `apps/web/src/app/chats/status.ts` |
 | En ventas, `fe-ventas/` y `be-ventas/` son repos hijos ignorados por la raíz (`.gitignore`) y su rama base es `dev`; la raíz usa `main` | `ventas/.gitignore`, `git rev-parse` en la VM |
 | Las dependencias se instalan por worktree con el comando de setup del proyecto (`npm ci`, `uv sync --project backend`, `panel-setup.sh`), que debe ser idempotente; el clon base no las necesita para crear worktrees | `CLAUDE.md` (Proyectos registrados), `sprint.json` R8/R25 |
+| El SDK expone el uso del plan: `Query.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET({ skipBehaviors: true })` devuelve `rate_limits.five_hour` / `seven_day` / `seven_day_opus` / `seven_day_sonnet` con `utilization` (0–100) y `resets_at`, leídos del endpoint de uso de claude.ai; además cada sesión emite `rate_limit_event` (`status` allowed/allowed_warning/rejected, `rateLimitType`, `utilization`, `resetsAt`) | `sdk.d.ts` (`SDKControlGetUsageResponse`, `SDKRateLimitEvent`), SDK 0.3.289 |
 | Web Push: hipótesis de que funciona con el HTTPS de Funnel y sin costo (servicios push de los navegadores); en iOS exige agregar el panel a la pantalla de inicio | Hipótesis a validar en WS8 |
 
 ## Who it's for
@@ -112,7 +113,9 @@ Una vez aprobado el plan, un scope o un work tiene que llegar solo a la PR: el p
 11. **Operaciones git desde la web** (D19, D20): por worktree, estado por repo, commit con selección de archivos, traer la rama base, traer la propia rama, push y reinstalar dependencias; por proyecto, pull del clon base (lo construye el sprint 6 de `proyectos-y-versiones`; acá se extiende a repos hijos).
 12. **Tres niveles de estado con una sola etiqueta visible** (D21): proyecto, trabajo (worktree) y sesión.
 13. **Criterios de UI** registrados en `docs/identidad-visual.md` (D23) y aplicados a todas las pantallas nuevas.
-14. **Docs y reglas:** `docs/plan.md`, `docs/estados.md`, `docs/panel-desarrollo.md`, `CLAUDE.md` (regla de commits) y `docs/vm-setup.md` si se agregan variables o claves en la VM.
+14. **Indicador de uso de proveedores** en el header, accesible desde todas las pantallas (D24).
+15. **Paridad manual:** toda acción que hace el agente o el piloto tiene su botón (catálogo en D26), incluida **Crear PR** (D25).
+16. **Docs y reglas:** `docs/plan.md`, `docs/estados.md`, `docs/panel-desarrollo.md`, `CLAUDE.md` (regla de commits) y `docs/vm-setup.md` si se agregan variables o claves en la VM.
 
 ### Explicitly out
 
@@ -122,6 +125,8 @@ Una vez aprobado el plan, un scope o un work tiene que llegar solo a la PR: el p
 - **Mergear PRs automáticamente en GitHub:** el resultado sigue siendo PRs que el usuario revisa (decisión base del panel).
 - **Limpieza automática de worktrees mergeados, PR checks y `pr_cambios_pedidos`:** siguen en las etapas 5/6.
 - **Commit, push o instalar dependencias en el clon base del proyecto:** el clon base solo se actualiza (pull); el trabajo se hace en worktrees (D20, D22).
+- **Mergear la PR en GitHub desde el panel:** la PR la revisa y mergea el usuario en GitHub (decisión base); el panel solo muestra su estado y checks.
+- **Correr comandos arbitrarios desde la web:** las validaciones (build, tests) se le piden al agente.
 - **Resolver conflictos de git desde la web:** un pull con conflicto se aborta y se ofrece pedírselo al agente (D19).
 - **Consumo por scope y topes de uso de la suscripción** más allá del tope de sesiones por sprint.
 
@@ -152,6 +157,38 @@ Una vez aprobado el plan, un scope o un work tiene que llegar solo a la PR: el p
 | D21 | **Tres estados, una etiqueta:** (1) **proyecto**: Clonando · Listo · Error, más transitorios Actualizando (pull) e Inicializando Kyro; (2) **trabajo** (worktree): el catálogo fino de `estados.md`; (3) **sesión** (`chats.status`): técnico, nunca se muestra como estado principal de un chat con worktree. Cada ítem muestra **una** etiqueta: la del trabajo si tiene worktree, la de la sesión si es una consulta. Las etiquetas son descriptivas ("Esperando tu respuesta", "Probando · go test", "Cerrando sprint 2/4") y el color sale de **quién actúa** | Hoy el badge muestra el estado de sesión ("En espera") que no dice nada del trabajo. `estados.md` ya separa proyecto y worktree | Mapear sesión→trabajo agrega lógica | `estados.md` suma la tabla de los tres niveles y el mapeo; la lista del proyecto marca cuántos trabajos te esperan |
 | D22 | **Dependencias:** no hay botón "Descargar dependencias" en el proyecto. Se instalan por worktree con el setup (estado `instalando_dependencias`). La pestaña Git del worktree tiene **Reinstalar dependencias**, y después de "Traer `<base>`" o "Traer mi rama" el panel la corre sola si cambió un lockfile (`package-lock.json`, `go.sum`, `uv.lock`, `pnpm-lock.yaml`, `yarn.lock`). Al registrar un proyecto sin setup y con un lockfile, Configuración → General sugiere el comando (`npm ci`, `go mod download`, `uv sync`) como hoy sugiere `panel-setup.sh` | Ningún flujo trabaja sobre el clon base: los worktrees parten de él pero instalan lo suyo. Instalar en el clon base gastaría disco y CPU sin uso | Una consulta libre sobre el clon base no puede correr tests | Si una consulta necesita correr algo, se crea un work. La sugerencia de setup sigue sin aplicarse sola |
 | D23 | **Criterios de UI** (en `docs/identidad-visual.md`, rigen desde ahora para pantallas nuevas y lo existente al tocarlo): anatomía de tarjeta e ítem de lista, colores de estado por actor, acciones, confirmaciones, operaciones largas, estados vacíos y celular | Pedido del usuario: seguir la UI de `proyectos-y-versiones` y dejar registradas las mejoras | Retocar pantallas existentes cuando se toquen | Ver el doc; el sprint 6 de `proyectos-y-versiones` ya puede usarlos |
+| D24 | **Indicador de uso** en el header (icono visible en todas las pantallas). Al hacer click, un panel por proveedor (hoy Claude) con barra y hora de reinicio de la **ventana de 5 h**, la **semanal** y, si vienen, las semanales por modelo (Opus/Sonnet). El icono muestra el % de 5 h con el tono de la UI: `ok` < 70 %, `warn` ≥ 70 %, `danger` ≥ 90 % o `rejected`. Fuentes: (1) a pedido, `usage_…({ skipBehaviors: true })` en una sesión corta sin prompt, con caché de 60 s en la API; (2) pasiva, el último `rate_limit_event` de cualquier sesión, guardado en la base. Se muestra "actualizado hace X" | Pedido del usuario ("como en Orca"). El SDK ya trae los datos y son los de la cuenta, así que incluyen el uso desde la PC y el celular | La llamada es experimental y puede cambiar de nombre; lanzar un proceso por consulta cuesta CPU | Si la llamada falla o cambia, queda el dato pasivo con su antigüedad (degradado, no roto). El piloto usa `resetsAt` para retomar `sin_cupo_de_uso` en la hora exacta en vez de reintentar cada 15 min. `GET /api/usage` con sesión (guard). Sin costo: no es un servicio pago |
+| D25 | **Botón Crear PR** en la pestaña Git: por cada repo del trabajo con commits que no están en su base, push y `gh pr create --base <base del repo> --head <rama>` con título y cuerpo prellenados (título del scope/work en formato Conventional Commits, cuerpo desde `git log <base>..HEAD --no-merges`), editables en un modal. Si la PR ya existe, muestra su link y el push la actualiza. Antes trae la base (L8); si hay conflicto, frena como en D19 | Pedido del usuario: "por si el agente se olvida de hacer la PR" | Un formulario más | Resultado por repo con el link; queda en el Timeline. En proyectos con `merge-dev` propia (ventas) el botón principal es **Correr merge-dev** (lanza al agente con esa skill, porque hace pasos propios como la versión y el merge de la raíz) y Crear PR queda como alternativa |
+| D26 | **Paridad manual:** todo lo que hace el agente o el piloto tiene un botón. Las acciones deterministas (git, `gh`, `kyro` CLI, setup) las ejecuta el panel con el **mismo servicio** que usa el orquestador, y cada una registra en el Timeline quién la hizo (vos / piloto / agente). Los pasos que necesitan razonar (planificar, ejecutar, QA, corregir deuda, merge-dev) son botones que lanzan ese paso del agente. Mientras el piloto o el agente corren, los botones se ven deshabilitados con el motivo; para usarlos se pausa el piloto | Pedido del usuario: "toda función que haga el agente también debe estar manual". Un solo servicio garantiza que manual y automático hacen lo mismo | Más superficie de UI | Catálogo de acciones abajo; cada fila nueva del piloto debe sumar su botón |
+| D27 | **Ver cambios (diff)** por repo del trabajo, en la pestaña Git: archivos cambiados sin commitear y diff contra la base, de solo lectura; también desde el modal de Commit y de Crear PR | Revisar desde el celular antes de commitear o abrir una PR; hoy no hay forma sin SSH | Diff grande en un teléfono | Se recorta por archivo con "ver más"; nunca muestra archivos ignorados (los `.env`) |
+| D28 | **Descartar cambios** de archivos sin commitear (`git restore`, y borrar los no rastreados elegidos) y **Borrar trabajo** (worktree + ramas locales; las remotas solo si se marca) como acciones manuales con confirmación `danger` | Hoy no hay cómo deshacer lo que dejó el agente sin SSH; la limpieza automática es de la etapa 6 | Riesgo de perder trabajo | Modal que nombra cada archivo o rama; rechaza archivos ignorados; Borrar trabajo exige que no haya sesión corriendo y avisa si hay commits sin pushear |
+
+### Catálogo de acciones (paridad manual, D26)
+
+| Acción | Quién la hace en automático | Botón manual | Dónde | Lo ejecuta |
+|---|---|---|---|---|
+| Crear trabajo (worktree + setup + `.env`) | Al crear el chat | Nuevo chat | Sidebar | Panel |
+| Aprobar plan → scope o work | — (siempre vos) | Aprobar y crear scope / work, Pedir cambios | Chat | Panel + agente |
+| Planificar siguiente sprint | Piloto (pensante) | Planificar sprint | Timeline | Agente |
+| Ejecutar sprint | Piloto (ejecutor) | Ejecutar sprint | Timeline | Agente |
+| QA | Piloto | Correr QA | Timeline | Agente |
+| Corregir o postergar deuda | Piloto (D6) | Corregir ahora · Postergar · Aceptar, por deuda | Timeline | Agente / `kyro debt` |
+| Cerrar sprint | Piloto | Cerrar sprint | Timeline | Agente |
+| Completar scope / cerrar work | Piloto (D7) | Completar scope | Timeline | `kyro scope complete` / `kyro work close` |
+| Reparar estado de Kyro | Nunca solo | Reparar (muestra la vista previa y pide confirmación) | Timeline | `kyro repair` |
+| Ver cambios | — | Ver cambios | Git | Panel |
+| Commit | Piloto al cerrar sprint (D8) | Commit | Git | Panel |
+| Traer base / traer mi rama | `merge-dev` o merge genérico | Traer `<base>` · Traer mi rama | Git | Panel |
+| Push | Piloto (D17) | Push | Git | Panel |
+| Crear PR | Merge genérico / `merge-dev` | Crear PR · Correr merge-dev | Git | Panel / agente |
+| Reinstalar dependencias | Tras un pull con lockfile cambiado (D22) | Reinstalar dependencias | Git | Panel |
+| Descartar cambios | Nunca solo | Descartar | Git | Panel |
+| Responder pregunta o permiso | — (siempre vos) | Botones de la pregunta | Chat | Panel |
+| Pausar, reanudar o apagar el piloto; cancelar el turno | Piloto (frenos) | Pausar · Reanudar · Apagar · Cancelar | Header del trabajo | Panel |
+| Retomar tras reinicio | Piloto (D16) | Reanudar | Header del trabajo | Panel |
+| Borrar trabajo | Etapa 6 (limpieza al mergear) | Borrar trabajo | Header del trabajo | Panel |
+| Pull del clon base | — | Pull | Configuración → Repositorio | Panel |
+| Aplicar `.env` a trabajos activos | — | Ya existe (Environment) | Configuración | Panel |
 
 ## Constraints and tradeoffs
 
@@ -173,6 +210,7 @@ Una vez aprobado el plan, un scope o un work tiene que llegar solo a la PR: el p
 | `updatedInput` no sirve para `AskUserQuestion` | Comportamiento del SDK | Las preguntas no vuelven al agente | Spike en WS1 antes de construir; alternativa de D9 | Test del spike |
 | Conflicto de versión en ventas | Dos features suben `ProjectVersion` | PR con conflicto | D14 (calcular después de traer dev) | Conflicto en `config.go` |
 | Push no llega | Permiso denegado o iOS sin PWA | El usuario no se entera del freno | La lista de proyectos marca "te toca actuar"; prueba de notificación en Configuración | Suscripción ausente o error del push service |
+| La lectura de uso cambia en el SDK | Llamada experimental renombrada o quitada | El panel de uso no se actualiza a pedido | Fuente pasiva (`rate_limit_event`) + "actualizado hace X"; test de contrato que falla al actualizar el SDK | Error en `GET /api/usage` |
 | Operación git de la web pisa al agente | Pull o commit mientras el agente edita | Estado del repo inconsistente | 409 si hay sesión corriendo o piloto activo sin pausa (D19) | Respuesta 409 con el motivo |
 | Repos hijos mal detectados | Carpeta git no ignorada o anidada más profundo | Pull o push incompleto | Lista editable en Repositorio (D20); solo primer nivel e ignorados | Repo faltante en la pestaña Git |
 | Reinicio a mitad de un commit o cierre | Corte de luz o despliegue | Estado a medias | Los verbos de Kyro son retomables (`close-sprint` con los mismos inputs); `repair` con findings frena (no se aplica solo) | `bloqueado` "Kyro pide reparar estado" |
@@ -233,6 +271,16 @@ Orden por dependencia y por reducción de incertidumbre. Cada workstream cierra 
 - `docs/identidad-visual.md`: sección de criterios (D23).
 - *Gate:* spec de la función que elige la etiqueta (consulta → sesión, trabajo → estado fino) y del tono por actor.
 
+**WS13. Uso de proveedores** (depende de WS1)
+- Spike en WS1: confirmar que la llamada de uso funciona en una sesión sin prompt y cuánto tarda.
+- Tabla `provider_usage` (proveedor, ventana, utilización, reinicio, fuente, fecha); guardar cada `rate_limit_event`; `GET /api/usage` con caché de 60 s; el piloto usa `resetsAt` para `sin_cupo_de_uso`.
+- Web: icono en el header con el % de 5 h y su tono; panel con las barras (componente compartido, criterios de `identidad-visual.md`).
+- *Gate:* tests con fixtures de la respuesta y del evento; degradado si la llamada falla; spec del tono por umbral.
+
+**WS14. Paridad manual y acciones extra** (depende de WS5 y WS11)
+- Servicio único de acciones con actor (vos / piloto / agente) usado por el orquestador y por la API; botones del catálogo; Crear PR (D25); Ver cambios (D27); Descartar y Borrar trabajo (D28).
+- *Gate:* test que recorre el catálogo y verifica que cada acción del orquestador tiene ruta manual; tests de Crear PR (PR nueva y existente) con `gh` falso; tests de descarte (rechaza ignorados) y de borrado (rechaza con sesión corriendo).
+
 **WS10. Docs y reglas** (al final, salvo `estados.md` que va con WS4)
 - `docs/plan.md` (piloto, modelos por rol, merge, etapas), `docs/panel-desarrollo.md` (VAPID, cómo probar push), `CLAUDE.md` (commits al cerrar sprint, push de la rama del worktree por el agente o desde la web, frenos del piloto), `docs/vm-setup.md` + bitácora si cambia algo en la VM (Costos: US$0).
 - *Gate:* revisión de que cada decisión D1–D16 está reflejada en un doc.
@@ -252,6 +300,10 @@ Orden por dependencia y por reducción de incertidumbre. Cada workstream cierra 
 | D19 | Commit de archivos elegidos, traer base, traer rama, push y reinstalar por repo del worktree | Timeline con cada operación y su resultado | Tests WS11 + recorrido en un worktree de ventas (raíz `main`, hijos `dev`) |
 | D20 | Pull del clon base y de sus repos hijos desde Repositorio | Resultado por repo | Test WS11 |
 | D22 | Traer base con lockfile cambiado → reinstala dependencias | Evento de setup en el Timeline | Test WS11 |
+| D24 | Icono de uso con % de 5 h y panel con 5 h y semanal; degradado si falla la llamada | Captura + respuesta de `/api/usage` | Tests WS13 + recorrido manual |
+| D25 | Crear PR abre una PR por repo con commits, o muestra la existente | Links por repo en el Timeline | Test WS14 + PR real en agents-panel |
+| D26 | Cada acción del orquestador tiene botón y el Timeline registra el actor | Test del catálogo | Test WS14 |
+| D27, D28 | Ver cambios sin `.env`; descartar y borrar con confirmación | Specs y tests | WS14 |
 | L1 | El paso cambia solo por señales de la CLI | El orquestador no lee texto del agente | Test: un texto engañoso no cambia el paso |
 | L3, L4 | Allowlist intacto; nunca `bypassPermissions` | `permissions.ts` sin binarios nuevos | Test existente de permisos + test de que el piloto no cambia `permissionMode` |
 | L6 | Sesión sin avance → `bloqueado` | Evento de transición | Test WS5 |
@@ -262,11 +314,11 @@ Orden por dependencia y por reducción de incertidumbre. Cada workstream cierra 
 ## Forge handoff
 
 - **Objetivo del scope:** que un scope o work, después de aprobar su plan desde la web, llegue solo a la PR usando un modelo pensante para planificar y uno ejecutor para ejecutar, y que frene solo por decisiones materiales, costos o bloqueos, avisando por push y respondiendo desde la web.
-- **Requisitos candidatos:** R1 preguntas desde la web · R2 modelos por rol · R3 estado fino mínimo + timeline · R4 orquestador + política de gates · R5 Idea → aprobación → scope/work · R6 cierre y merge (skill del proyecto o genérico) · R7 web (tarjetas, timeline, formularios, configuración) · R8 Web Push · R9 docs y `CLAUDE.md` · R10 repos del proyecto y operaciones git por worktree y por proyecto · R11 estados de tres niveles con una etiqueta · R12 criterios de UI aplicados.
+- **Requisitos candidatos:** R1 preguntas desde la web · R2 modelos por rol · R3 estado fino mínimo + timeline · R4 orquestador + política de gates · R5 Idea → aprobación → scope/work · R6 cierre y merge (skill del proyecto o genérico) · R7 web (tarjetas, timeline, formularios, configuración) · R8 Web Push · R9 docs y `CLAUDE.md` · R10 repos del proyecto y operaciones git por worktree y por proyecto · R11 estados de tres niveles con una etiqueta · R12 criterios de UI aplicados · R13 indicador de uso de proveedores · R14 paridad manual (catálogo, Crear PR, Ver cambios, Descartar, Borrar trabajo).
 - **Aparte:** WS9 es un Kyro Work en el repo `ventas` (puede correr en paralelo).
 - **No objetivos:** otros proveedores, piloto desde terminal, modificar Kyro, mergear PRs en GitHub, limpieza automática y checks de PR.
 - **Dependencias:** cerrar `proyectos-y-versiones` (layout `/projects/:id`, componentes de UI y, del sprint 6, pull del clon base e Inicializar Kyro); Kyro 6.1.0 instalado en la VM.
-- **Orden sugerido de sprints:** S1 WS1+WS2 · S2 WS3+WS4 · S3 WS5 · S4 WS6+WS7 · S5 WS11+WS12 · S6 WS8 · S7 WS10 y cierre.
+- **Orden sugerido de sprints:** S1 WS1+WS2 · S2 WS3+WS4 · S3 WS5 · S4 WS6+WS7 · S5 WS11+WS12 · S6 WS13+WS14 · S7 WS8 · S8 WS10 y cierre. WS13 (uso) puede adelantarse: solo depende del spike de WS1.
 - **Seguimiento no bloqueante:** piloto desde la terminal de la PC; QA con el modelo pensante en una sesión aparte; adelantar systemd de la etapa 6.
 
 ## Quality gate
