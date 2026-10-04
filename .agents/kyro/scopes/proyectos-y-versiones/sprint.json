@@ -537,6 +537,34 @@
         "given": "la configuración de un proyecto",
         "when": "se elige General o Environment",
         "then": "se muestra solo la tab elegida, que queda en la URL"
+      },
+      {
+        "id": "S50",
+        "requirement": "R27",
+        "given": "la identidad visual en tokens.css y docs/identidad-visual.md",
+        "when": "se cambia un token de color, de letra o de tamaño",
+        "then": "toda la web lo refleja sin tocar componentes y la letra es Inter autoalojada, sin pedidos a dominios externos"
+      },
+      {
+        "id": "S51",
+        "requirement": "R28",
+        "given": "un modal de código TOTP o de alta de proyecto abierto",
+        "when": "se envía, se cierra con la cruz o la API responde invalid_totp",
+        "then": "el código se vacía en los tres casos y el error se ve dentro del modal"
+      },
+      {
+        "id": "S52",
+        "requirement": "R29",
+        "given": "la URL https://github.com/usuario/repo/tree/dev",
+        "when": "se agrega el proyecto desde el modal Nuevo proyecto",
+        "then": "usuario, repo y rama salen de la URL, la tarjeta muestra la URL completa y otros hosts o esquemas dan 400"
+      },
+      {
+        "id": "S53",
+        "requirement": "R30",
+        "given": "un proyecto con chats y un último chat elegido",
+        "when": "se sale a otra pantalla y se vuelve a /projects/:id",
+        "then": "se reabre ese chat en la sidebar; sin chat guardado abre Nuevo chat; la Configuración muestra una tab por vez"
       }
     ],
     "nonGoals": [
@@ -710,7 +738,8 @@
               "T1.1"
             ],
             "scenario_refs": [
-              "S41"
+              "S41",
+              "S50"
             ],
             "status": "pending",
             "evidence": null,
@@ -740,7 +769,8 @@
               "T1.2"
             ],
             "scenario_refs": [
-              "S42"
+              "S42",
+              "S50"
             ],
             "status": "pending",
             "evidence": null,
@@ -804,7 +834,8 @@
               "T1.4"
             ],
             "scenario_refs": [
-              "S44"
+              "S44",
+              "S51"
             ],
             "status": "pending",
             "evidence": null,
@@ -830,7 +861,8 @@
             ],
             "depends_on": [],
             "scenario_refs": [
-              "S45"
+              "S45",
+              "S52"
             ],
             "status": "pending",
             "evidence": null,
@@ -858,7 +890,9 @@
               "T2.2"
             ],
             "scenario_refs": [
-              "S45"
+              "S45",
+              "S51",
+              "S52"
             ],
             "status": "pending",
             "evidence": null,
@@ -942,7 +976,8 @@
               "T1.4"
             ],
             "scenario_refs": [
-              "S48"
+              "S48",
+              "S53"
             ],
             "status": "pending",
             "evidence": null,
@@ -1022,7 +1057,8 @@
               "T3.3"
             ],
             "scenario_refs": [
-              "S49"
+              "S49",
+              "S53"
             ],
             "status": "pending",
             "evidence": null,
