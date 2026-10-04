@@ -64,9 +64,15 @@ Mantenimiento de cuentas:
 
 ## 3. Registrar un proyecto (una vez por proyecto)
 
-### Desde GitHub (API; la pantalla web llega en el sprint 2)
+### Desde la web (lo normal)
 
-Con la API levantada y una sesión iniciada, `POST /api/projects` clona el repo en `PANEL_PROJECTS_DIR` (por defecto `~/proyectos`) y lo registra. Hace falta la cookie de sesión y el token CSRF de `GET /api/auth/me`, más el header `Origin` igual a `PANEL_ORIGIN`:
+En **Proyectos** (la pantalla inicial) completá **Agregar proyecto** con `owner/repo` o la URL de GitHub y, si querés, un nombre visible. La tarjeta pasa de *Clonando* a *Listo* (o *Error* con el motivo y un botón Reintentar) sin recargar. Si el repo trae `scripts/panel-setup.sh`, la tarjeta sugiere `bash scripts/panel-setup.sh`: confirmalo, editalo o elegí *Sin setup*; hasta entonces no se guarda nada. Los repos que no son de GitHub se rechazan en el formulario y en la API.
+
+En la **página del proyecto** (`/projects/:id`) están el chat nuevo, los chats de ese proyecto y la **Configuración**: nombre visible, rama base y comando de setup (vacío = sin setup), más los `.env` y la actualización de Kyro explicados más abajo.
+
+### Desde la API (referencia)
+
+Lo que hace la web es `POST /api/projects`, que clona el repo en `PANEL_PROJECTS_DIR` (por defecto `~/proyectos`) y lo registra. Hace falta la cookie de sesión y el token CSRF de `GET /api/auth/me`, más el header `Origin` igual a `PANEL_ORIGIN`:
 
 ```json
 {
@@ -99,7 +105,11 @@ npm run -w @agents-panel/api cli -- project:list   # id, nombre, nombre visible,
 
 Detalle del comando de setup y de `panel-setup.sh` en `vm-setup.md` (paso 10) y en `CLAUDE.md`.
 
-### `.env` de desarrollo del proyecto (API; la pantalla web llega en el sprint 4)
+### `.env` de desarrollo del proyecto
+
+Desde la web: página del proyecto → Configuración → **Archivos .env**. Elegí la ruta dentro del proyecto (`.env`, `backend/.env`, `.env.local`…), cargá el archivo o pegá el texto, marcá si querés aplicarlo también a los worktrees activos y confirmá con el código TOTP de la app (uno nuevo por acción). El panel no muestra el contenido de ningún `.env`: se lista ruta, claves y fecha; para cambiar uno se sube de nuevo, y para quitarlo se usa Borrar (también con TOTP). Un `.env` marcado «ilegible» hay que volver a subirlo. Después de aplicar a los activos se ve una tabla por worktree: escrito u omitido con el motivo (por ejemplo «agente en curso»).
+
+Referencia de la API:
 
 El panel guarda los `.env` de desarrollo de cada proyecto cifrados y los escribe (modo 600) en cada worktree nuevo, después del setup. Se manejan en `/api/projects/:id/env` con la sesión, el token CSRF y el `Origin` de siempre; subir, reemplazar y borrar piden además un código **TOTP nuevo** de la app (uno que no se haya usado para entrar ni en otra acción).
 
@@ -114,7 +124,7 @@ Subir o reemplazar (`PUT`). El ejemplo usa valores falsos: nunca pegues un `.env
 }
 ```
 
-- **201** si se creó, **200** si reemplazó uno con la misma ruta. Responde `{ "file": { "path", "keyNames", "updatedAt", "readable" } }`; con `"applyToActive": true` suma `applied`: por cada worktree activo del proyecto, `written` o `skipped` con el motivo.
+- **201** si se creó, **200** si reemplazó uno con la misma ruta. Responde `{ "file": { "path", "keyNames", "updatedAt", "readable" } }`; con `"applyToActive": true` suma `applied`: por cada worktree activo del proyecto, `written` o `skipped` con el motivo. Los chats con el agente corriendo se omiten («agente en curso: se aplica cuando termine o en el próximo chat»); reciben el archivo en su próximo chat.
 - **400** con el motivo: ruta o nombre inválido (`.env.production`, `.env.example`, `../.env`…), contenido de más de 64 KB, con NUL o con una línea que no es `CLAVE=valor` (cita el número de línea), un campo de más, o una ruta que git **no** ignora en el clon (sumala al `.gitignore` del repo).
 - **401** `{ "error": "invalid_totp" }`: falta el código, es incorrecto o ya se usó. Cuenta para el bloqueo por intentos (`user:unlock` si hace falta).
 - **404** si el proyecto no existe; **409** si todavía no está `ready`.
@@ -125,7 +135,11 @@ Borrar (`DELETE /api/projects/:id/env`, body `{ "path": "backend/.env", "totp": 
 
 Si se cambia `PANEL_SECRET_KEY`, los `.env` guardados quedan con `readable: false` y crear un chat en ese proyecto responde 422 hasta volver a subirlos. Si el setup no crea la carpeta de algún `.env` (por ejemplo `backend/`), crear el chat también responde 422 («falta la carpeta backend para backend/.env») y no queda nada creado.
 
-### Actualizar Kyro (API; la pantalla web llega en el sprint 4)
+### Actualizar Kyro
+
+Desde la web: menú **Versiones**. Muestra la versión instalada y la última publicada, el botón **Actualizar** (pide un código TOTP), el aviso si hay sesiones corriendo (409 con la cantidad) y el historial de corridas con la salida desplegable. Mientras actualiza, el botón queda deshabilitado y la pantalla se refresca sola.
+
+Referencia de la API:
 
 `POST /api/versions/kyro/update` con la sesión, el token CSRF y `{ "code": "123456" }` (un TOTP vigente que no se haya usado) corre `scripts/vm/08-kyro-update.sh` con las raíces de los proyectos listos que tienen Kyro. Responde **202** `{ "runId": 1 }`, **401** `{ "error": "invalid_totp" }`, o **409** si hay sesiones corriendo (`running` trae la cantidad) o ya hay una actualización en curso. `GET /api/versions` muestra la versión instalada y la última publicada (`null` sin red), y `GET /api/maintenance-runs?kind=kyro-update` el historial con la salida recortada.
 
@@ -133,7 +147,8 @@ Para probarlo en desarrollo sin tocar el Kyro real de la VM, apuntar `PANEL_KYRO
 
 ## 4. Levantar backend y frontend en la VM
 
-Cada uno en su sesión de tmux, para que sigan corriendo si se corta el SSH:
+Lo más simple, desde cualquier carpeta de la VM: `bash ~/proyectos/agents-panel/scripts/dev-panel.sh`. Mata las sesiones `panel-api` y `panel-web` si existen, compila `packages/shared`, levanta la API y la web cada una en su sesión de tmux y espera a que `/api/health` responda. Sirve también para reiniciar después de cambiar código. A mano, lo mismo (hay que estar parado en el repo):
+
 
 ```bash
 # API (con recarga al cambiar el código)

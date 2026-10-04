@@ -66,7 +66,7 @@ El objetivo: poder rehacer la VM desde cero siguiendo solo el runbook.
 
 ## Proyectos registrados en el panel
 
-El setup de un proyecto (`project:add … ["comando de setup"]`) es opcional y se ejecuta sin shell dentro del worktree nuevo:
+Los proyectos se dan de alta desde la web (**Proyectos → Agregar proyecto**, con `owner/repo` o URL de GitHub); `project:add` del CLI queda para carpetas ya clonadas. El setup de un proyecto (campo de la configuración en la web, o `project:add … ["comando de setup"]`) es opcional y se ejecuta sin shell dentro del worktree nuevo:
 
 - Si no necesita nada, no lleva comando.
 - Si alcanza con un comando, se pasa directo (por ejemplo `"npm ci"`).
