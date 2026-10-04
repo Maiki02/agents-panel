@@ -15,6 +15,7 @@ Panel web para mandar pedidos a Claude Code y seguir cada scope o work de Kyro d
 | `docs/vm-oracle.md` | Cómo se creó la VM en Oracle (cuenta, instancia, red, SSH) |
 | `docs/vm-setup.md` | Runbook de la VM: **todo** lo que se instaló o configuró, paso a paso, y la bitácora |
 | `docs/panel-desarrollo.md` | Crear cuenta, correr API y web en la VM y entrar desde la PC por túnel SSH |
+| `docs/identidad-visual.md` | Tokens de diseño (colores, Inter, tamaños), Tailwind y cómo replicar la identidad de la web |
 
 Si una decisión cambia, se actualiza el doc correspondiente en el mismo cambio. Los docs se escriben en español; el código (identificadores, comentarios técnicos) en inglés.
 
@@ -66,7 +67,7 @@ El objetivo: poder rehacer la VM desde cero siguiendo solo el runbook.
 
 ## Proyectos registrados en el panel
 
-Los proyectos se dan de alta desde la web (**Proyectos → Agregar proyecto**, con `owner/repo` o URL de GitHub); `project:add` del CLI queda para carpetas ya clonadas. El setup de un proyecto (campo de la configuración en la web, o `project:add … ["comando de setup"]`) es opcional y se ejecuta sin shell dentro del worktree nuevo:
+Los proyectos se dan de alta desde la web (**Proyectos → Nuevo proyecto**, con la URL completa de GitHub); `project:add` del CLI queda para carpetas ya clonadas. El setup de un proyecto (campo de la configuración en la web, o `project:add … ["comando de setup"]`) es opcional y se ejecuta sin shell dentro del worktree nuevo:
 
 - Si no necesita nada, no lleva comando.
 - Si alcanza con un comando, se pasa directo (por ejemplo `"npm ci"`).

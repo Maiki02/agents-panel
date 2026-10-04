@@ -66,9 +66,9 @@ Mantenimiento de cuentas:
 
 ### Desde la web (lo normal)
 
-En **Proyectos** (la pantalla inicial) completá **Agregar proyecto** con `owner/repo` o la URL de GitHub y, si querés, un nombre visible. La tarjeta pasa de *Clonando* a *Listo* (o *Error* con el motivo y un botón Reintentar) sin recargar. Si el repo trae `scripts/panel-setup.sh`, la tarjeta sugiere `bash scripts/panel-setup.sh`: confirmalo, editalo o elegí *Sin setup*; hasta entonces no se guarda nada. Los repos que no son de GitHub se rechazan en el formulario y en la API.
+En **Proyectos** (la pantalla inicial) apretá **Nuevo proyecto**: se abre un modal donde pegás la **URL completa** del repo (`https://github.com/usuario/repo`; con `/tree/<rama>` al final se toma esa rama como base) y, si querés, un nombre visible. Se cierra con la cruz, con Esc o al agregar. La tarjeta pasa de *Clonando* a *Listo* (o *Error* con el motivo y un botón Reintentar) sin recargar, con el estado a la derecha y el link al repo. Si el repo trae `scripts/panel-setup.sh`, la tarjeta sugiere `bash scripts/panel-setup.sh`: confirmalo, editalo o elegí *Sin setup*; hasta entonces no se guarda nada. Un valor que no sea una URL de GitHub se rechaza en el formulario y en la API.
 
-En la **página del proyecto** (`/projects/:id`) están el chat nuevo, los chats de ese proyecto y la **Configuración**: nombre visible, rama base y comando de setup (vacío = sin setup), más los `.env` y la actualización de Kyro explicados más abajo.
+Al elegir un proyecto (`/projects/:id`) se abre su página, con un riel lateral **Chats** y **Configuración**. En **Chats**, a la izquierda están el botón **Nuevo chat** y la lista de chats del proyecto (título, rama y estado); por defecto se abre *Nuevo chat*, y si ya habías elegido un chat, al volver al proyecto se reabre ese. En **Configuración** hay dos pestañas: **General** (nombre visible, rama base y comando de setup; vacío = sin setup) y **Environment** (los `.env`, explicados más abajo). La actualización de Kyro está en **Versiones**, en el menú de arriba.
 
 ### Desde la API (referencia)
 
@@ -84,7 +84,7 @@ Lo que hace la web es `POST /api/projects`, que clona el repo en `PANEL_PROJECTS
 }
 ```
 
-- Solo `repo` es obligatorio: `owner/repo` o `https://github.com/owner/repo` (con o sin `.git`). El resto es opcional: `name` (kebab-case; si falta sale del repo), `displayName` (nombre visible), `baseBranch` (si falta, la rama por defecto del clon) y `setupCommand`.
+- Solo `repo` es obligatorio: la URL completa `https://github.com/owner/repo` (con o sin `.git`; la web pide esta forma) o, como referencia de la API, `owner/repo`. Si la URL trae `/tree/<rama>` (por ejemplo `https://github.com/owner/repo/tree/dev` o `…/tree/feature/x`), esa rama es la base del proyecto; un `baseBranch` explícito gana sobre la de la URL. Otros caminos (`/blob/…`), ramas con caracteres raros, query o fragmento se rechazan con 400. El resto es opcional: `name` (kebab-case; si falta sale del repo), `displayName` (nombre visible), `baseBranch` (si falta, la rama por defecto del clon) y `setupCommand`.
 - Cualquier otro campo (por ejemplo una ruta de carpeta) o un repo que no sea de GitHub se rechaza con 400: el destino lo decide siempre el panel.
 - **202**: el clon sigue en segundo plano y el proyecto está en `cloning`. **201**: la carpeta ya existía con ese origin y se adoptó (queda `ready`). **409**: el proyecto ya existe, o la carpeta existe con otro origin.
 - Seguir el estado con `GET /api/projects/:id` (`cloning`, `ready` o `error` con `statusDetail`). Si falló, `POST /api/projects/:id/retry`. Un chat sobre un proyecto que no está `ready` responde 409.
@@ -107,7 +107,7 @@ Detalle del comando de setup y de `panel-setup.sh` en `vm-setup.md` (paso 10) y 
 
 ### `.env` de desarrollo del proyecto
 
-Desde la web: página del proyecto → Configuración → **Archivos .env**. Elegí la ruta dentro del proyecto (`.env`, `backend/.env`, `.env.local`…), cargá el archivo o pegá el texto, marcá si querés aplicarlo también a los worktrees activos y confirmá con el código TOTP de la app (uno nuevo por acción). El panel no muestra el contenido de ningún `.env`: se lista ruta, claves y fecha; para cambiar uno se sube de nuevo, y para quitarlo se usa Borrar (también con TOTP). Un `.env` marcado «ilegible» hay que volver a subirlo. Después de aplicar a los activos se ve una tabla por worktree: escrito u omitido con el motivo (por ejemplo «agente en curso»).
+Desde la web: página del proyecto → Configuración → pestaña **Environment**. Elegí la ruta dentro del proyecto (`.env`, `backend/.env`, `.env.local`…), cargá el archivo o pegá el texto, marcá si querés aplicarlo también a los worktrees activos y confirmá en el modal con el código TOTP de la app (uno nuevo por acción; si es incorrecto el modal sigue abierto y solo volvés a escribir el código). El panel no muestra el contenido de ningún `.env`: se lista ruta, claves y fecha; para cambiar uno se sube de nuevo, y para quitarlo se usa Borrar (también con TOTP). Un `.env` marcado «ilegible» hay que volver a subirlo. Después de aplicar a los activos se ve una tabla por worktree: escrito u omitido con el motivo (por ejemplo «agente en curso».
 
 Referencia de la API:
 
@@ -137,7 +137,7 @@ Si se cambia `PANEL_SECRET_KEY`, los `.env` guardados quedan con `readable: fals
 
 ### Actualizar Kyro
 
-Desde la web: menú **Versiones**. Muestra la versión instalada y la última publicada, el botón **Actualizar** (pide un código TOTP), el aviso si hay sesiones corriendo (409 con la cantidad) y el historial de corridas con la salida desplegable. Mientras actualiza, el botón queda deshabilitado y la pantalla se refresca sola.
+Desde la web: menú **Versiones**. Muestra la versión instalada y la última publicada, y un icono de refresh (**Actualizar Kyro**) que abre el modal de código TOTP. Si hay sesiones corriendo (409 con la cantidad), el aviso aparece dentro del modal. Mientras actualiza, el icono gira y queda deshabilitado, la pantalla se refresca sola y el historial de corridas muestra la salida desplegable.
 
 Referencia de la API:
 
