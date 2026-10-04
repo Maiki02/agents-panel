@@ -117,3 +117,19 @@ stateDiagram-v2
 - **Arranque del panel:** toda sesión que estaba activa pasa a `interrumpido`, y los builds en cola se vuelven a encolar.
 
 Pendiente: confirmar los nombres exactos de `nextAction` y los campos de `kyro status --json` en la VM.
+
+## Estado de sesión del MVP (etapa 4)
+
+Antes de que exista el estado fino, cada chat guarda un **estado grueso de sesión** en `chats.status`. Se deduce solo de lo que pasa con la sesión del Agent SDK, nunca del texto del agente:
+
+| `chats.status` | Cuándo | Cómo sale |
+|---|---|---|
+| `running` | Hay un turno del agente en curso (`AgentManager.start`) | Termina el turno (`idle`), falla (`error`) o se cancela (`cancelled`) |
+| `idle` | El turno terminó con `result:success`; espera el próximo mensaje | `POST /api/chats/:id/messages` (resume) |
+| `error` | El SDK devolvió un `result` con error o la corrida lanzó una excepción (queda un evento `error`) | Mandar otro mensaje (resume) |
+| `interrumpido` (`interrupted`) | Al arrancar el servidor el chat estaba `running` | Mandar un mensaje: retoma con el `sdk_session_id` guardado |
+| `cancelado` (`cancelled`) | `POST /api/chats/:id/cancel` abortó el turno | Mandar un mensaje (resume) |
+
+Un chat `running` rechaza nuevos mensajes con 409; y no puede haber más de 4 sesiones `running` a la vez (la quinta da 409).
+
+**Mapeo a los estados finos (etapa 5):** `running` pasa a ser cualquiera de los estados de Preparación/Planificación/Ejecución/QA según las señales de Kyro, git y `gh`; `idle` se mapea al estado en que quedó la fase (o `esperando_usuario` si el agente pidió algo); `interrupted` y `cancelled` equivalen a las transversales `interrumpido` y `cancelado`; `error` es la transversal `error`. La tabla `worktree_state` se agrega encima: `chats.status` sigue siendo el estado de la *sesión*, no del *worktree*.

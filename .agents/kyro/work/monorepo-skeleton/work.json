@@ -9,12 +9,12 @@
     "digest": "6e01c9437889f29dee6996e42d8653753f263097538c15aecda556b47fccdbcf",
     "sourceIdea": null
   },
-  "state": "active",
-  "revision": 17,
+  "state": "closed",
+  "revision": 18,
   "createdAt": "2026-10-03T02:34:57.120Z",
-  "updatedAt": "2026-10-03T23:38:25.364Z",
+  "updatedAt": "2026-10-04T00:37:34.481Z",
   "handoff": {
-    "nextAction": "ready_to_close",
+    "nextAction": "done",
     "nextTaskId": null,
     "blockedReason": null
   },
@@ -641,8 +641,24 @@
       "by": "claude-reviewer",
       "reason": "Task review recorded with pass.",
       "revision": 17
+    },
+    {
+      "seq": 18,
+      "at": "2026-10-04T00:37:34.481Z",
+      "event": "work_closed",
+      "taskId": null,
+      "by": "claude",
+      "reason": "Esqueleto del monorepo completo: W1-W5 verificadas con review pass; npm ci, build, typecheck, lint y format:check pasan desde un clon limpio.",
+      "revision": 18
     }
   ],
-  "closure": null,
+  "closure": {
+    "outcome": "completed",
+    "reason": "Esqueleto del monorepo completo: W1-W5 verificadas con review pass; npm ci, build, typecheck, lint y format:check pasan desde un clon limpio.",
+    "by": "claude",
+    "closedAt": "2026-10-04T00:37:34.481Z",
+    "briefDigest": "6e01c9437889f29dee6996e42d8653753f263097538c15aecda556b47fccdbcf",
+    "finalRevision": 18
+  },
   "promotion": null
 }
