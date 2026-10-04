@@ -65,7 +65,7 @@ Una vez aprobado el plan, un scope o un work tiene que llegar solo a la PR: el p
 | L4. El agente nunca corre con `bypassPermissions`; el piloto pre-aprueba gates de Kyro, no permisos de herramientas | Que el piloto sea una puerta para ejecutar cualquier cosa desde una URL pública |
 | L5. Una pregunta material nunca se auto-responde: queda pendiente hasta que el usuario responde, sin timeout | Decisiones de producto tomadas por el agente |
 | L6. Una sesión que termina sin avanzar el estado y sin preguntar frena el piloto (`bloqueado`, "sin avance") | Bucles infinitos que consumen el límite de la suscripción |
-| L7. Commits solo al cerrar un sprint (o cuando el usuario lo pide), en la rama `feature/<slug>` del worktree; nunca `push --force` ni rebase de ramas pusheadas | Historia reescrita o commits de trabajo a medias en ramas compartidas |
+| L7. Commits solo al cerrar un sprint (o cuando el usuario lo pide), en la rama `feature/<slug>` del worktree (y `feature-<slug>` de los repos hijos). El agente puede pushear la rama de su worktree en cualquier repo, y el usuario también desde la web; nunca `push --force`, rebase de ramas pusheadas ni push directo a la rama base fuera de lo que ya hace la `merge-dev` del proyecto | Historia reescrita o commits de trabajo a medias en ramas compartidas |
 | L8. Antes de abrir una PR, la rama trae la rama base (`git pull --no-rebase origin <base>`) y los conflictos se resuelven en la rama; si hay lógica de negocio de los dos lados, frena | PRs no mergeables o conflictos resueltos a ciegas |
 | L9. Lo propio de un proyecto (versión de ventas, repos hijos) vive en el repo del proyecto (`merge-dev` propia), no en el panel | Que el panel acumule reglas de cada proyecto |
 | L10. El piloto sobrevive a cerrar el navegador y a reiniciar el panel: al arrancar, los pilotos activos se retoman solos | Trabajo parado porque nadie miraba |
@@ -101,7 +101,7 @@ Una vez aprobado el plan, un scope o un work tiene que llegar solo a la PR: el p
 5. **Política de gates pre-aprobados** (texto versionado en el panel): QA siempre; cierre de sprint aprobado si QA es `APPROVED`/`APPROVED WITH NOTES` y `analyze` limpio; reglas nuevas solo de scope (las candidatas a globales se listan al final); deuda: se corrige si se puede, si no se posterga; commit al cerrar el sprint; completar el scope solo si no hay deuda abierta.
 6. **Cierre y merge:** si el proyecto trae su skill `merge-dev`, se usa; si no, merge genérico: commit de lo pendiente, `git pull --no-rebase origin <base_branch>` en `feature/<slug>`, resolución de conflictos, validación si entraron cambios, push y `gh pr create --base <base_branch>`.
 7. **Estado fino mínimo + timeline:** tabla `worktree_state` y eventos de transición, con fase, sprint n/m, tarea n/m, rol/modelo y motivo de cada freno.
-8. **Web:** en `/projects/:id`, una tarjeta por worktree que muestra **solo su estado actual**; al hacer click, la vista del worktree con su **timeline** y su **chat**. Formulario de chat nuevo con tipo (Idea, Scope, Work, Consulta), interruptor de piloto y modelos. Configuración de modelos.
+8. **Web:** en `/projects/:id`, una tarjeta por worktree que muestra **solo su estado actual**; al hacer click, la vista del worktree con su **timeline** y su **chat**. Botón "Pushear" en la vista del worktree (D17). Formulario de chat nuevo con tipo (Idea, Scope, Work, Consulta), interruptor de piloto y modelos. Configuración de modelos.
 9. **Notificaciones Web Push** (service worker + VAPID) cuando el piloto frena o termina en `pr_lista`.
 10. **ventas `merge-dev`:** subida de `ProjectVersion` por commits (cambio en el repo ventas, entregado como Kyro Work en ese repo).
 11. **Docs y reglas:** `docs/plan.md`, `docs/estados.md`, `docs/panel-desarrollo.md`, `CLAUDE.md` (regla de commits) y `docs/vm-setup.md` si se agregan variables o claves en la VM.
@@ -127,6 +127,7 @@ Una vez aprobado el plan, un scope o un work tiene que llegar solo a la PR: el p
 | D6 | Deuda: se corrige si se puede sin decisión nueva, costo ni dependencia externa; si no, `defer` con motivo y se presenta al final | Pedido del usuario | Un sprint puede alargarse corrigiendo deuda | El timeline muestra la deuda postergada |
 | D7 | Fin del scope: sin deuda abierta → `scope complete` + merge automáticos; con deuda → una sola pregunta | Pedido del usuario (04/10/2026) | Ninguno relevante | `--accept-open-debt` solo con OK explícito |
 | D8 | Commits al cerrar cada sprint o cuando el usuario lo pide | Pedido del usuario | Cambia la regla de `CLAUDE.md` ("solo cuando el usuario lo pide") | Se actualiza `CLAUDE.md` en este scope |
+| D17 | **Push permitido de la rama del worktree**, en cualquier repo (raíz y repos hijos): lo hace el agente (el piloto pushea después de cada commit de cierre de sprint) y el usuario con un botón "Pushear" en la vista del worktree | Pedido del usuario (04/10/2026): "puede pushear la rama del worktree la IA, no importa el repo". Pushear cada sprint además deja una copia fuera de la VM (`plan.md`, "Si se reinicia la VM") | Las ramas `feature/*` quedan visibles en GitHub antes de la PR | Solo `git push` (con `-u` la primera vez) de la rama actual del worktree; un push rechazado se resuelve con `pull --no-rebase` y se reintenta, nunca `--force`. Se actualiza `CLAUDE.md` (sección Git) |
 | D9 | Preguntas por `AskUserQuestion` interceptado en `canUseTool`: se guarda, se espera la respuesta y se devuelve como `updatedInput` | El SDK admite `updatedInput`; hoy la herramienta está denegada | Hipótesis a confirmar en WS1; si falla, alternativa: denegar con el mensaje "el usuario respondió: …" | Sin timeout (L5); si el panel se reinicia con una pregunta pendiente, el `resume` hace que el agente vuelva a preguntar |
 | D10 | Notificaciones con **Web Push** (VAPID + service worker), no solo la Notification API | Con la pestaña cerrada o el celular bloqueado la Notification API no avisa | En iOS hay que agregar el panel a la pantalla de inicio | Las claves VAPID son secretos: van en el `.env` del panel, no en docs |
 | D11 | Modelos por rol: **pensante** y **ejecutor**, por proveedor, con valor por defecto global (Opus 5.5 / Sonnet 5.5) y cambio por chat | Pedido del usuario | Ninguno | Cada evento de sesión registra el modelo usado |
@@ -190,6 +191,7 @@ Orden por dependencia y por reducción de incertidumbre. Cada workstream cierra 
 - *Gate:* test de las tres acciones con fakes.
 
 **WS7. Cierre y merge** (depende de WS5)
+- Push de la rama del worktree después de cada commit de cierre de sprint (D17), en todos los repos del worktree que tengan commits nuevos; endpoint `POST /api/chats/:id/push` para el botón de la web (sesión + CSRF).
 - Fin sin deuda → `kyro scope complete --yes` (o `kyro work close`) → paso de merge: skill `merge-dev` del proyecto si existe en el worktree; si no, merge genérico (D13).
 - *Gate:* tests del selector de merge y del prompt genérico; prueba real en agents-panel con un work chico que termina en PR a `main`.
 
@@ -203,7 +205,7 @@ Orden por dependencia y por reducción de incertidumbre. Cada workstream cierra 
 - *Gate:* corrida de prueba sobre una rama con un `feat` (minor) y otra con solo `fix` (patch).
 
 **WS10. Docs y reglas** (al final, salvo `estados.md` que va con WS4)
-- `docs/plan.md` (piloto, modelos por rol, merge, etapas), `docs/panel-desarrollo.md` (VAPID, cómo probar push), `CLAUDE.md` (commits al cerrar sprint, frenos del piloto), `docs/vm-setup.md` + bitácora si cambia algo en la VM (Costos: US$0).
+- `docs/plan.md` (piloto, modelos por rol, merge, etapas), `docs/panel-desarrollo.md` (VAPID, cómo probar push), `CLAUDE.md` (commits al cerrar sprint, push de la rama del worktree por el agente o desde la web, frenos del piloto), `docs/vm-setup.md` + bitácora si cambia algo en la VM (Costos: US$0).
 - *Gate:* revisión de que cada decisión D1–D16 está reflejada en un doc.
 
 ## Acceptance and validation matrix
@@ -220,7 +222,7 @@ Orden por dependencia y por reducción de incertidumbre. Cada workstream cierra 
 | L1 | El paso cambia solo por señales de la CLI | El orquestador no lee texto del agente | Test: un texto engañoso no cambia el paso |
 | L3, L4 | Allowlist intacto; nunca `bypassPermissions` | `permissions.ts` sin binarios nuevos | Test existente de permisos + test de que el piloto no cambia `permissionMode` |
 | L6 | Sesión sin avance → `bloqueado` | Evento de transición | Test WS5 |
-| L7 | Commit solo al cerrar sprint, en `feature/<slug>` | `git log` del worktree | Test con git real en un repo temporal |
+| L7, D17 | Commit solo al cerrar sprint, en `feature/<slug>`; push de esa rama (agente y botón), nunca `--force` ni de otra rama | `git log` del worktree y del remoto | Test con git real en un repo temporal con remoto bare |
 | L8, D13 | Pull de la base antes de la PR; conflicto con lógica de ambos lados frena | Evento de merge | Test del merge genérico con repo temporal en conflicto |
 | L10, D16 | Reinicio con piloto activo → se retoma | Evento "retomado" | Test de arranque |
 
