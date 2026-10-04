@@ -54,6 +54,16 @@ async function boot(runner = new FakeRunner(), db = openDatabase(':memory:')) {
   return { ...made, runner, manager, project, post, get, waitIdle };
 }
 
+async function bootTwoProjects() {
+  const booted = await boot();
+  const other = await new ProjectRepository(booted.db).add({
+    name: 'other',
+    repoPath: makeGitRepo(),
+    baseBranch: 'main',
+  });
+  return { ...booted, made: { other } };
+}
+
 describe('chats API', () => {
   it('creates a chat, exposes its events, continues it with resume and lists it', async () => {
     const { runner, project, post, get, waitIdle } = await boot();
@@ -190,6 +200,7 @@ describe('chats API', () => {
     const { app } = await boot();
     for (const [method, url] of [
       ['GET', '/api/chats'],
+      ['GET', '/api/chats?projectId=1'],
       ['GET', '/api/chats/1'],
       ['GET', '/api/chats/1/events'],
       ['POST', '/api/chats'],
@@ -223,6 +234,39 @@ describe('chats API', () => {
     ).toBe(202);
     await second.waitIdle(chat.id);
     expect(second.runner.calls[0]).toMatchObject({ resumeSessionId: 'sess-old', prompt: 'resume' });
+  });
+});
+
+describe('GET /api/chats?projectId=', () => {
+  it('filters by project, returns [] for an unknown one and refuses bad queries', async () => {
+    const { made, project, post, get, waitIdle } = await bootTwoProjects();
+    const a = (
+      await post('/api/chats', { projectId: project.id, kind: 'work', slug: 'a-one', prompt: 'a' })
+    ).json<Chat>();
+    await waitIdle(a.id);
+    const b = (
+      await post('/api/chats', {
+        projectId: made.other.id,
+        kind: 'work',
+        slug: 'b-one',
+        prompt: 'b',
+      })
+    ).json<Chat>();
+    await waitIdle(b.id);
+
+    const onlyA = (await get(`/api/chats?projectId=${String(project.id)}`)).json<Chat[]>();
+    expect(onlyA.map((c) => c.id)).toEqual([a.id]);
+    const onlyB = (await get(`/api/chats?projectId=${String(made.other.id)}`)).json<Chat[]>();
+    expect(onlyB.map((c) => c.id)).toEqual([b.id]);
+    expect((await get('/api/chats')).json<Chat[]>()).toHaveLength(2);
+
+    const none = await get('/api/chats?projectId=9999');
+    expect(none.statusCode).toBe(200);
+    expect(none.json<Chat[]>()).toEqual([]);
+
+    for (const q of ['projectId=0', 'projectId=x', `projectId=${String(project.id)}&extra=1`]) {
+      expect((await get(`/api/chats?${q}`)).statusCode, q).toBe(400);
+    }
   });
 });
 

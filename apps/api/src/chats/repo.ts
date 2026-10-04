@@ -100,11 +100,13 @@ export class ChatRepository {
     return row ? toChat(row) : undefined;
   }
 
-  list(): Chat[] {
+  list(projectId?: number): Chat[] {
+    const where = projectId === undefined ? '' : ' WHERE c.project_id = ?';
+    const args = projectId === undefined ? [] : [projectId];
     return (
       this.db
-        .prepare(`${SELECT_CHAT} ORDER BY c.updated_at DESC, c.id DESC`)
-        .all() as unknown as ChatRow[]
+        .prepare(`${SELECT_CHAT}${where} ORDER BY c.updated_at DESC, c.id DESC`)
+        .all(...args) as unknown as ChatRow[]
     ).map(toChat);
   }
 

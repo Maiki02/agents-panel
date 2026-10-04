@@ -51,7 +51,28 @@ export function registerChatRoutes(
     },
   );
 
-  app.get('/api/chats', () => chats.list());
+  app.get<{ Querystring: { projectId?: number } }>(
+    '/api/chats',
+    {
+      schema: {
+        querystring: {
+          type: 'object',
+          additionalProperties: false,
+          properties: { projectId: { type: 'integer', minimum: 1 } },
+        },
+      },
+      // ajv strips unknown query fields silently; refuse them instead.
+      preValidation: (request, reply, done) => {
+        const extra = Object.keys(request.query).find((key) => key !== 'projectId');
+        if (extra !== undefined) {
+          void reply.code(400).send({ error: `Unknown field: ${extra}` });
+          return;
+        }
+        done();
+      },
+    },
+    (request) => chats.list(request.query.projectId),
+  );
 
   app.get<{ Params: { id: number } }>(
     '/api/chats/:id',

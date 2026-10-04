@@ -238,6 +238,40 @@ describe('env file routes', () => {
     expect(lstatSync(written).mode & 0o777).toBe(0o600);
   });
 
+  it('applyToActive skips a chat with a running agent and leaves its file untouched', async () => {
+    const { put, totp, addChat, db } = await setup();
+    const idle = addChat('idle-one');
+    const running = addChat('running-one');
+    await put({ path: '.env', content: 'OLD=1\n', totp: totp(), applyToActive: true });
+    const file = join(running.worktreePath, '.env');
+    const before = lstatSync(file);
+    db.prepare("UPDATE chats SET status = 'running' WHERE id = ?").run(running.id);
+
+    const res = await put({
+      path: '.env',
+      content: CONTENT,
+      totp: totp(),
+      applyToActive: true,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.body).not.toContain(SENTINEL);
+    const body = res.json<{
+      applied: { chatId: number; status: string; reason: string | null }[];
+    }>();
+    body.applied.sort((a, b) => a.chatId - b.chatId);
+    expect(body.applied).toEqual([
+      expect.objectContaining({ chatId: idle.id, status: 'written', reason: null }),
+      expect.objectContaining({
+        chatId: running.id,
+        status: 'skipped',
+        reason: 'agente en curso: se aplica cuando termine o en el próximo chat',
+      }),
+    ]);
+    expect(readFileSync(join(idle.worktreePath, '.env'), 'utf8')).toBe(CONTENT);
+    expect(readFileSync(file, 'utf8')).toBe('OLD=1\n');
+    expect(lstatSync(file).mtimeMs).toBe(before.mtimeMs);
+  });
+
   it('replaces the file in active worktrees with the new content', async () => {
     const { put, totp, addChat } = await setup();
     const chat = addChat('rotate');
