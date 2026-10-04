@@ -7,6 +7,8 @@ export interface GithubRepo {
   slug: string;
   /** Canonical URL: https://github.com/owner/repo */
   httpsUrl: string;
+  /** Branch named by a `/tree/<branch>` URL; null when the input did not name one. */
+  branch: string | null;
 }
 
 const OWNER_RE = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/;
@@ -17,7 +19,7 @@ function invalid(reason: string): never {
   throw new ProjectError(`Invalid GitHub repository: ${reason}`);
 }
 
-function build(owner: string, rawRepo: string): GithubRepo {
+function build(owner: string, rawRepo: string, branch: string | null): GithubRepo {
   const repo = rawRepo.endsWith('.git') ? rawRepo.slice(0, -4) : rawRepo;
   if (!OWNER_RE.test(owner))
     invalid('owner must be 1-39 letters, digits or hyphens, not starting with a hyphen');
@@ -30,19 +32,53 @@ function build(owner: string, rawRepo: string): GithubRepo {
     repo,
     slug: `${owner}/${repo}`,
     httpsUrl: `https://${GITHUB_HOST}/${owner}/${repo}`,
+    branch,
   };
 }
 
-function splitPath(path: string): [string, string] {
+/** Splits `owner/repo[/tree/<branch>]`; the branch may contain slashes (feature/x). */
+function splitPath(path: string, allowBranch: boolean): [string, string, string | null] {
   const parts = path.split('/');
   if (parts.at(-1) === '') parts.pop();
-  const [owner, repo] = parts;
-  if (parts.length !== 2 || !owner || !repo) invalid('expected exactly owner/repo');
-  return [owner, repo];
+  const [owner, repo, tree, ...rest] = parts;
+  if (!owner || !repo) invalid('expected exactly owner/repo');
+  if (tree === undefined) return [owner, repo, null];
+  if (!allowBranch) invalid('expected exactly owner/repo');
+  if (tree !== 'tree' || rest.length === 0) invalid('only owner/repo or owner/repo/tree/<branch>');
+  return [owner, repo, parseBranch(rest)];
+}
+
+const BAD_REF_CHARS = /[\s~^:?*[\\\p{Cc}]/u;
+
+/** A git branch name taken from a URL: strict, because it becomes an argv value. */
+function parseBranch(segments: string[]): string {
+  let branch: string;
+  try {
+    branch = segments.map((segment) => decodeURIComponent(segment)).join('/');
+  } catch {
+    return invalid('malformed branch in the URL');
+  }
+  if (
+    branch === '' ||
+    branch.length > 200 ||
+    segments.some((segment) => segment === '') ||
+    BAD_REF_CHARS.test(branch) ||
+    branch.startsWith('-') ||
+    branch.startsWith('/') ||
+    branch.includes('..') ||
+    branch.includes('@{') ||
+    branch.split('/').some((part) => part.startsWith('.') || part.endsWith('.lock')) ||
+    branch.endsWith('.') ||
+    branch === '@'
+  ) {
+    return invalid('invalid branch in the URL');
+  }
+  return branch;
 }
 
 /**
- * Parses `owner/repo` or `https://github.com/owner/repo` (optional `.git`, optional trailing slash).
+ * Parses `owner/repo` or `https://github.com/owner/repo[/tree/<branch>]` (optional `.git`, optional
+ * trailing slash). A branch is only read from the URL form.
  * This is the only validation before a clone: its result is used solely as argv for `gh`.
  */
 export function parseGithubRepo(input: string): GithubRepo {
@@ -50,6 +86,7 @@ export function parseGithubRepo(input: string): GithubRepo {
   if (text === '' || /[\s\p{Cc}]/u.test(text)) invalid('empty or contains whitespace');
 
   let path = text;
+  let isUrl = false;
   if (/^[A-Za-z][A-Za-z0-9+.-]*:/.test(text) || text.includes('//') || text.includes('@')) {
     if (!text.startsWith('https://'))
       invalid('only https://github.com URLs or owner/repo are accepted');
@@ -64,8 +101,9 @@ export function parseGithubRepo(input: string): GithubRepo {
       invalid('credentials in the URL are not accepted');
     if (url.search !== '' || url.hash !== '') invalid('query and fragment are not accepted');
     path = url.pathname.slice(1);
+    isUrl = true;
   }
-  return build(...splitPath(path));
+  return build(...splitPath(path, isUrl));
 }
 
 /**
@@ -94,7 +132,7 @@ export function normalizeOrigin(url: string): string | null {
   }
   if (path === undefined) return null;
   try {
-    return build(...splitPath(path)).httpsUrl.toLowerCase();
+    return build(...splitPath(path, false)).httpsUrl.toLowerCase();
   } catch {
     return null;
   }

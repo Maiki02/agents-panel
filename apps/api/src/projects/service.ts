@@ -165,7 +165,8 @@ export class ProjectService {
     }
     const displayName = cleanText(input.displayName, 100, 'Display name') ?? null;
     const setupCommand = cleanText(input.setupCommand, 500, 'Setup command') ?? null;
-    const baseBranch = cleanText(input.baseBranch, 200, 'Base branch') ?? null;
+    // An explicit baseBranch wins; otherwise the branch of a /tree/<branch> URL, if any.
+    const baseBranch = cleanText(input.baseBranch, 200, 'Base branch') ?? github.branch;
 
     if (this.repo.findByName(name) ?? this.repo.findByRepoUrl(github.httpsUrl)) {
       throw new ProjectConflictError(`El proyecto ya existe: ${name}`);

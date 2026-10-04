@@ -217,6 +217,32 @@ describe('failures and retry', () => {
     expect(existsSync(join(projectsDir, 'r'))).toBe(false);
   });
 
+  it('takes the base branch from a /tree/<branch> URL, and an explicit baseBranch wins', async () => {
+    const { service, repo } = setup();
+    const fromUrl = await service.add({ repo: 'https://github.com/o/r/tree/main' });
+    await service.whenIdle();
+    expect(repo.findById(fromUrl.id)).toMatchObject({
+      status: 'ready',
+      baseBranch: 'main',
+      repoUrl: 'https://github.com/o/r',
+    });
+
+    const explicit = await service.add({
+      repo: 'https://github.com/o/s/tree/nope',
+      baseBranch: 'main',
+    });
+    await service.whenIdle();
+    expect(repo.findById(explicit.id)).toMatchObject({ status: 'ready', baseBranch: 'main' });
+  });
+
+  it('is error when the branch of the URL does not exist in the clone', async () => {
+    const { service, repo } = setup();
+    const created = await service.add({ repo: 'https://github.com/o/r/tree/dev' });
+    await service.whenIdle();
+    expect(repo.findById(created.id)).toMatchObject({ status: 'error' });
+    expect(repo.findById(created.id)?.statusDetail).toContain('dev');
+  });
+
   it('refuses to retry a project that is not in error', async () => {
     const { service } = setup();
     const created = await service.add({ repo: 'o/r' });

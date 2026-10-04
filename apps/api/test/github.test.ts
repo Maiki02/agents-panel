@@ -7,6 +7,7 @@ const expected = {
   repo: 'agents-panel',
   slug: 'Maiki02/agents-panel',
   httpsUrl: 'https://github.com/Maiki02/agents-panel',
+  branch: null,
 };
 
 describe('parseGithubRepo', () => {
@@ -73,6 +74,43 @@ describe('parseGithubRepo', () => {
     'github.com/a/b',
     'a/b:c',
     'a@b/c',
+  ])('rejects %j with ProjectError', (input) => {
+    expect(() => parseGithubRepo(input)).toThrow(ProjectError);
+  });
+});
+
+describe('parseGithubRepo with /tree/<branch>', () => {
+  it.each([
+    ['https://github.com/o/r/tree/dev', 'dev'],
+    ['https://github.com/o/r.git/tree/dev', 'dev'],
+    ['https://github.com/o/r/tree/dev/', 'dev'],
+    ['https://github.com/o/r/tree/feature/login-fix', 'feature/login-fix'],
+    ['https://github.com/o/r/tree/release%2F1.0', 'release/1.0'],
+  ])('reads the branch of %j', (input, branch) => {
+    expect(parseGithubRepo(input)).toMatchObject({ slug: 'o/r', branch });
+  });
+
+  it('has no branch without /tree and for the owner/repo form', () => {
+    expect(parseGithubRepo('https://github.com/o/r').branch).toBeNull();
+    expect(parseGithubRepo('o/r').branch).toBeNull();
+  });
+
+  it.each([
+    'https://github.com/o/r/tree',
+    'https://github.com/o/r/tree/',
+    'https://github.com/o/r/blob/main/x.ts',
+    'https://github.com/o/r/tree/-flag',
+    'https://github.com/o/r/tree/a..b',
+    'https://github.com/o/r/tree/a//b',
+    'https://github.com/o/r/tree/a.lock',
+    'https://github.com/o/r/tree/.hidden',
+    'https://github.com/o/r/tree/a%20b',
+    'https://github.com/o/r/tree/a~1',
+    'https://github.com/o/r/tree/x%',
+    'https://github.com/o/r/tree/dev?x=1',
+    'https://github.com/o/r/tree/dev#frag',
+    'https://gitlab.com/o/r/tree/dev',
+    'o/r/tree/dev',
   ])('rejects %j with ProjectError', (input) => {
     expect(() => parseGithubRepo(input)).toThrow(ProjectError);
   });
