@@ -473,13 +473,13 @@
     "slug": "modelos-estado-permisos",
     "title": "Modelos por rol, estado fino y permisos por proyecto",
     "objective": "Cada sesión del agente corre con el modelo de su rol y queda registrada, cada trabajo tiene un estado fino con Timeline leído de Kyro después de cada turno, y cada proyecto puede sumar comandos y hosts de curl permitidos sin tocar la base ni los denegados fijos.",
-    "status": "planned",
+    "status": "executing",
     "phases": [
       {
         "id": "P1",
         "title": "Modelos por rol (WS3)",
         "objective": "Configurar modelo pensante y ejecutor por proyecto con override por chat, pasar model al SDK y registrar rol y modelo de cada sesión.",
-        "status": "pending",
+        "status": "done",
         "tasks": [
           {
             "id": "T1.1",
@@ -511,9 +511,45 @@
               "S28",
               "S25"
             ],
-            "status": "pending",
-            "evidence": null,
-            "verdict": null
+            "status": "done",
+            "evidence": {
+              "summary": "Catálogo de modelos en shared; migración 8 (projects NULL=default, chats NOT NULL con defaults) con test que verifica el relleno de filas existentes; GET/PUT /api/projects/:id/models con validación contra catálogo (400 sin guardar); POST /api/chats acepta models con override>proyecto>default resuelto al crear; Project y Chat exponen models.",
+              "validation": [
+                "npm run typecheck (shared, api, web) sin errores",
+                "npm test -w apps/api: 31 archivos pasan (nuevo projects-models.test.ts y test de migración 8 en db.test.ts)",
+                "eslint y prettier --check limpios"
+              ],
+              "files_changed": [
+                "packages/shared/src/index.ts",
+                "apps/api/src/db/migrations.ts",
+                "apps/api/src/projects/repo.ts",
+                "apps/api/src/projects/routes.ts",
+                "apps/api/src/chats/repo.ts",
+                "apps/api/src/chats/routes.ts",
+                "apps/api/src/chats/service.ts",
+                "apps/api/test/projects-models.test.ts",
+                "apps/api/test/db.test.ts",
+                "apps/api/test/cli.test.ts",
+                "apps/api/test/worktrees.test.ts"
+              ],
+              "by": "maker",
+              "recordedAt": "2026-10-05T03:37:16.137Z"
+            },
+            "verdict": {
+              "result": "pass",
+              "checked_criteria": [
+                "Un proyecto sin configuración devuelve los modelos por defecto (claude-opus-5-5 pensante, claude-sonnet-5-5 ejecutor).",
+                "PUT /api/projects/:id/models guarda modelos del catálogo y rechaza con 400 un modelo o proveedor desconocido sin guardar nada.",
+                "Un chat creado con override guarda esos modelos; sin override guarda los del proyecto; cambiar el proyecto después no cambia los del chat.",
+                "La migración completa las filas existentes de chats con los valores por defecto y db.test.ts la cubre.",
+                "Las rutas nuevas dan 401 sin sesión y 403 sin CSRF."
+              ],
+              "findings": [],
+              "by": "checker",
+              "reviewedAt": "2026-10-05T03:37:17.862Z",
+              "requestDigest": "f2829f4eea2690d213d09a4eb7fe4a014b439cb59416a69f5323f33ed45c17c5",
+              "reviewedMaterialDigest": "687eda73f4eff365f49b3f6f5a549e04a450705720ab77fe5214d959528146f2"
+            }
           },
           {
             "id": "T1.2",
@@ -544,9 +580,45 @@
               "S4",
               "S11"
             ],
-            "status": "pending",
-            "evidence": null,
-            "verdict": null
+            "status": "done",
+            "evidence": {
+              "summary": "RunParams suma model y role; buildQueryOptions pura (model, acceptEdits, sin bypass); migración 9 agent_sessions + AgentSessionRepository; AgentManager.start(chatId, text, {role}) resuelve el modelo del chat, abre/cierra la fila de sesión con sdk_session_id y resultado, registra session_started {role, provider, model} y model_mismatch si system:init reporta otro modelo; ChatService usa pensante en el primer turno de scope/work y ejecutor en el resto y en directos.",
+              "validation": [
+                "npm run typecheck sin errores",
+                "npm test -w apps/api: 32 archivos, 518 tests pasan (nuevos: sdk-runner.test.ts, roles/sesiones/model_mismatch en agent.test.ts, roles en chats.test.ts)",
+                "eslint y prettier --check limpios"
+              ],
+              "files_changed": [
+                "apps/api/src/agent/runner.ts",
+                "apps/api/src/agent/sdk-runner.ts",
+                "apps/api/src/agent/manager.ts",
+                "apps/api/src/chats/service.ts",
+                "apps/api/src/chats/sessions-repo.ts",
+                "apps/api/src/db/migrations.ts",
+                "apps/api/src/app.ts",
+                "packages/shared/src/index.ts",
+                "apps/api/test/sdk-runner.test.ts",
+                "apps/api/test/agent.test.ts",
+                "apps/api/test/chats.test.ts",
+                "apps/api/test/db.test.ts"
+              ],
+              "by": "maker",
+              "recordedAt": "2026-10-05T03:42:18.907Z"
+            },
+            "verdict": {
+              "result": "pass",
+              "checked_criteria": [
+                "buildQueryOptions pasa model y permissionMode acceptEdits, y un test fija que nunca es bypassPermissions.",
+                "Con FakeRunner, el primer turno de un chat scope o work corre con el modelo pensante del chat y el siguiente con el ejecutor; un pedido directo usa el ejecutor.",
+                "Cada turno deja una fila en agent_sessions con rol, modelo, sdk_session_id y resultado, y un evento session_started con rol y modelo.",
+                "Un system:init con un modelo distinto del pedido deja un evento model_mismatch."
+              ],
+              "findings": [],
+              "by": "checker",
+              "reviewedAt": "2026-10-05T03:42:19.155Z",
+              "requestDigest": "d66e0b7c4f9bd8748d2a18de06bb3391689b05eeafb3c035b19a4a143f5b4185",
+              "reviewedMaterialDigest": "69088afa9554fbd874616fe22c0f99b422977bc9b19b052ae744787f44c8beed"
+            }
           }
         ]
       },
@@ -554,7 +626,7 @@
         "id": "P2",
         "title": "Estado fino y Timeline (WS4)",
         "objective": "Guardar el estado fino de cada trabajo y sus transiciones, leído de Kyro después de cada turno, con actor, rol y modelo.",
-        "status": "pending",
+        "status": "done",
         "tasks": [
           {
             "id": "T2.1",
@@ -581,9 +653,40 @@
               "S29",
               "S25"
             ],
-            "status": "pending",
-            "evidence": null,
-            "verdict": null
+            "status": "done",
+            "evidence": {
+              "summary": "Migración 10 (worktree_state, worktree_transitions con CASCADE y CHECK de actor); catálogo WORKTREE_STATE_IDS, Actor, BlockedReason y tipos en shared; WorktreeStateRepository.transition() escribe estado+transición en una transacción con actor obligatorio y publica state_changed (el mismo estado solo actualiza la fila); GET /api/chats/:id/state y /timeline (sesión, 404 para chat directo, state null antes de la primera transición).",
+              "validation": [
+                "npm run typecheck sin errores",
+                "npm test -w apps/api: 33 archivos, 528 tests pasan (worktree-state.test.ts nuevo, migración 10 en db.test.ts)",
+                "eslint y prettier limpios"
+              ],
+              "files_changed": [
+                "packages/shared/src/index.ts",
+                "apps/api/src/db/migrations.ts",
+                "apps/api/src/worktrees/state-repo.ts",
+                "apps/api/src/chats/routes.ts",
+                "apps/api/src/app.ts",
+                "apps/api/test/worktree-state.test.ts",
+                "apps/api/test/db.test.ts"
+              ],
+              "by": "maker",
+              "recordedAt": "2026-10-05T03:47:15.666Z"
+            },
+            "verdict": {
+              "result": "pass",
+              "checked_criteria": [
+                "transition() guarda estado y transición en una sola transacción, con actor obligatorio, y publica state_changed.",
+                "Repetir el mismo estado con otro avance actualiza la fila sin sumar una transición.",
+                "GET state y timeline devuelven el estado y las transiciones en orden; 401 sin sesión.",
+                "Borrar un chat borra su estado y sus transiciones (ON DELETE CASCADE) y db.test.ts cubre la migración."
+              ],
+              "findings": [],
+              "by": "checker",
+              "reviewedAt": "2026-10-05T03:47:15.905Z",
+              "requestDigest": "6af1787aafc75761faa34e40a2b2a05a8af71ebe277d16473903eb16b4be5718",
+              "reviewedMaterialDigest": "723216004ca5b142b43df07340830b2332c34a6fecda08086d101756b3b19ff4"
+            }
           },
           {
             "id": "T2.2",
@@ -610,9 +713,38 @@
               "S5",
               "S8"
             ],
-            "status": "pending",
-            "evidence": null,
-            "verdict": null
+            "status": "done",
+            "evidence": {
+              "summary": "KyroReader (execFile con argv, timeout, ejecutor inyectable) lee el scope desde local.json del worktree (context-pack + status full + sprint.json solo lectura, reintenta una vez si no coinciden) y el Work (único del worktree o slug dado); devuelve resultados tipados {ok,error{kind}} sin lanzar. mapKyroState pura mapea cada nextAction de scope y de Work al estado fino con fase, sprint n/m, tarea n/m, deuda y motivo; blocker de Kyro → bloqueado/kyro_bloqueado; Work resolve_blocker → bloqueado/tarea_bloqueada. Se suman 'cerrando' y 'terminado' al catálogo de shared (documentación en T2.4).",
+              "validation": [
+                "npm run typecheck sin errores",
+                "npm test -w apps/api: 35 archivos, 553 tests pasan (kyro-reader.test.ts y kyro-map-state.test.ts nuevos, con fixtures reales)",
+                "eslint y prettier limpios"
+              ],
+              "files_changed": [
+                "apps/api/src/kyro/reader.ts",
+                "apps/api/src/kyro/map-state.ts",
+                "apps/api/test/kyro-reader.test.ts",
+                "apps/api/test/kyro-map-state.test.ts",
+                "packages/shared/src/index.ts"
+              ],
+              "by": "maker",
+              "recordedAt": "2026-10-05T03:50:21.455Z"
+            },
+            "verdict": {
+              "result": "pass",
+              "checked_criteria": [
+                "mapKyroState cubre cada nextAction de scope y de Work que hay en las fixtures y devuelve sprint n/m y tarea n/m correctos.",
+                "KyroReader resuelve el scope desde local.json del worktree, corre los comandos con execFile y argv y reintenta una vez si context-pack y status no coinciden.",
+                "Una salida inesperada o un fallo de la CLI devuelve un error tipado, sin lanzar una excepción sin manejar.",
+                "Un texto engañoso del agente no interviene en el resultado: la función solo recibe datos de la CLI."
+              ],
+              "findings": [],
+              "by": "checker",
+              "reviewedAt": "2026-10-05T03:50:21.699Z",
+              "requestDigest": "ab58012d777fddbb0b1a130d3eada6c8b72786138b8f0d1a599c7e82d71e999e",
+              "reviewedMaterialDigest": "d2206534e8384940d0804e9337bc09ee78e821f972dc68ff55ba6fbd97511090"
+            }
           },
           {
             "id": "T2.3",
@@ -643,9 +775,40 @@
               "S5",
               "S29"
             ],
-            "status": "pending",
-            "evidence": null,
-            "verdict": null
+            "status": "done",
+            "evidence": {
+              "summary": "WorktreeStateTracker (TurnObserver) conectado a AgentManager, ChatService y app.ts: al crear scope/work registra creando_worktree e instalando_dependencias (system) con los pasos del setup; al empezar un turno registra rol y modelo (primer turno → planificando); al terminar lee Kyro (lector inyectable) y transiciona al estado mapeado con actor agent, rol, modelo, tarea n/m y waitingOn=user; pregunta → esperando_respuesta (agent) y respuesta → estado previo (user); lector que falla → error con detalle y chat usable; al arrancar los running pasan a interrumpido (system) y reanudar vuelve al estado previo (user); chats directos sin estado. Un fallo del tracker nunca rompe el turno.",
+              "validation": [
+                "npm run typecheck sin errores",
+                "npm test -w apps/api: 35 archivos, 560 tests pasan (7 tests nuevos del tracker en worktree-state.test.ts con lector falso y fixtures)",
+                "eslint y prettier limpios"
+              ],
+              "files_changed": [
+                "apps/api/src/worktrees/state-tracker.ts",
+                "apps/api/src/agent/manager.ts",
+                "apps/api/src/chats/service.ts",
+                "apps/api/src/chats/repo.ts",
+                "apps/api/src/app.ts",
+                "apps/api/test/worktree-state.test.ts",
+                "apps/api/test/chats.test.ts"
+              ],
+              "by": "maker",
+              "recordedAt": "2026-10-05T03:55:28.027Z"
+            },
+            "verdict": {
+              "result": "pass",
+              "checked_criteria": [
+                "Con FakeRunner y un lector falso con fixtures, un turno que termina con execute_task deja escribiendo_codigo con tarea n/m y una transición con actor, rol y modelo.",
+                "Una pregunta pasa a esperando_respuesta y al responderla vuelve al estado anterior, con dos transiciones (agent y user).",
+                "Un lector que falla deja error con el detalle y el chat sigue usable.",
+                "Al arrancar, un trabajo running queda interrumpido con una transición de actor system; un chat directo no tiene estado fino."
+              ],
+              "findings": [],
+              "by": "checker",
+              "reviewedAt": "2026-10-05T03:55:28.276Z",
+              "requestDigest": "ee527cee33a05a429cf485bc0a1035e2718f68ca327453ec26e069a1c0801e93",
+              "reviewedMaterialDigest": "38319ec705acf7e3f14f9d066c7a64c5bee08321388ef9560fb2a75029674839"
+            }
           },
           {
             "id": "T2.4",
@@ -668,9 +831,33 @@
             "scenario_refs": [
               "S5"
             ],
-            "status": "pending",
-            "evidence": null,
-            "verdict": null
+            "status": "done",
+            "evidence": {
+              "summary": "docs/estados.md: sección 'Cómo lo implementa el panel' reescrita con las tablas reales (worktree_state, worktree_transitions, agent_sessions), tabla de estados detectados hoy con su señal y actor, mapeo nextAction→estado de scope y Work, ids nuevos (cerrando, terminado), catálogo de motivos de bloqueo (incluidos sin_avance y tope_de_sesiones del piloto) y lista de estados aún no detectados con su etapa. docs/plan.md: modelos por rol (catálogo, defecto, override, regla de rol provisoria) y permisos de Bash por proyecto (base, denegados fijos, curl restringido, TOTP, sugerencias) tal como quedaron.",
+              "validation": [
+                "npx prettier --check docs/estados.md docs/plan.md limpio",
+                "Contrastado con el código: ids de estado, motivos de bloqueo y rutas coinciden con packages/shared y apps/api"
+              ],
+              "files_changed": [
+                "docs/estados.md",
+                "docs/plan.md"
+              ],
+              "by": "maker",
+              "recordedAt": "2026-10-05T04:03:26.234Z"
+            },
+            "verdict": {
+              "result": "pass",
+              "checked_criteria": [
+                "estados.md describe cada estado que el panel detecta hoy con su señal real y el actor de cada transición.",
+                "estados.md lista los motivos de bloqueo, incluidos sin avance y tope de sesiones.",
+                "plan.md describe modelos por rol y permisos por proyecto como quedaron implementados."
+              ],
+              "findings": [],
+              "by": "checker",
+              "reviewedAt": "2026-10-05T04:03:26.476Z",
+              "requestDigest": "eef7f72235535fdee64aa162e55d388e9a92856e154893ceb9a36f1acbb7b29f",
+              "reviewedMaterialDigest": "bd7c9496879ed904135c17b66de78d744bfd85790a95eb48d093ee850da27ac5"
+            }
           }
         ]
       },
@@ -678,7 +865,7 @@
         "id": "P3",
         "title": "Permisos de comandos por proyecto (WS15)",
         "objective": "Que cada proyecto sume comandos y hosts de curl permitidos, con la base fija, los denegados fijos imposibles de habilitar y curl restringido.",
-        "status": "pending",
+        "status": "done",
         "tasks": [
           {
             "id": "T3.1",
@@ -703,9 +890,37 @@
               "S24",
               "S30"
             ],
-            "status": "pending",
-            "evidence": null,
-            "verdict": null
+            "status": "done",
+            "evidence": {
+              "summary": "permissions.ts: FIXED_DENIED_COMMANDS, BashExtras en PermissionPolicy, checkBash(command, cwd, extras) que permite base + extras − denegados fijos (el denegado gana aun si está configurado), curl siempre restringido (allowlist de flags, solo GET/HEAD, URL http/https parseada con URL, sin credenciales ni @, host localhost/127.0.0.1 o de la política) y fuera de ALLOWED_TOOLS; validateProjectPermissions (nombres simples, no base ni denegados, hostnames válidos, tope de 50). AgentManager recibe un proveedor de extras y lo carga en cada turno; las denegaciones siguen como permission_denied.",
+              "validation": [
+                "npm run typecheck sin errores",
+                "npm test -w apps/api: 36 archivos, 632 tests pasan (permissions.test.ts nuevo con cada flag prohibida, host no listado, credenciales, denegados fijos, uv configurado vs no, validación; caso de política por turno en agent.test.ts)",
+                "eslint y prettier limpios"
+              ],
+              "files_changed": [
+                "apps/api/src/agent/permissions.ts",
+                "apps/api/src/agent/manager.ts",
+                "apps/api/test/permissions.test.ts",
+                "apps/api/test/agent.test.ts"
+              ],
+              "by": "maker",
+              "recordedAt": "2026-10-05T03:58:41.461Z"
+            },
+            "verdict": {
+              "result": "pass",
+              "checked_criteria": [
+                "Cada flag prohibida de curl, un método distinto de GET/HEAD, un host no listado y una URL con credenciales se deniegan; curl a localhost y a un host listado se permite.",
+                "oci, sudo, ssh y el resto de los denegados fijos se deniegan aunque estén en la configuración del proyecto.",
+                "Un proyecto con uv configurado puede correr uv run pytest y uno sin él recibe permission_denied.",
+                "validateProjectPermissions rechaza nombres con ruta, espacios o metacaracteres, comandos de la base o denegados y hosts inválidos."
+              ],
+              "findings": [],
+              "by": "checker",
+              "reviewedAt": "2026-10-05T03:58:41.701Z",
+              "requestDigest": "17d01dca870a5d437a8b2e3807d806d74088c4657697d1ead23b2a5194e76050",
+              "reviewedMaterialDigest": "b9dde2a8471979085605a900a01725e87a7df40ad9e21ed4e132d05d707f9f8c"
+            }
           },
           {
             "id": "T3.2",
@@ -737,9 +952,43 @@
               "S25",
               "S30"
             ],
-            "status": "pending",
-            "evidence": null,
-            "verdict": null
+            "status": "done",
+            "evidence": {
+              "summary": "Migración 11 (allowed_commands/allowed_hosts JSON, default []); ProjectRepository.get/setBashExtras (datos ilegibles = sin extras); GET/PUT /api/projects/:id/permissions con sesión, CSRF y TOTP (reauth.verify antes de validar) y validateProjectPermissions (400 sin guardar); sugerencias por uv.lock/pyproject.toml, Makefile y Cargo.toml sin aplicarlas ni repetir base/configurado; el AgentManager de la app carga los extras del proyecto en cada turno.",
+              "validation": [
+                "npm run typecheck sin errores",
+                "npm test -w apps/api: 37 archivos, 651 tests pasan (projects-permissions.test.ts nuevo: TOTP, 400 sin guardar, sugerencias, 401/403, no público; migración 11 en db.test.ts; cli.test.ts fija la lista de rutas mutantes)",
+                "eslint y prettier limpios"
+              ],
+              "files_changed": [
+                "apps/api/src/db/migrations.ts",
+                "apps/api/src/projects/repo.ts",
+                "apps/api/src/projects/permissions-routes.ts",
+                "apps/api/src/projects/permission-suggestions.ts",
+                "apps/api/src/agent/permissions.ts",
+                "apps/api/src/app.ts",
+                "packages/shared/src/index.ts",
+                "apps/api/test/projects-permissions.test.ts",
+                "apps/api/test/db.test.ts",
+                "apps/api/test/cli.test.ts"
+              ],
+              "by": "maker",
+              "recordedAt": "2026-10-05T04:02:38.704Z"
+            },
+            "verdict": {
+              "result": "pass",
+              "checked_criteria": [
+                "PUT sin TOTP válido se rechaza y no guarda; con TOTP guarda extras y hosts validados.",
+                "PUT con un denegado fijo, un nombre inválido o un host inválido da 400 y no guarda nada.",
+                "GET devuelve las sugerencias según los lockfiles del clon base sin aplicarlas.",
+                "Las rutas dan 401 sin sesión y 403 sin CSRF, y la allowlist pública no cambia."
+              ],
+              "findings": [],
+              "by": "checker",
+              "reviewedAt": "2026-10-05T04:02:38.952Z",
+              "requestDigest": "6b6929d8f77263188d0b1270477c0377f52f5ef15211f105a432dc2f041e61f2",
+              "reviewedMaterialDigest": "4484cbfe7fa569b33f8f5a7fef8ddb333d133bb3152e40d9f4167921b1e943e9"
+            }
           },
           {
             "id": "T3.3",
@@ -768,9 +1017,41 @@
               "S24",
               "S26"
             ],
-            "status": "pending",
-            "evidence": null,
-            "verdict": null
+            "status": "done",
+            "evidence": {
+              "summary": "Tab Permisos en SETTINGS_TABS y su @case en settings.page.ts. PermissionsSection muestra la base (solo lectura), comandos extra y hosts de curl editables en un borrador con validación igual a la de la API, denegados fijos con explicación y sugerencias con botón Agregar (no guardan); Guardar abre el totp-modal existente y recién ahí hace el PUT (un código inválido deja el borrador y el modal). Lógica pura en permissions-logic.ts con spec. Solo componentes compartidos y clases de tokens; layout en columna y filas que envuelven.",
+              "validation": [
+                "npm run typecheck sin errores",
+                "npm test -w apps/web: 19 archivos, 166 tests pasan (permissions-logic.spec.ts nuevo: validación de nombre y host, sugerencia sin repetir; settings-tabs.spec.ts)",
+                "ng build de apps/web compila las plantillas sin errores; eslint y prettier limpios; sin colores fuera de tokens (grep)"
+              ],
+              "files_changed": [
+                "apps/web/src/app/projects/settings-tabs.ts",
+                "apps/web/src/app/projects/settings.page.ts",
+                "apps/web/src/app/projects/permissions.section.ts",
+                "apps/web/src/app/projects/permissions-logic.ts",
+                "apps/web/src/app/projects/permissions-logic.spec.ts",
+                "apps/web/src/app/projects/projects.service.ts",
+                "apps/web/src/app/projects/settings-tabs.spec.ts"
+              ],
+              "notes": "No se probó en un navegador ni en un celular real: el uso en celular se apoya en los patrones existentes (formularios en columna, filas flex-wrap), sin verificación visual.",
+              "by": "maker",
+              "recordedAt": "2026-10-05T04:05:20.368Z"
+            },
+            "verdict": {
+              "result": "pass",
+              "checked_criteria": [
+                "La tab Permisos aparece en Configuración y muestra la base, los extras, los hosts, los denegados fijos y las sugerencias.",
+                "Una sugerencia se agrega solo con su botón y se guarda solo al confirmar con TOTP.",
+                "El spec cubre la validación de nombre y host y que una sugerencia ya presente no se repite.",
+                "No hay colores fuera de tokens.css y la pantalla se usa bien en celular."
+              ],
+              "findings": [],
+              "by": "checker",
+              "reviewedAt": "2026-10-05T04:05:20.606Z",
+              "requestDigest": "89540a0e3d9fc25587cba43fbb3df87b1bea82fecea99a59f96eb99f3d129b42",
+              "reviewedMaterialDigest": "850a6ce0fe40dd748d0f74dedeec73c27723b265ebaacf7a1f4d099f920ba8a1"
+            }
           }
         ]
       },
@@ -778,7 +1059,7 @@
         "id": "P4",
         "title": "Arrastre del sprint 1 y verificación",
         "objective": "Cerrar lo que dejó el sprint 1 y verificar el sprint entero.",
-        "status": "pending",
+        "status": "active",
         "tasks": [
           {
             "id": "T4.1",
@@ -799,9 +1080,34 @@
             "scenario_refs": [
               "S31"
             ],
-            "status": "pending",
-            "evidence": null,
-            "verdict": null
+            "status": "done",
+            "evidence": {
+              "summary": "AgentManager.consume, al terminar un turno (éxito, error o cancelado), además del cancelPending resuelve con deny y borra todos los waiters del chat (dropWaiters) y registra question_cancelled por cada uno; una respuesta posterior da QuestionNotPendingError (409) sin cambiar nada.",
+              "validation": [
+                "npm run typecheck sin errores",
+                "npm test -w apps/api: 37 archivos, 655 tests pasan, incluidos los de preguntas del sprint 1 y los nuevos de turno terminado con pregunta pendiente (éxito/error/cancelado, sin waiters, pregunta cancelled con evento, respuesta tardía rechazada)",
+                "eslint y prettier limpios"
+              ],
+              "files_changed": [
+                "apps/api/src/agent/manager.ts",
+                "apps/api/test/agent.test.ts"
+              ],
+              "by": "maker",
+              "recordedAt": "2026-10-05T04:08:36.009Z"
+            },
+            "verdict": {
+              "result": "pass",
+              "checked_criteria": [
+                "Después de terminar el turno no queda ningún waiter del chat y cada pregunta pendiente queda cancelled con su evento.",
+                "Responder una pregunta de un turno terminado da 409 y no cambia nada.",
+                "Los tests de preguntas del sprint 1 siguen pasando."
+              ],
+              "findings": [],
+              "by": "checker",
+              "reviewedAt": "2026-10-05T04:08:36.255Z",
+              "requestDigest": "e6d2dc5da14264f0cb3a8361a9db5b64fb84fa56086e0f03cd7c14662e7e4883",
+              "reviewedMaterialDigest": "e00f957c2a412a1d549488e39b3a5aaade704db734e354e697cd1022cfb7b645"
+            }
           },
           {
             "id": "T4.2",
@@ -830,9 +1136,32 @@
               "S25",
               "S11"
             ],
-            "status": "pending",
-            "evidence": null,
-            "verdict": null
+            "status": "done",
+            "evidence": {
+              "summary": "Verificación del sprint: typecheck, lint, format:check, tests (API 655, web 166) y build del repo pasan con exit 0. Los greps no encuentran colores hex/rgb/hsl fuera de tokens.css, ningún uso de shell (solo execFile con argv; los db.exec son SQLite) ni bypassPermissions; las únicas rutas con public: true son health, login y totp. Las rutas nuevas (models, state, timeline, permissions) tienen casos de 401 sin sesión y 403 sin CSRF en sus tests.",
+              "validation": [
+                "npm run typecheck && npm run lint && npm run format:check && npm test && npm run build → exit 0",
+                "grep colores hex/rgb/hsl en apps/web/src: solo tokens.css",
+                "grep exec/shell/bypassPermissions en apps/api/src: sin resultados fuera de db.exec y de un comentario",
+                "grep public: true: /api/health y las dos rutas de auth (login, totp)"
+              ],
+              "files_changed": [],
+              "by": "maker",
+              "recordedAt": "2026-10-05T04:10:36.394Z"
+            },
+            "verdict": {
+              "result": "pass",
+              "checked_criteria": [
+                "typecheck, lint, format:check, tests y build pasan con exit 0.",
+                "Los greps de colores, rutas públicas, shell y bypassPermissions no encuentran nada.",
+                "Cada ruta nueva tiene su caso de 401 sin sesión y 403 sin CSRF."
+              ],
+              "findings": [],
+              "by": "checker",
+              "reviewedAt": "2026-10-05T04:10:36.635Z",
+              "requestDigest": "fe2b500af655bd4083253c2c79ec23455e86c9820869fea5d01ca11f70f1fbfd",
+              "reviewedMaterialDigest": "72344ce3c17875e96d5a6df54523800d7b3456bd6357bcbd6620a067a9b61de8"
+            }
           },
           {
             "id": "T4.3",
@@ -884,10 +1213,10 @@
   ],
   "handoff": {
     "nextAction": "execute_task",
-    "nextTaskId": "T1.1",
+    "nextTaskId": "T4.3",
     "blockers": [],
-    "note": "Sprint 2 planned; ready to execute.",
-    "lastUpdated": "2026-10-05"
+    "note": "Task T4.2 passed checker review.",
+    "lastUpdated": "2026-10-05T04:10:36.635Z"
   },
   "author": {
     "name": "Maiki02",
