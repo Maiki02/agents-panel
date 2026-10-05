@@ -1,0 +1,77 @@
+{
+  "schemaVersion": 1,
+  "ok": true,
+  "command": "context-pack",
+  "phase": "preview",
+  "data": {
+    "schemaVersion": 4,
+    "packMode": "scope",
+    "verbosity": "detailed",
+    "scope": "demo",
+    "status": "planning",
+    "objective": "Throwaway scope to capture real kyro output.",
+    "retirement": null,
+    "completion": null,
+    "reopenHistory": [],
+    "nextAction": "plan_sprint",
+    "nextTaskId": null,
+    "activeSprintSlug": null,
+    "activeSprintObjective": null,
+    "openDebtCount": 0,
+    "taskId": null,
+    "taskTitle": null,
+    "taskDescription": null,
+    "taskFiles": [],
+    "taskContext": null,
+    "taskAcceptanceCriteria": [],
+    "specRequirements": [
+      { "id": "R1", "statement": "Capture states", "priority": "must", "rationale": "fixtures" }
+    ],
+    "specNonGoals": ["none"],
+    "specOpenQuestions": [],
+    "taskScenarios": [],
+    "handoffNote": "Scope initialized (spec + roadmap); ready to plan Sprint 1.",
+    "blockers": [],
+    "execution": {
+      "readyTaskIds": [],
+      "awaitingReviewTaskIds": [],
+      "waitingOnDependencyTaskIds": [],
+      "blockedTasks": []
+    },
+    "taskExecution": null,
+    "reviewPending": [],
+    "nextTaskReview": null,
+    "conventions": [],
+    "adrs": [],
+    "cliRecipes": [
+      {
+        "id": "status",
+        "purpose": "Read routing signal (scope progress + nextAction)",
+        "command": "kyro status --kyro-scope demo"
+      },
+      {
+        "id": "doctor-artifacts",
+        "purpose": "Pre-flight integrity before writes",
+        "command": "kyro doctor --artifacts --kyro-scope demo"
+      },
+      {
+        "id": "plan-from",
+        "purpose": "Materialize next sprint from a lean plan file",
+        "command": "kyro plan --from <lean-sprint.json> --kyro-scope demo"
+      },
+      {
+        "id": "scope-complete",
+        "purpose": "Preview completion; ask for human confirmation before --yes (not retirement)",
+        "command": "kyro scope complete --kyro-scope demo [--summary \"...\"]"
+      }
+    ],
+    "warnings": [],
+    "routing": { "modes": ["SPRINT.md", "plan-sprint.md"] },
+    "budgetClass": "brief",
+    "reasoningTier": "light",
+    "maxContextTokens": 1500,
+    "budgetGuidance": "Use for status checks, scope routing, and summary-first resume. Prefer context-pack over opening Markdown.",
+    "delegationEnabled": false,
+    "estimatedTokens": 151
+  }
+}

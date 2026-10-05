@@ -1,0 +1,131 @@
+{
+  "schemaVersion": 4,
+  "scope": "demo",
+  "title": "Demo scope",
+  "status": "planning",
+  "objective": "Throwaway scope to capture real kyro output.",
+  "successCriteria": ["Fixtures captured"],
+  "spec": {
+    "requirements": [
+      {
+        "id": "R1",
+        "statement": "Capture states",
+        "priority": "must",
+        "rationale": "fixtures"
+      }
+    ],
+    "scenarios": [],
+    "nonGoals": ["none"],
+    "openQuestions": []
+  },
+  "clarifications": [],
+  "conventions": [],
+  "adrs": [],
+  "roadmap": {
+    "plannedSprintCount": 2,
+    "sizingRationale": "two sprints so sprint n/m is visible",
+    "sprints": [
+      {
+        "n": 1,
+        "slug": "uno",
+        "title": "Uno",
+        "state": "active"
+      },
+      {
+        "n": 2,
+        "slug": "dos",
+        "title": "Dos",
+        "state": "planned"
+      }
+    ]
+  },
+  "ledger": [],
+  "previousSprint": null,
+  "activeSprint": {
+    "n": 1,
+    "slug": "uno",
+    "title": "Sprint 1",
+    "objective": "Sprint 1 objective.",
+    "status": "complete",
+    "phases": [
+      {
+        "id": "P1",
+        "title": "Fase",
+        "objective": "Fase uno",
+        "status": "done",
+        "tasks": [
+          {
+            "id": "T1.1",
+            "title": "Primera",
+            "description": "Hacer a.txt",
+            "files_to_touch": ["a.txt"],
+            "context": "ctx",
+            "acceptance_criteria": ["a.txt existe"],
+            "depends_on": [],
+            "scenario_refs": [],
+            "status": "done",
+            "evidence": {
+              "summary": "done",
+              "validation": "ls a.txt",
+              "files_changed": ["a.txt"],
+              "by": "maker",
+              "recordedAt": "2026-10-05T02:19:28.093Z"
+            },
+            "verdict": {
+              "result": "pass",
+              "checked_criteria": ["a.txt existe"],
+              "findings": [],
+              "by": "checker",
+              "reviewedAt": "2026-10-05T02:19:28.551Z",
+              "requestDigest": "c7c1d8a39b301d61363de8c8e62d8299f9dd81cb61c7ca1cbee5fdbb6a1adf25",
+              "reviewedMaterialDigest": "d935fe5a6654a54abd9ce1a8b05f2d3c5e48d2838faf5625dd83d55716a33be5"
+            }
+          },
+          {
+            "id": "T1.2",
+            "title": "Segunda",
+            "description": "Hacer b.txt",
+            "files_to_touch": ["b.txt"],
+            "context": "ctx",
+            "acceptance_criteria": ["b.txt existe"],
+            "depends_on": ["T1.1"],
+            "scenario_refs": [],
+            "status": "done",
+            "evidence": {
+              "summary": "done",
+              "validation": "ls b.txt",
+              "files_changed": ["b.txt"],
+              "by": "maker",
+              "recordedAt": "2026-10-05T02:19:28.746Z"
+            },
+            "verdict": {
+              "result": "pass",
+              "checked_criteria": ["b.txt existe"],
+              "findings": [],
+              "by": "checker",
+              "reviewedAt": "2026-10-05T02:19:28.937Z",
+              "requestDigest": "76da1ba98cc838d12e4388b3f097976beb3ffde32d08ab1d0ea414600054639c",
+              "reviewedMaterialDigest": "af0f8df9200273d18ded188efbde2428ef321a245b618d2b0b34ef85e727754a"
+            }
+          }
+        ]
+      }
+    ],
+    "emergentTasks": [],
+    "definitionOfDone": ["Tareas con pass"]
+  },
+  "debt": [],
+  "handoff": {
+    "nextAction": "qa_or_close",
+    "nextTaskId": null,
+    "blockers": [],
+    "note": "Task T1.2 passed checker review.",
+    "lastUpdated": "2026-10-05T02:19:28.937Z"
+  },
+  "author": {
+    "name": "capture",
+    "email": "capture@example.com",
+    "source": "git",
+    "capturedAt": "2026-10-05T02:19:27.174Z"
+  }
+}

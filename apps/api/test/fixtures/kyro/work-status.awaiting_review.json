@@ -1,0 +1,72 @@
+{
+  "schemaVersion": 1,
+  "ok": true,
+  "command": "work status",
+  "phase": "result",
+  "data": {
+    "schemaVersion": 1,
+    "work": {
+      "id": "demo-work",
+      "revision": 4,
+      "state": "active",
+      "briefDigest": "df51556909c06418823cff33689723a7d422d09401b517c312d81bdbdfd3e809"
+    },
+    "nextAction": "review_task",
+    "nextTaskId": "W1",
+    "blockedReason": null,
+    "anomalies": [],
+    "tasks": [
+      {
+        "id": "W1",
+        "status": "awaiting_review",
+        "dependsOn": [],
+        "eligible": false,
+        "blocker": null,
+        "disposition": null
+      },
+      {
+        "id": "W2",
+        "status": "pending",
+        "dependsOn": ["W1"],
+        "eligible": false,
+        "blocker": null,
+        "disposition": null
+      }
+    ],
+    "task": {
+      "id": "W1",
+      "title": "Typo",
+      "description": "Arreglar typo",
+      "context": "ctx",
+      "filesToTouch": ["README.md"],
+      "status": "awaiting_review",
+      "dependsOn": [],
+      "prerequisites": [],
+      "eligible": false,
+      "acceptanceCriteria": ["Typo corregido"],
+      "blocker": null,
+      "disposition": null,
+      "evidence": {
+        "summary": "typo corregido",
+        "validations": [{ "command": "grep", "result": "passed", "note": null }],
+        "filesChanged": ["README.md"],
+        "notes": null,
+        "by": "maker",
+        "validationProvenance": "maker_reported",
+        "definitionRevision": 1,
+        "materialDigest": "cdda7e8e383ebec11b32609ad4691b5dfc093576ef953c273039af09cbec10af"
+      },
+      "verdict": null
+    },
+    "summary": {
+      "verified": [],
+      "disposed": [],
+      "pending": ["W2"],
+      "inProgress": [],
+      "blocked": [],
+      "awaitingReview": ["W1"],
+      "unresolved": ["W1", "W2"]
+    },
+    "closure": null
+  }
+}

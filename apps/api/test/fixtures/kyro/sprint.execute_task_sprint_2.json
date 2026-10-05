@@ -1,0 +1,119 @@
+{
+  "schemaVersion": 4,
+  "scope": "demo",
+  "title": "Demo scope",
+  "status": "planning",
+  "objective": "Throwaway scope to capture real kyro output.",
+  "successCriteria": ["Fixtures captured"],
+  "spec": {
+    "requirements": [
+      {
+        "id": "R1",
+        "statement": "Capture states",
+        "priority": "must",
+        "rationale": "fixtures"
+      }
+    ],
+    "scenarios": [],
+    "nonGoals": ["none"],
+    "openQuestions": []
+  },
+  "clarifications": [],
+  "conventions": [],
+  "adrs": [],
+  "roadmap": {
+    "plannedSprintCount": 2,
+    "sizingRationale": "two sprints so sprint n/m is visible",
+    "sprints": [
+      {
+        "n": 1,
+        "slug": "uno",
+        "title": "Uno",
+        "state": "closed"
+      },
+      {
+        "n": 2,
+        "slug": "dos",
+        "title": "Dos",
+        "state": "active"
+      }
+    ]
+  },
+  "ledger": [
+    {
+      "n": 1,
+      "slug": "uno",
+      "outcome": "shipped",
+      "closedAt": "2026-10-05",
+      "archive": "archive/sprint-001-uno.md",
+      "snapshot": "archive/sprint-001-uno.json",
+      "checkpoint": "archive/sprint-001-uno.checkpoint.json",
+      "checkpointSha256": "d662be9c8c2aea4dbd0a29d828dbb40e619e0f1843edbc80c9e56f50df51e048"
+    }
+  ],
+  "previousSprint": {
+    "n": 1,
+    "slug": "uno",
+    "outcome": "shipped",
+    "summary": "Sprint 1 objective."
+  },
+  "activeSprint": {
+    "n": 2,
+    "slug": "dos",
+    "title": "Sprint 2",
+    "objective": "Sprint 2 objective.",
+    "status": "planned",
+    "phases": [
+      {
+        "id": "P1",
+        "title": "Fase",
+        "objective": "Fase uno",
+        "status": "pending",
+        "tasks": [
+          {
+            "id": "T1.1",
+            "title": "Primera",
+            "description": "Hacer c.txt",
+            "files_to_touch": ["c.txt"],
+            "context": "ctx",
+            "acceptance_criteria": ["c.txt existe"],
+            "depends_on": [],
+            "scenario_refs": [],
+            "status": "pending",
+            "evidence": null,
+            "verdict": null
+          },
+          {
+            "id": "T1.2",
+            "title": "Segunda",
+            "description": "Hacer d.txt",
+            "files_to_touch": ["d.txt"],
+            "context": "ctx",
+            "acceptance_criteria": ["d.txt existe"],
+            "depends_on": ["T1.1"],
+            "scenario_refs": [],
+            "status": "pending",
+            "evidence": null,
+            "verdict": null
+          }
+        ]
+      }
+    ],
+    "emergentTasks": [],
+    "definitionOfDone": ["Tareas con pass"]
+  },
+  "debt": [],
+  "handoff": {
+    "nextAction": "execute_task",
+    "nextTaskId": "T1.1",
+    "blockers": [],
+    "note": "Sprint 2 planned; ready to execute.",
+    "lastUpdated": "2026-10-05"
+  },
+  "author": {
+    "name": "capture",
+    "email": "capture@example.com",
+    "source": "git",
+    "capturedAt": "2026-10-05T02:19:27.174Z"
+  }
+}

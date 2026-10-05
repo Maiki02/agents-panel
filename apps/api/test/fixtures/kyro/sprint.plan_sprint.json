@@ -1,0 +1,59 @@
+{
+  "schemaVersion": 4,
+  "scope": "demo",
+  "title": "Demo scope",
+  "status": "planning",
+  "objective": "Throwaway scope to capture real kyro output.",
+  "successCriteria": ["Fixtures captured"],
+  "spec": {
+    "requirements": [
+      {
+        "id": "R1",
+        "statement": "Capture states",
+        "priority": "must",
+        "rationale": "fixtures"
+      }
+    ],
+    "scenarios": [],
+    "nonGoals": ["none"],
+    "openQuestions": []
+  },
+  "clarifications": [],
+  "conventions": [],
+  "adrs": [],
+  "roadmap": {
+    "plannedSprintCount": 2,
+    "sizingRationale": "two sprints so sprint n/m is visible",
+    "sprints": [
+      {
+        "n": 1,
+        "slug": "uno",
+        "title": "Uno",
+        "state": "planned"
+      },
+      {
+        "n": 2,
+        "slug": "dos",
+        "title": "Dos",
+        "state": "planned"
+      }
+    ]
+  },
+  "ledger": [],
+  "previousSprint": null,
+  "activeSprint": null,
+  "debt": [],
+  "handoff": {
+    "nextAction": "plan_sprint",
+    "nextTaskId": null,
+    "blockers": [],
+    "note": "Scope initialized (spec + roadmap); ready to plan Sprint 1.",
+    "lastUpdated": "2026-10-05"
+  },
+  "author": {
+    "name": "capture",
+    "email": "capture@example.com",
+    "source": "git",
+    "capturedAt": "2026-10-05T02:19:27.174Z"
+  }
+}

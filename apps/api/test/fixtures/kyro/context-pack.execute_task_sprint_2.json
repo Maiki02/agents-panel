@@ -1,0 +1,77 @@
+{
+  "schemaVersion": 1,
+  "ok": true,
+  "command": "context-pack",
+  "phase": "result",
+  "data": {
+    "schemaVersion": 4,
+    "packMode": "scope",
+    "verbosity": "detailed",
+    "scope": "demo",
+    "status": "active",
+    "objective": "Throwaway scope to capture real kyro output.",
+    "retirement": null,
+    "completion": null,
+    "reopenHistory": [],
+    "nextAction": "execute_task",
+    "nextTaskId": "T1.1",
+    "activeSprintSlug": "dos",
+    "activeSprintObjective": "Sprint 2 objective.",
+    "openDebtCount": 0,
+    "taskId": null,
+    "taskTitle": null,
+    "taskDescription": null,
+    "taskFiles": [],
+    "taskContext": null,
+    "taskAcceptanceCriteria": [],
+    "specRequirements": [
+      { "id": "R1", "statement": "Capture states", "priority": "must", "rationale": "fixtures" }
+    ],
+    "specNonGoals": ["none"],
+    "specOpenQuestions": [],
+    "taskScenarios": [],
+    "handoffNote": "Sprint 2 planned; ready to execute.",
+    "blockers": [],
+    "execution": {
+      "readyTaskIds": ["T1.1"],
+      "awaitingReviewTaskIds": [],
+      "waitingOnDependencyTaskIds": ["T1.2"],
+      "blockedTasks": []
+    },
+    "taskExecution": null,
+    "reviewPending": [],
+    "nextTaskReview": null,
+    "conventions": [],
+    "adrs": [],
+    "cliRecipes": [
+      {
+        "id": "status",
+        "purpose": "Read routing signal (scope progress + nextAction)",
+        "command": "kyro status --kyro-scope demo"
+      },
+      {
+        "id": "doctor-artifacts",
+        "purpose": "Pre-flight integrity before writes",
+        "command": "kyro doctor --artifacts --kyro-scope demo"
+      },
+      {
+        "id": "context-pack-task",
+        "purpose": "Load lean task pack for the next execute_task",
+        "command": "kyro context-pack --kyro-scope demo --task T1.1 --json"
+      },
+      {
+        "id": "record-evidence",
+        "purpose": "Tool-owned maker evidence write after implementation (fill flags)",
+        "command": "kyro record-evidence T1.1 --kyro-scope demo --summary \"...\" --validation \"...\" --file <path>"
+      }
+    ],
+    "warnings": [],
+    "routing": { "modes": ["SPRINT.md", "execute-task.md"] },
+    "budgetClass": "execute",
+    "reasoningTier": "standard",
+    "maxContextTokens": 2500,
+    "budgetGuidance": "Use for implementation and task execution. Load task packs, run concrete validation, and avoid broad exploration.",
+    "delegationEnabled": false,
+    "estimatedTokens": 163
+  }
+}

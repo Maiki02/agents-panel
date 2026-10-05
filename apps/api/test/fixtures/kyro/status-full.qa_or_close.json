@@ -1,0 +1,66 @@
+{
+  "schemaVersion": 1,
+  "ok": true,
+  "command": "status",
+  "phase": "result",
+  "data": {
+    "scope": "demo",
+    "status": "active",
+    "objective": "Throwaway scope to capture real kyro output.",
+    "retirement": null,
+    "completion": null,
+    "activeSprint": {
+      "n": 1,
+      "slug": "uno",
+      "title": "Sprint 1",
+      "objective": "Sprint 1 objective.",
+      "status": "complete"
+    },
+    "nextAction": "qa_or_close",
+    "nextTask": null,
+    "blockers": [],
+    "execution": {
+      "readyTaskIds": [],
+      "awaitingReviewTaskIds": [],
+      "waitingOnDependencyTaskIds": [],
+      "blockedTasks": []
+    },
+    "openDebtCount": 0,
+    "pendingReviewCount": 0,
+    "bootstrapRemedy": null,
+    "verification": null,
+    "author": {
+      "name": "capture",
+      "email": "capture@example.com",
+      "source": "git",
+      "capturedAt": "2026-10-05T02:19:27.174Z"
+    },
+    "phaseSummary": [
+      {
+        "id": "P1",
+        "title": "Fase",
+        "status": "done",
+        "totalTasks": 2,
+        "doneTasks": 2,
+        "pendingTasks": 0,
+        "inProgressTasks": 0,
+        "blockedTasks": 0
+      }
+    ],
+    "taskSummary": {
+      "total": 2,
+      "pending": 0,
+      "inProgress": 0,
+      "blocked": 0,
+      "done": 2,
+      "verified": 2,
+      "dispositions": { "deferred": 0, "blocked": 0, "superseded": 0, "cancelled": 0 }
+    },
+    "reviewDebt": [],
+    "adrSummary": {
+      "total": 0,
+      "byStatus": { "proposed": 0, "accepted": 0, "rejected": 0, "superseded": 0 }
+    },
+    "recentAdrs": []
+  }
+}

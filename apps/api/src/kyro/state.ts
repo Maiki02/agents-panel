@@ -1,0 +1,252 @@
+/**
+ * Typed readers for the JSON that the Kyro CLI prints (`kyro context-pack --json`,
+ * `kyro status full --json`, `kyro work status --json`) plus the roadmap and ledger of a scope's
+ * `sprint.json`. The shapes were confirmed against the real output of Kyro 6.1.0; the fixtures
+ * live in test/fixtures/kyro (regenerate them with capture.sh).
+ *
+ * The next step of a worktree is decided only from these fields (R7), never from agent text.
+ */
+
+export const SCOPE_NEXT_ACTIONS = [
+  'init',
+  'clarify',
+  'plan_sprint',
+  'await_scope_completion',
+  'execute_task',
+  'review_task',
+  'qa_or_close',
+  'close_sprint',
+  'done',
+] as const;
+export type ScopeNextAction = (typeof SCOPE_NEXT_ACTIONS)[number];
+
+export const WORK_NEXT_ACTIONS = [
+  'plan_tasks',
+  'execute_task',
+  'review_task',
+  'resolve_blocker',
+  'ready_to_close',
+  'done',
+] as const;
+export type WorkNextAction = (typeof WORK_NEXT_ACTIONS)[number];
+
+export interface SprintProgress {
+  /** Number of the active sprint; null when no sprint is active (planning or finished). */
+  current: number | null;
+  /** Sprints already closed (length of the ledger); null when the roadmap was not provided. */
+  closed: number | null;
+  /** plannedSprintCount of the roadmap; null when the roadmap was not provided. */
+  total: number | null;
+}
+
+export interface TaskProgress {
+  /** Tasks with a pass verdict (scope) or in a terminal state, verified or disposed (work). */
+  done: number;
+  total: number;
+}
+
+export interface KyroScopeState {
+  kind: 'scope';
+  scope: string;
+  /** Lifecycle status of the scope: planning, active, completed… */
+  status: string;
+  nextAction: ScopeNextAction;
+  nextTaskId: string | null;
+  sprint: SprintProgress;
+  tasks: TaskProgress;
+  openDebt: number;
+  pendingReview: number;
+  /** Reason of every blocker the CLI reports for the route (empty when none). */
+  blockers: string[];
+}
+
+export interface KyroWorkState {
+  kind: 'work';
+  work: string;
+  /** draft, active, closed… */
+  status: string;
+  revision: number;
+  nextAction: WorkNextAction;
+  nextTaskId: string | null;
+  tasks: TaskProgress;
+  blockedReason: string | null;
+}
+
+export class KyroStateError extends Error {
+  constructor(message: string) {
+    super(`Unexpected Kyro output: ${message}`);
+    this.name = 'KyroStateError';
+  }
+}
+
+type Json = Record<string, unknown>;
+
+function isRecord(value: unknown): value is Json {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function field(obj: Json, key: string, where: string): unknown {
+  if (!(key in obj)) throw new KyroStateError(`${where}.${key} is missing`);
+  return obj[key];
+}
+
+function str(obj: Json, key: string, where: string): string {
+  const value = field(obj, key, where);
+  if (typeof value !== 'string') throw new KyroStateError(`${where}.${key} must be a string`);
+  return value;
+}
+
+function nullableStr(obj: Json, key: string, where: string): string | null {
+  const value = field(obj, key, where);
+  if (value === null) return null;
+  if (typeof value !== 'string')
+    throw new KyroStateError(`${where}.${key} must be a string or null`);
+  return value;
+}
+
+function int(obj: Json, key: string, where: string): number {
+  const value = field(obj, key, where);
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) {
+    throw new KyroStateError(`${where}.${key} must be a non-negative integer`);
+  }
+  return value;
+}
+
+function record(obj: Json, key: string, where: string): Json {
+  const value = field(obj, key, where);
+  if (!isRecord(value)) throw new KyroStateError(`${where}.${key} must be an object`);
+  return value;
+}
+
+function strings(obj: Json, key: string, where: string): string[] {
+  const value = field(obj, key, where);
+  if (!Array.isArray(value) || value.some((item) => typeof item !== 'string')) {
+    throw new KyroStateError(`${where}.${key} must be an array of strings`);
+  }
+  return value as string[];
+}
+
+function oneOf<T extends string>(value: string, allowed: readonly T[], where: string): T {
+  if (!(allowed as readonly string[]).includes(value)) {
+    throw new KyroStateError(`${where} has unknown value "${value}"`);
+  }
+  return value as T;
+}
+
+/** Unwraps the `{ ok, command, data }` envelope every `--json` command prints. */
+function envelopeData(raw: unknown, command: string): Json {
+  if (!isRecord(raw)) throw new KyroStateError(`${command} output is not a JSON object`);
+  const { ok, error, data } = raw;
+  if (ok === false) {
+    const detail = isRecord(error) ? error : {};
+    const code = typeof detail['code'] === 'string' ? detail['code'] : 'unknown';
+    const message = typeof detail['message'] === 'string' ? detail['message'] : '';
+    throw new KyroStateError(`${command} failed (${code}): ${message}`);
+  }
+  if (ok !== true || !isRecord(data)) {
+    throw new KyroStateError(`${command} output has no ok/data envelope`);
+  }
+  return data;
+}
+
+/** Roadmap total and closed sprints, read from the scope's `sprint.json` (no CLI prints them). */
+export function parseSprintRoadmap(sprintJson: unknown): { total: number; closed: number } {
+  if (!isRecord(sprintJson)) throw new KyroStateError('sprint.json is not a JSON object');
+  const roadmap = record(sprintJson, 'roadmap', 'sprint.json');
+  const total = int(roadmap, 'plannedSprintCount', 'sprint.json.roadmap');
+  const ledger = field(sprintJson, 'ledger', 'sprint.json');
+  if (!Array.isArray(ledger)) throw new KyroStateError('sprint.json.ledger must be an array');
+  return { total, closed: ledger.length };
+}
+
+function blockerReasons(data: Json): string[] {
+  const blockers = field(data, 'blockers', 'context-pack.data');
+  if (!Array.isArray(blockers))
+    throw new KyroStateError('context-pack.data.blockers must be an array');
+  return blockers.map((blocker, index) => {
+    if (!isRecord(blocker))
+      throw new KyroStateError(`context-pack.data.blockers[${String(index)}] must be an object`);
+    return str(blocker, 'reason', `context-pack.data.blockers[${String(index)}]`);
+  });
+}
+
+/**
+ * Scope state from `kyro context-pack --json` (routing) and `kyro status full --json` (progress).
+ * Both must agree on nextAction; a mismatch means the state moved between the two reads.
+ */
+export function parseScopeState(
+  contextPackJson: unknown,
+  statusFullJson: unknown,
+  sprintJson?: unknown,
+): KyroScopeState {
+  const pack = envelopeData(contextPackJson, 'kyro context-pack');
+  const status = envelopeData(statusFullJson, 'kyro status');
+
+  const nextAction = oneOf(
+    str(pack, 'nextAction', 'context-pack.data'),
+    SCOPE_NEXT_ACTIONS,
+    'context-pack.data.nextAction',
+  );
+  const statusAction = str(status, 'nextAction', 'status.data');
+  if (statusAction !== nextAction) {
+    throw new KyroStateError(
+      `context-pack says nextAction "${nextAction}" but status says "${statusAction}"`,
+    );
+  }
+
+  const scope = str(pack, 'scope', 'context-pack.data');
+  const activeSprint = field(status, 'activeSprint', 'status.data');
+  if (activeSprint !== null && !isRecord(activeSprint)) {
+    throw new KyroStateError('status.data.activeSprint must be an object or null');
+  }
+  const roadmap = sprintJson === undefined ? null : parseSprintRoadmap(sprintJson);
+  const taskSummary = record(status, 'taskSummary', 'status.data');
+
+  return {
+    kind: 'scope',
+    scope,
+    status: str(pack, 'status', 'context-pack.data'),
+    nextAction,
+    nextTaskId: nullableStr(pack, 'nextTaskId', 'context-pack.data'),
+    sprint: {
+      current: activeSprint === null ? null : int(activeSprint, 'n', 'status.data.activeSprint'),
+      closed: roadmap?.closed ?? null,
+      total: roadmap?.total ?? null,
+    },
+    tasks: {
+      done: int(taskSummary, 'verified', 'status.data.taskSummary'),
+      total: int(taskSummary, 'total', 'status.data.taskSummary'),
+    },
+    openDebt: int(pack, 'openDebtCount', 'context-pack.data'),
+    pendingReview: int(status, 'pendingReviewCount', 'status.data'),
+    blockers: blockerReasons(pack),
+  };
+}
+
+/** Work state from `kyro work status --work <slug> --json`. */
+export function parseWorkState(workStatusJson: unknown): KyroWorkState {
+  const data = envelopeData(workStatusJson, 'kyro work status');
+  const work = record(data, 'work', 'work-status.data');
+  const summary = record(data, 'summary', 'work-status.data');
+  const verified = strings(summary, 'verified', 'work-status.data.summary');
+  const disposed = strings(summary, 'disposed', 'work-status.data.summary');
+  const unresolved = strings(summary, 'unresolved', 'work-status.data.summary');
+
+  return {
+    kind: 'work',
+    work: str(work, 'id', 'work-status.data.work'),
+    status: str(work, 'state', 'work-status.data.work'),
+    revision: int(work, 'revision', 'work-status.data.work'),
+    nextAction: oneOf(
+      str(data, 'nextAction', 'work-status.data'),
+      WORK_NEXT_ACTIONS,
+      'work-status.data.nextAction',
+    ),
+    nextTaskId: nullableStr(data, 'nextTaskId', 'work-status.data'),
+    tasks: {
+      done: verified.length + disposed.length,
+      total: verified.length + disposed.length + unresolved.length,
+    },
+    blockedReason: nullableStr(data, 'blockedReason', 'work-status.data'),
+  };
+}

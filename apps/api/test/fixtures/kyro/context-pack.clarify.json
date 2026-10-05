@@ -1,0 +1,72 @@
+{
+  "schemaVersion": 1,
+  "ok": true,
+  "command": "context-pack",
+  "phase": "result",
+  "data": {
+    "schemaVersion": 4,
+    "packMode": "scope",
+    "verbosity": "detailed",
+    "scope": "demo-clarify",
+    "status": "planning",
+    "objective": "Throwaway scope to capture real kyro output.",
+    "retirement": null,
+    "completion": null,
+    "reopenHistory": [],
+    "nextAction": "clarify",
+    "nextTaskId": null,
+    "activeSprintSlug": null,
+    "activeSprintObjective": null,
+    "openDebtCount": 0,
+    "taskId": null,
+    "taskTitle": null,
+    "taskDescription": null,
+    "taskFiles": [],
+    "taskContext": null,
+    "taskAcceptanceCriteria": [],
+    "specRequirements": [
+      { "id": "R1", "statement": "Capture states", "priority": "must", "rationale": "fixtures" }
+    ],
+    "specNonGoals": ["none"],
+    "specOpenQuestions": ["¿Qué base de datos?"],
+    "taskScenarios": [],
+    "handoffNote": "Scope initialized with 1 open question(s); resolve them via clarify before planning Sprint 1.",
+    "blockers": [],
+    "execution": {
+      "readyTaskIds": [],
+      "awaitingReviewTaskIds": [],
+      "waitingOnDependencyTaskIds": [],
+      "blockedTasks": []
+    },
+    "taskExecution": null,
+    "reviewPending": [],
+    "nextTaskReview": null,
+    "conventions": [],
+    "adrs": [],
+    "cliRecipes": [
+      {
+        "id": "status",
+        "purpose": "Read routing signal (scope progress + nextAction)",
+        "command": "kyro status --kyro-scope demo-clarify"
+      },
+      {
+        "id": "doctor-artifacts",
+        "purpose": "Pre-flight integrity before writes",
+        "command": "kyro doctor --artifacts --kyro-scope demo-clarify"
+      },
+      {
+        "id": "analyze",
+        "purpose": "Surface remaining clarification/spec findings",
+        "command": "kyro analyze --kyro-scope demo-clarify"
+      }
+    ],
+    "warnings": [],
+    "routing": { "modes": ["SPRINT.md", "clarify.md"] },
+    "budgetClass": "brief",
+    "reasoningTier": "light",
+    "maxContextTokens": 1500,
+    "budgetGuidance": "Use for status checks, scope routing, and summary-first resume. Prefer context-pack over opening Markdown.",
+    "delegationEnabled": false,
+    "estimatedTokens": 128
+  }
+}

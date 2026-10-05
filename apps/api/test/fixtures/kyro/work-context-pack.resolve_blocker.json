@@ -1,0 +1,76 @@
+{
+  "schemaVersion": 1,
+  "ok": true,
+  "command": "work context-pack",
+  "phase": "result",
+  "data": {
+    "schemaVersion": 1,
+    "work": {
+      "id": "demo-work",
+      "revision": 7,
+      "state": "active",
+      "briefDigest": "df51556909c06418823cff33689723a7d422d09401b517c312d81bdbdfd3e809"
+    },
+    "nextAction": "resolve_blocker",
+    "nextTaskId": "W2",
+    "blockedReason": "falta una decision",
+    "anomalies": [],
+    "tasks": [
+      {
+        "id": "W1",
+        "status": "verified",
+        "dependsOn": [],
+        "eligible": false,
+        "blocker": null,
+        "disposition": null
+      },
+      {
+        "id": "W2",
+        "status": "blocked",
+        "dependsOn": ["W1"],
+        "eligible": false,
+        "blocker": {
+          "reason": "falta una decision",
+          "by": "maker",
+          "recordedAt": "2026-10-05T02:19:35.997Z"
+        },
+        "disposition": null
+      }
+    ],
+    "task": {
+      "id": "W2",
+      "title": "Doc",
+      "description": "Actualizar doc",
+      "context": "ctx",
+      "filesToTouch": ["DOC.md"],
+      "status": "blocked",
+      "dependsOn": ["W1"],
+      "prerequisites": [{ "id": "W1", "status": "verified", "verified": true }],
+      "eligible": false,
+      "acceptanceCriteria": ["Doc actualizada"],
+      "blocker": {
+        "reason": "falta una decision",
+        "by": "maker",
+        "recordedAt": "2026-10-05T02:19:35.997Z"
+      },
+      "disposition": null,
+      "evidence": null,
+      "verdict": null
+    },
+    "summary": {
+      "verified": ["W1"],
+      "disposed": [],
+      "pending": [],
+      "inProgress": [],
+      "blocked": ["W2"],
+      "awaitingReview": [],
+      "unresolved": ["W2"]
+    },
+    "closure": null,
+    "recipes": [
+      "kyro work status --work demo-work --json",
+      "kyro work close --work demo-work --outcome <completed-or-stopped> --reason \"<reason>\" --by <actor> --expect-revision 7 --dry-run",
+      "kyro work unblock --work demo-work --task W2 --expect-revision 7"
+    ]
+  }
+}

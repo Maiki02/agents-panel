@@ -1,0 +1,103 @@
+{
+  "schemaVersion": 4,
+  "scope": "demo",
+  "title": "Demo scope",
+  "status": "planning",
+  "objective": "Throwaway scope to capture real kyro output.",
+  "successCriteria": ["Fixtures captured"],
+  "spec": {
+    "requirements": [
+      {
+        "id": "R1",
+        "statement": "Capture states",
+        "priority": "must",
+        "rationale": "fixtures"
+      }
+    ],
+    "scenarios": [],
+    "nonGoals": ["none"],
+    "openQuestions": []
+  },
+  "clarifications": [],
+  "conventions": [],
+  "adrs": [],
+  "roadmap": {
+    "plannedSprintCount": 2,
+    "sizingRationale": "two sprints so sprint n/m is visible",
+    "sprints": [
+      {
+        "n": 1,
+        "slug": "uno",
+        "title": "Uno",
+        "state": "active"
+      },
+      {
+        "n": 2,
+        "slug": "dos",
+        "title": "Dos",
+        "state": "planned"
+      }
+    ]
+  },
+  "ledger": [],
+  "previousSprint": null,
+  "activeSprint": {
+    "n": 1,
+    "slug": "uno",
+    "title": "Sprint 1",
+    "objective": "Sprint 1 objective.",
+    "status": "planned",
+    "phases": [
+      {
+        "id": "P1",
+        "title": "Fase",
+        "objective": "Fase uno",
+        "status": "pending",
+        "tasks": [
+          {
+            "id": "T1.1",
+            "title": "Primera",
+            "description": "Hacer a.txt",
+            "files_to_touch": ["a.txt"],
+            "context": "ctx",
+            "acceptance_criteria": ["a.txt existe"],
+            "depends_on": [],
+            "scenario_refs": [],
+            "status": "pending",
+            "evidence": null,
+            "verdict": null
+          },
+          {
+            "id": "T1.2",
+            "title": "Segunda",
+            "description": "Hacer b.txt",
+            "files_to_touch": ["b.txt"],
+            "context": "ctx",
+            "acceptance_criteria": ["b.txt existe"],
+            "depends_on": ["T1.1"],
+            "scenario_refs": [],
+            "status": "pending",
+            "evidence": null,
+            "verdict": null
+          }
+        ]
+      }
+    ],
+    "emergentTasks": [],
+    "definitionOfDone": ["Tareas con pass"]
+  },
+  "debt": [],
+  "handoff": {
+    "nextAction": "execute_task",
+    "nextTaskId": "T1.1",
+    "blockers": [],
+    "note": "Sprint 1 planned; ready to execute.",
+    "lastUpdated": "2026-10-05"
+  },
+  "author": {
+    "name": "capture",
+    "email": "capture@example.com",
+    "source": "git",
+    "capturedAt": "2026-10-05T02:19:27.174Z"
+  }
+}

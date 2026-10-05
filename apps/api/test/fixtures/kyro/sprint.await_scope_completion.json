@@ -1,0 +1,85 @@
+{
+  "schemaVersion": 4,
+  "scope": "demo",
+  "title": "Demo scope",
+  "status": "planning",
+  "objective": "Throwaway scope to capture real kyro output.",
+  "successCriteria": ["Fixtures captured"],
+  "spec": {
+    "requirements": [
+      {
+        "id": "R1",
+        "statement": "Capture states",
+        "priority": "must",
+        "rationale": "fixtures"
+      }
+    ],
+    "scenarios": [],
+    "nonGoals": ["none"],
+    "openQuestions": []
+  },
+  "clarifications": [],
+  "conventions": [],
+  "adrs": [],
+  "roadmap": {
+    "plannedSprintCount": 2,
+    "sizingRationale": "two sprints so sprint n/m is visible",
+    "sprints": [
+      {
+        "n": 1,
+        "slug": "uno",
+        "title": "Uno",
+        "state": "closed"
+      },
+      {
+        "n": 2,
+        "slug": "dos",
+        "title": "Dos",
+        "state": "closed"
+      }
+    ]
+  },
+  "ledger": [
+    {
+      "n": 1,
+      "slug": "uno",
+      "outcome": "shipped",
+      "closedAt": "2026-10-05",
+      "archive": "archive/sprint-001-uno.md",
+      "snapshot": "archive/sprint-001-uno.json",
+      "checkpoint": "archive/sprint-001-uno.checkpoint.json",
+      "checkpointSha256": "d662be9c8c2aea4dbd0a29d828dbb40e619e0f1843edbc80c9e56f50df51e048"
+    },
+    {
+      "n": 2,
+      "slug": "dos",
+      "outcome": "shipped",
+      "closedAt": "2026-10-05",
+      "archive": "archive/sprint-002-dos.md",
+      "snapshot": "archive/sprint-002-dos.json",
+      "checkpoint": "archive/sprint-002-dos.checkpoint.json",
+      "checkpointSha256": "c4e423bb2df5cb910f319a2094dc98e50884dac5fa86893c2b8dc5e8f55ce42c"
+    }
+  ],
+  "previousSprint": {
+    "n": 2,
+    "slug": "dos",
+    "outcome": "shipped",
+    "summary": "Sprint 2 objective."
+  },
+  "activeSprint": null,
+  "debt": [],
+  "handoff": {
+    "nextAction": "await_scope_completion",
+    "nextTaskId": null,
+    "blockers": [],
+    "note": "Sprint 2 (dos) closed as shipped. Roadmap exhausted; await explicit scope completion or an expansion decision.",
+    "lastUpdated": "2026-10-05"
+  },
+  "author": {
+    "name": "capture",
+    "email": "capture@example.com",
+    "source": "git",
+    "capturedAt": "2026-10-05T02:19:27.174Z"
+  }
+}

@@ -1,0 +1,72 @@
+{
+  "schemaVersion": 1,
+  "ok": true,
+  "command": "context-pack",
+  "phase": "result",
+  "data": {
+    "schemaVersion": 4,
+    "packMode": "scope",
+    "verbosity": "detailed",
+    "scope": "demo",
+    "status": "active",
+    "objective": "Throwaway scope to capture real kyro output.",
+    "retirement": null,
+    "completion": null,
+    "reopenHistory": [],
+    "nextAction": "review_task",
+    "nextTaskId": "T1.1",
+    "activeSprintSlug": "uno",
+    "activeSprintObjective": "Sprint 1 objective.",
+    "openDebtCount": 0,
+    "taskId": null,
+    "taskTitle": null,
+    "taskDescription": null,
+    "taskFiles": [],
+    "taskContext": null,
+    "taskAcceptanceCriteria": [],
+    "specRequirements": [
+      { "id": "R1", "statement": "Capture states", "priority": "must", "rationale": "fixtures" }
+    ],
+    "specNonGoals": ["none"],
+    "specOpenQuestions": [],
+    "taskScenarios": [],
+    "handoffNote": "Task T1.1 executed and marked done; evidence recorded. Ready for checker review.",
+    "blockers": [],
+    "execution": {
+      "readyTaskIds": [],
+      "awaitingReviewTaskIds": ["T1.1"],
+      "waitingOnDependencyTaskIds": ["T1.2"],
+      "blockedTasks": []
+    },
+    "taskExecution": null,
+    "reviewPending": ["T1.1"],
+    "nextTaskReview": null,
+    "conventions": [],
+    "adrs": [],
+    "cliRecipes": [
+      {
+        "id": "status",
+        "purpose": "Read routing signal (scope progress + nextAction)",
+        "command": "kyro status --kyro-scope demo"
+      },
+      {
+        "id": "doctor-artifacts",
+        "purpose": "Pre-flight integrity before writes",
+        "command": "kyro doctor --artifacts --kyro-scope demo"
+      },
+      {
+        "id": "review",
+        "purpose": "Tool-owned checker verdict for the task pending review",
+        "command": "kyro review T1.1 --kyro-scope demo --verdict pass --yes"
+      }
+    ],
+    "warnings": [],
+    "routing": { "modes": ["SPRINT.md", "review-task.md"] },
+    "budgetClass": "review",
+    "reasoningTier": "standard",
+    "maxContextTokens": 2500,
+    "budgetGuidance": "Use for review and certification. Favor evidence, checks, and regression fixtures over new feature work.",
+    "delegationEnabled": false,
+    "estimatedTokens": 130
+  }
+}

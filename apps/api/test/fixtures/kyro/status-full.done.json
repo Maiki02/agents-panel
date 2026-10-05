@@ -1,0 +1,59 @@
+{
+  "schemaVersion": 1,
+  "ok": true,
+  "command": "status",
+  "phase": "result",
+  "data": {
+    "scope": "demo",
+    "status": "completed",
+    "objective": "Throwaway scope to capture real kyro output.",
+    "retirement": null,
+    "completion": {
+      "completedAt": "2026-10-05T02:19:31.855Z",
+      "by": "maker",
+      "requestDigest": "3295fef69a4d91af62c887299d42eb314c97b12f9dba8ea2dbb64b892f4f8723",
+      "beforeEntryDigest": "923502f567e42c37ea4a61ced05a2165c67728637bd9c56e5a3f07c6808c31f7",
+      "beforeStateDigest": "cbebd8ce478982bfac2c31cba888a7436e79e9049355cbb2cd647a6006a15741",
+      "planDigest": "2abdcfcb3318afb65130366176e268b3120f374d58ca58d2976cb5fe6218e006"
+    },
+    "activeSprint": null,
+    "nextAction": "done",
+    "nextTask": null,
+    "blockers": [],
+    "execution": {
+      "readyTaskIds": [],
+      "awaitingReviewTaskIds": [],
+      "waitingOnDependencyTaskIds": [],
+      "blockedTasks": []
+    },
+    "openDebtCount": 0,
+    "pendingReviewCount": 0,
+    "bootstrapRemedy": null,
+    "verification": {
+      "state": "historical",
+      "detail": "structurally replayed lifecycle evolution; actor identity unverified"
+    },
+    "author": {
+      "name": "capture",
+      "email": "capture@example.com",
+      "source": "git",
+      "capturedAt": "2026-10-05T02:19:27.174Z"
+    },
+    "phaseSummary": [],
+    "taskSummary": {
+      "total": 0,
+      "pending": 0,
+      "inProgress": 0,
+      "blocked": 0,
+      "done": 0,
+      "verified": 0,
+      "dispositions": { "deferred": 0, "blocked": 0, "superseded": 0, "cancelled": 0 }
+    },
+    "reviewDebt": [],
+    "adrSummary": {
+      "total": 0,
+      "byStatus": { "proposed": 0, "accepted": 0, "rejected": 0, "superseded": 0 }
+    },
+    "recentAdrs": []
+  }
+}

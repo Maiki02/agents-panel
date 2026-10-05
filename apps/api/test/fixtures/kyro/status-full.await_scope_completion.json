@@ -1,0 +1,52 @@
+{
+  "schemaVersion": 1,
+  "ok": true,
+  "command": "status",
+  "phase": "result",
+  "data": {
+    "scope": "demo",
+    "status": "planning",
+    "objective": "Throwaway scope to capture real kyro output.",
+    "retirement": null,
+    "completion": null,
+    "activeSprint": null,
+    "nextAction": "await_scope_completion",
+    "nextTask": null,
+    "blockers": [],
+    "execution": {
+      "readyTaskIds": [],
+      "awaitingReviewTaskIds": [],
+      "waitingOnDependencyTaskIds": [],
+      "blockedTasks": []
+    },
+    "openDebtCount": 0,
+    "pendingReviewCount": 0,
+    "bootstrapRemedy": null,
+    "verification": {
+      "state": "historical",
+      "detail": "live business state matches the checkpoint after-image"
+    },
+    "author": {
+      "name": "capture",
+      "email": "capture@example.com",
+      "source": "git",
+      "capturedAt": "2026-10-05T02:19:27.174Z"
+    },
+    "phaseSummary": [],
+    "taskSummary": {
+      "total": 0,
+      "pending": 0,
+      "inProgress": 0,
+      "blocked": 0,
+      "done": 0,
+      "verified": 0,
+      "dispositions": { "deferred": 0, "blocked": 0, "superseded": 0, "cancelled": 0 }
+    },
+    "reviewDebt": [],
+    "adrSummary": {
+      "total": 0,
+      "byStatus": { "proposed": 0, "accepted": 0, "rejected": 0, "superseded": 0 }
+    },
+    "recentAdrs": []
+  }
+}

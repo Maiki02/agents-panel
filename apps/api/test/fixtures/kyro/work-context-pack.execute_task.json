@@ -1,0 +1,69 @@
+{
+  "schemaVersion": 1,
+  "ok": true,
+  "command": "work context-pack",
+  "phase": "result",
+  "data": {
+    "schemaVersion": 1,
+    "work": {
+      "id": "demo-work",
+      "revision": 2,
+      "state": "active",
+      "briefDigest": "df51556909c06418823cff33689723a7d422d09401b517c312d81bdbdfd3e809"
+    },
+    "nextAction": "execute_task",
+    "nextTaskId": "W1",
+    "blockedReason": null,
+    "anomalies": [],
+    "tasks": [
+      {
+        "id": "W1",
+        "status": "pending",
+        "dependsOn": [],
+        "eligible": true,
+        "blocker": null,
+        "disposition": null
+      },
+      {
+        "id": "W2",
+        "status": "pending",
+        "dependsOn": ["W1"],
+        "eligible": false,
+        "blocker": null,
+        "disposition": null
+      }
+    ],
+    "task": {
+      "id": "W1",
+      "title": "Typo",
+      "description": "Arreglar typo",
+      "context": "ctx",
+      "filesToTouch": ["README.md"],
+      "status": "pending",
+      "dependsOn": [],
+      "prerequisites": [],
+      "eligible": true,
+      "acceptanceCriteria": ["Typo corregido"],
+      "blocker": null,
+      "disposition": null,
+      "evidence": null,
+      "verdict": null
+    },
+    "summary": {
+      "verified": [],
+      "disposed": [],
+      "pending": ["W1", "W2"],
+      "inProgress": [],
+      "blocked": [],
+      "awaitingReview": [],
+      "unresolved": ["W1", "W2"]
+    },
+    "closure": null,
+    "recipes": [
+      "kyro work status --work demo-work --json",
+      "kyro work close --work demo-work --outcome <completed-or-stopped> --reason \"<reason>\" --by <actor> --expect-revision 2 --dry-run",
+      "kyro work start --work demo-work --task W1 --expect-revision 2",
+      "kyro work block --work demo-work --task W1 --reason \"<reason>\" --expect-revision 2"
+    ]
+  }
+}

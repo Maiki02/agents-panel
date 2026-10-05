@@ -1,0 +1,54 @@
+{
+  "schemaVersion": 1,
+  "ok": true,
+  "command": "work status",
+  "phase": "result",
+  "data": {
+    "schemaVersion": 1,
+    "work": {
+      "id": "demo-work",
+      "revision": 9,
+      "state": "active",
+      "briefDigest": "df51556909c06418823cff33689723a7d422d09401b517c312d81bdbdfd3e809"
+    },
+    "nextAction": "ready_to_close",
+    "nextTaskId": null,
+    "blockedReason": null,
+    "anomalies": [],
+    "tasks": [
+      {
+        "id": "W1",
+        "status": "verified",
+        "dependsOn": [],
+        "eligible": false,
+        "blocker": null,
+        "disposition": null
+      },
+      {
+        "id": "W2",
+        "status": "cancelled",
+        "dependsOn": ["W1"],
+        "eligible": false,
+        "blocker": null,
+        "disposition": {
+          "kind": "cancelled",
+          "reason": "no hace falta",
+          "by": "maker",
+          "recordedAt": "2026-10-05T02:19:36.914Z",
+          "replacementTaskId": null
+        }
+      }
+    ],
+    "task": null,
+    "summary": {
+      "verified": ["W1"],
+      "disposed": ["W2"],
+      "pending": [],
+      "inProgress": [],
+      "blocked": [],
+      "awaitingReview": [],
+      "unresolved": []
+    },
+    "closure": null
+  }
+}

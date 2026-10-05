@@ -1,0 +1,109 @@
+{
+  "schemaVersion": 4,
+  "scope": "demo",
+  "title": "Demo scope",
+  "status": "planning",
+  "objective": "Throwaway scope to capture real kyro output.",
+  "successCriteria": ["Fixtures captured"],
+  "spec": {
+    "requirements": [
+      {
+        "id": "R1",
+        "statement": "Capture states",
+        "priority": "must",
+        "rationale": "fixtures"
+      }
+    ],
+    "scenarios": [],
+    "nonGoals": ["none"],
+    "openQuestions": []
+  },
+  "clarifications": [],
+  "conventions": [],
+  "adrs": [],
+  "roadmap": {
+    "plannedSprintCount": 2,
+    "sizingRationale": "two sprints so sprint n/m is visible",
+    "sprints": [
+      {
+        "n": 1,
+        "slug": "uno",
+        "title": "Uno",
+        "state": "active"
+      },
+      {
+        "n": 2,
+        "slug": "dos",
+        "title": "Dos",
+        "state": "planned"
+      }
+    ]
+  },
+  "ledger": [],
+  "previousSprint": null,
+  "activeSprint": {
+    "n": 1,
+    "slug": "uno",
+    "title": "Sprint 1",
+    "objective": "Sprint 1 objective.",
+    "status": "executing",
+    "phases": [
+      {
+        "id": "P1",
+        "title": "Fase",
+        "objective": "Fase uno",
+        "status": "active",
+        "tasks": [
+          {
+            "id": "T1.1",
+            "title": "Primera",
+            "description": "Hacer a.txt",
+            "files_to_touch": ["a.txt"],
+            "context": "ctx",
+            "acceptance_criteria": ["a.txt existe"],
+            "depends_on": [],
+            "scenario_refs": [],
+            "status": "done",
+            "evidence": {
+              "summary": "done",
+              "validation": "ls a.txt",
+              "files_changed": ["a.txt"],
+              "by": "maker",
+              "recordedAt": "2026-10-05T02:19:28.093Z"
+            },
+            "verdict": null
+          },
+          {
+            "id": "T1.2",
+            "title": "Segunda",
+            "description": "Hacer b.txt",
+            "files_to_touch": ["b.txt"],
+            "context": "ctx",
+            "acceptance_criteria": ["b.txt existe"],
+            "depends_on": ["T1.1"],
+            "scenario_refs": [],
+            "status": "pending",
+            "evidence": null,
+            "verdict": null
+          }
+        ]
+      }
+    ],
+    "emergentTasks": [],
+    "definitionOfDone": ["Tareas con pass"]
+  },
+  "debt": [],
+  "handoff": {
+    "nextAction": "review_task",
+    "nextTaskId": "T1.1",
+    "blockers": [],
+    "note": "Task T1.1 executed and marked done; evidence recorded. Ready for checker review.",
+    "lastUpdated": "2026-10-05T02:19:28.093Z"
+  },
+  "author": {
+    "name": "capture",
+    "email": "capture@example.com",
+    "source": "git",
+    "capturedAt": "2026-10-05T02:19:27.174Z"
+  }
+}

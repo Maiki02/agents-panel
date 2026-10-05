@@ -1,0 +1,93 @@
+{
+  "schemaVersion": 4,
+  "scope": "demo",
+  "title": "Demo scope",
+  "status": "completed",
+  "objective": "Throwaway scope to capture real kyro output.",
+  "successCriteria": ["Fixtures captured"],
+  "spec": {
+    "requirements": [
+      {
+        "id": "R1",
+        "statement": "Capture states",
+        "priority": "must",
+        "rationale": "fixtures"
+      }
+    ],
+    "scenarios": [],
+    "nonGoals": ["none"],
+    "openQuestions": []
+  },
+  "clarifications": [],
+  "conventions": [],
+  "adrs": [],
+  "roadmap": {
+    "plannedSprintCount": 2,
+    "sizingRationale": "two sprints so sprint n/m is visible",
+    "sprints": [
+      {
+        "n": 1,
+        "slug": "uno",
+        "title": "Uno",
+        "state": "closed"
+      },
+      {
+        "n": 2,
+        "slug": "dos",
+        "title": "Dos",
+        "state": "closed"
+      }
+    ]
+  },
+  "ledger": [
+    {
+      "n": 1,
+      "slug": "uno",
+      "outcome": "shipped",
+      "closedAt": "2026-10-05",
+      "archive": "archive/sprint-001-uno.md",
+      "snapshot": "archive/sprint-001-uno.json",
+      "checkpoint": "archive/sprint-001-uno.checkpoint.json",
+      "checkpointSha256": "d662be9c8c2aea4dbd0a29d828dbb40e619e0f1843edbc80c9e56f50df51e048"
+    },
+    {
+      "n": 2,
+      "slug": "dos",
+      "outcome": "shipped",
+      "closedAt": "2026-10-05",
+      "archive": "archive/sprint-002-dos.md",
+      "snapshot": "archive/sprint-002-dos.json",
+      "checkpoint": "archive/sprint-002-dos.checkpoint.json",
+      "checkpointSha256": "c4e423bb2df5cb910f319a2094dc98e50884dac5fa86893c2b8dc5e8f55ce42c"
+    }
+  ],
+  "previousSprint": {
+    "n": 2,
+    "slug": "dos",
+    "outcome": "shipped",
+    "summary": "Sprint 2 objective."
+  },
+  "activeSprint": null,
+  "debt": [],
+  "handoff": {
+    "nextAction": "done",
+    "nextTaskId": null,
+    "blockers": [],
+    "note": "Scope explicitly completed.",
+    "lastUpdated": "2026-10-05"
+  },
+  "author": {
+    "name": "capture",
+    "email": "capture@example.com",
+    "source": "git",
+    "capturedAt": "2026-10-05T02:19:27.174Z"
+  },
+  "completion": {
+    "completedAt": "2026-10-05T02:19:31.855Z",
+    "by": "maker",
+    "requestDigest": "3295fef69a4d91af62c887299d42eb314c97b12f9dba8ea2dbb64b892f4f8723",
+    "beforeEntryDigest": "923502f567e42c37ea4a61ced05a2165c67728637bd9c56e5a3f07c6808c31f7",
+    "beforeStateDigest": "cbebd8ce478982bfac2c31cba888a7436e79e9049355cbb2cd647a6006a15741",
+    "planDigest": "2abdcfcb3318afb65130366176e268b3120f374d58ca58d2976cb5fe6218e006"
+  }
+}
