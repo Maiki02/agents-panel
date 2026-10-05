@@ -125,11 +125,90 @@ Es una señal verificable, no una frase del agente: el panel solo la da por cier
 
 ## Cómo lo implementa el panel
 
-- **Fuente de verdad del estado:** tabla `worktree_state` en SQLite (estado, detalle, desde cuándo, estado previo). Cada cambio se guarda como evento y se manda por SSE.
-- **Hooks del Agent SDK:** `PreToolUse` y `PostToolUse` clasifican los comandos `Bash` (build, test, git, gh, kyro) y actualizan el estado. El hook de build **espera** en el semáforo de builds, y eso genera `en_cola_build`.
-- **Kyro:** después de cada `record-evidence`, `review` o fin de turno se corre `kyro context-pack --json` para leer `nextAction` y el avance n/m.
-- **GitHub:** sondeo de `gh pr list` / `gh pr checks` cada pocos minutos para los estados de PR.
-- **Arranque del panel:** toda sesión que estaba activa pasa a `interrumpido`, y los builds en cola se vuelven a encolar.
+Estado de implementación al 05/10/2026 (scope `autopiloto-kyro`, sprint 2 `modelos-estado-permisos`). El estado fino solo existe para chats de tipo **scope** y **work**; un pedido directo tiene únicamente el estado de sesión (`chats.status`) y `GET /api/chats/:id/state` y `/timeline` le responden 404.
+
+### Tablas
+
+- **`worktree_state`** (migración 10, una fila por chat, `ON DELETE CASCADE`): `state`, `detail`, `phase`, `sprint_current`/`sprint_closed`/`sprint_total`, `task_done`/`task_total`, `open_debt`, `blocked_reason`, `actor`, `role`, `model`, `since` (cuándo empezó el estado actual) y `previous_state`. Es la fuente de verdad del estado.
+- **`worktree_transitions`** (migración 10, el Timeline): `from_state`, `to_state`, `reason`, `actor`, `role`, `model`, `data` (JSON con las señales: `nextAction`, `nextTaskId`, `waitingOn`) y `created_at`. El actor es obligatorio y la base lo valida (`user`, `pilot`, `agent`, `system`).
+- **`agent_sessions`** (migración 9): una fila por sesión del SDK con `role` (`thinker` o `executor`), `provider`, `model`, `sdk_session_id`, `sprint_n` (lo asigna el piloto del sprint 3), `started_at`, `ended_at` y `result`. El piloto cuenta estas filas por sprint para el tope de sesiones.
+- `WorktreeStateRepository.transition()` escribe fila y transición en una sola transacción y publica el evento `state_changed` (también guardado en `chat_events`) por el SSE del chat. Repetir el mismo estado con otro detalle o avance **solo actualiza la fila**, sin sumar transición.
+- Eventos de sesión: `session_started { role, provider, model }` al abrir cada turno y `model_mismatch { requested, reported }` si `system:init` informa otro modelo.
+
+### Qué estados se detectan hoy y con qué señal
+
+| Estado | Señal | Actor de la transición |
+|---|---|---|
+| `creando_worktree`, `instalando_dependencias` | Se creó el worktree y corrió el setup (con los pasos en `data.steps`) | `system` |
+| `planificando` | Empieza el primer turno de un scope o work | `agent` |
+| `planificando` · `esperando_aclaracion` · `escribiendo_codigo` · `revisando_tarea` · `qa` · `cerrando_sprint` · `esperando_aprobacion_cierre` · `terminado` | `nextAction` de Kyro al terminar cada turno (tabla de abajo) | `agent` |
+| `bloqueado` (`kyro_bloqueado`) | `context-pack` informa un blocker | `agent` |
+| `planificando` · `escribiendo_codigo` · `revisando_tarea` · `bloqueado` (`tarea_bloqueada`) · `cerrando` · `terminado` | `nextAction` de `kyro work status` (un Work) | `agent` |
+| `esperando_respuesta` | Hay una fila `pending_questions` pendiente | `agent` al preguntar; `user` al responder (vuelve al estado anterior) |
+| `interrumpido` | Al arrancar el panel, el chat estaba `running` | `system`; al retomar con un mensaje vuelve al estado anterior con actor `user` |
+| `error` | Falló la lectura de Kyro (el detalle trae el motivo) o la sesión terminó con error | `system` |
+
+Mientras no exista el piloto (sprint 3), cuando un turno termina el siguiente movimiento es del usuario: la transición guarda `data.waitingOn = 'user'`. Un turno cancelado deja el estado como estaba. Un fallo del seguimiento de estado nunca rompe el turno ni el chat.
+
+**Mapeo `nextAction` → estado** (función pura `mapKyroState`, `apps/api/src/kyro/map-state.ts`; solo recibe datos de la CLI, nunca texto del agente):
+
+| Scope | Estado | Fase |
+|---|---|---|
+| `init`, `plan_sprint` | `planificando` | planificación |
+| `clarify` | `esperando_aclaracion` | planificación |
+| `execute_task` | `escribiendo_codigo` | ejecución |
+| `review_task` | `revisando_tarea` | ejecución |
+| `qa_or_close` | `qa` | QA |
+| `close_sprint` (Kyro 6.1.0 no lo emite) | `cerrando_sprint` | QA |
+| `await_scope_completion` | `esperando_aprobacion_cierre` | cierre |
+| `done` | `terminado` | cierre |
+
+| Work | Estado | Fase |
+|---|---|---|
+| `plan_tasks` | `planificando` | planificación |
+| `execute_task` | `escribiendo_codigo` | ejecución |
+| `review_task` | `revisando_tarea` | ejecución |
+| `resolve_blocker` | `bloqueado` (`tarea_bloqueada`, el texto de Kyro va en el detalle) | ejecución |
+| `ready_to_close` | `cerrando` | cierre |
+| `done` | `terminado` | cierre |
+
+Fases guardadas: `planificacion`, `ejecucion`, `qa`, `cierre` (las de preparación y merge llegan con sus estados). El avance (`sprint n/m`, `tarea n/m`, deuda abierta) sale del mismo `kyro status full` y del `sprint.json` del scope.
+
+**Ids agregados al catálogo** respecto de la tabla de arriba: `cerrando` (un Work listo para cerrar con `kyro work close`) y `terminado` (Kyro informa `done`: la parte de Kyro terminó; el trabajo sigue hasta la PR en las etapas siguientes).
+
+### Motivos de bloqueo
+
+El estado `bloqueado` guarda un `blocked_reason` de este catálogo (`BlockedReason` en `packages/shared`):
+
+| Motivo | Cuándo | Quién lo dispara |
+|---|---|---|
+| `sin_avance` | Una sesión terminó sin que el estado de Kyro avanzara y sin preguntar | Piloto (sprint 3) |
+| `tope_de_sesiones` | Un sprint llegó al tope de sesiones (por defecto 6) | Piloto (sprint 3) |
+| `tarea_bloqueada` | Un Work en `resolve_blocker`, o una tarea que tras 3 rondas de corrección quedó `blocked` | Lector de Kyro |
+| `kyro_bloqueado` | `context-pack` informa un blocker | Lector de Kyro |
+| `integridad_kyro` | Hallazgo de integridad de Kyro: `repair` nunca se aplica solo | Piloto (sprint 3) |
+| `git` | Falló un commit, pull, push o PR; el detalle trae la salida de git | Piloto (sprints 3 y 4) |
+| `otro` | Cualquier otro freno con su motivo en el detalle | Piloto |
+
+Hoy el lector de Kyro deja `kyro_bloqueado` y `tarea_bloqueada`; los demás quedan disponibles y documentados para el orquestador del sprint 3.
+
+### Qué estados todavía no se detectan
+
+- **Builds y tests** (`en_cola_build`, `buildeando`, `probando`, `corrigiendo`, `registrando_evidencia`): necesitan los hooks `PreToolUse`/`PostToolUse` y el semáforo de builds. Llegan con la etapa 5.
+- **Permisos** (`esperando_permiso`): hoy solo se registra `permission_denied`; aprobar con botones es de la etapa 5.
+- **Merge y PR** (`trayendo_dev`, `resolviendo_conflictos`, `validando_post_merge`, `abriendo_pr`, `en_cola_merge_raiz`, `mergeando_raiz`, `pr_lista`, `pr_checks_fallidos`, `pr_cambios_pedidos`): los trae el piloto (sprint 4) y el sondeo de `gh` (etapa 5).
+- **Cierre** (`mergeada`, `limpiando`, `archivado`, `revisar`): limpieza automática, etapas 5 y 6.
+- **Transversales** `pausado` y `sin_cupo_de_uso`: el piloto (sprint 3) y el aviso de límite de uso (scope `operaciones-worktree`). `en_cola` llega con la cola de sesiones del piloto.
+- **Idea** (`madurando_idea`, `esperando_aprobacion_plan`): chat de tipo Idea, sprint 4.
+
+La etiqueta única por ítem y los tres niveles de estado (proyecto, trabajo y sesión) son del sprint 5.
+
+### Cómo se lee Kyro
+
+- **Kyro:** después de cada turno se corre en el worktree (`execFile` con argv, sin shell, con timeout) `kyro context-pack --kyro-scope <s> --json` y `kyro status full --kyro-scope <s> --json` para leer `nextAction` y el avance; el scope sale de `activeScope` en `.agents/kyro/local.json` del worktree. Si las dos lecturas no coinciden en `nextAction`, se vuelve a leer una vez. Un Work se lee con `kyro work status --work <slug> --json` (el único Work de `.agents/kyro/work/`). Una salida inesperada o un fallo de la CLI deja el estado `error` con el detalle.
+- **Hooks del Agent SDK:** `PreToolUse` y `PostToolUse` clasificarán los comandos `Bash` (build, test, git, gh, kyro) y actualizarán el estado. El hook de build **espera** en el semáforo de builds, y eso genera `en_cola_build` (etapa 5).
+- **GitHub:** sondeo de `gh pr list` / `gh pr checks` cada pocos minutos para los estados de PR (etapa 5).
+- **Arranque del panel:** toda sesión que estaba activa pasa a `interrumpido` (con una transición de actor `system`); los builds en cola se vuelven a encolar (etapa 5).
 
 ### Campos reales de Kyro (confirmados en la VM)
 

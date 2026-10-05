@@ -184,6 +184,31 @@ Referencia de la API (piden sesión, CSRF y `Origin`):
 
 Hay una entrada por pregunta; cada una lleva `selected` (opciones elegidas, una sola si no es de selección múltiple) y/o `text` (hasta 2000 caracteres). Para repetir los spikes que confirmaron el método contra el SDK real (suscripción de la VM, sin tocar el repo): `npx tsx apps/api/scripts/spike-ask-question.ts` y `npx tsx apps/api/scripts/spike-forge-policy.ts` desde `apps/api`.
 
+### Probar modelos por rol, estado y permisos por proyecto
+
+Recorrido manual del sprint 2 de `autopiloto-kyro` (con la API y la web levantadas, sección 4). La web de modelos y el estado fino son del sprint 5: por ahora se ven por la API y la base. La base está en `~/.local/share/agents-panel/panel.sqlite` (`sqlite3` en la VM) y las rutas piden sesión, CSRF y `Origin`, como las de la tabla de arriba.
+
+**A. Modelos por rol y sesiones**
+
+1. Abrí un chat de tipo **Work** (o Scope) en un proyecto con Kyro y esperá a que el primer turno termine. Mandá un segundo mensaje y esperá otra vez.
+2. `GET /api/chats/:id` trae `models` (`provider`, `thinker`, `executor`): por defecto `claude-opus-5-5` y `claude-sonnet-5-5`.
+3. En la base: `SELECT role, model, sdk_session_id, result FROM agent_sessions WHERE chat_id = <id> ORDER BY id;`. Tienen que verse **dos sesiones**: la primera `thinker` con Opus y la segunda `executor` con Sonnet, cada una con su `sdk_session_id` y `result = 'idle'`. En `GET /api/chats/:id/events` aparecen los eventos `session_started { role, provider, model }` y no debería aparecer `model_mismatch` (si aparece, el modelo que informó `system:init` no es el pedido).
+4. Para un override: `PUT /api/projects/:id/models` con `{ "provider": "claude", "thinker": "claude-sonnet-5-5", "executor": "claude-haiku-4-5-20251001" }` y creá otro chat; o `POST /api/chats` con `"models": { "executor": "claude-haiku-4-5-20251001" }`. Un modelo fuera del catálogo da 400 y no crea nada. Cambiar el proyecto después no cambia los modelos de un chat ya creado.
+5. Un **Pedido directo** corre siempre con el ejecutor y no tiene estado fino (`GET /api/chats/:id/state` da 404).
+
+**B. Estado fino y Timeline**
+
+1. En el chat Work del paso anterior: `GET /api/chats/:id/state` devuelve el estado (por ejemplo `escribiendo_codigo` con `taskDone`/`taskTotal`) y `GET /api/chats/:id/timeline` las transiciones en orden: `creando_worktree` e `instalando_dependencias` (actor `system`) y los estados que leyó de Kyro al terminar cada turno (actor `agent`, con rol y modelo).
+2. Si el agente pregunta, el estado pasa a `esperando_respuesta` y al responder vuelve al anterior (actor `user`). Si reiniciás la API con un turno en curso, el trabajo queda `interrumpido` (actor `system`).
+
+**C. Permisos por proyecto**
+
+1. **Proyectos → tu proyecto → Configuración → Permisos**. Se ven la base, los comandos y hosts extra (vacíos), la lista de los que nunca se habilitan (`oci`, `sudo`, `ssh`…) y, si el repo tiene `uv.lock`, `pyproject.toml`, `Makefile` o `Cargo.toml`, las sugerencias.
+2. Tocá **Agregar** en una sugerencia (o escribí un comando como `uv`). No se guarda: **Guardar cambios** pide el código de la app. Probá también un nombre inválido (`/usr/bin/uv`, `uv run`) y uno denegado (`sudo`): la pantalla explica por qué no se puede.
+3. Con el comando guardado, abrí un chat del proyecto y pedile al agente que lo corra (por ejemplo `uv --version`): se ejecuta. Sin guardarlo, queda un evento `permission_denied`. Pedile también `curl https://example.com`: queda `permission_denied` porque el host no está listado; agregalo en **Hosts de curl** y vuelve a funcionar (solo GET/HEAD). `curl http://localhost:3000` anda sin configurar nada.
+
+Al terminar, contale al agente qué pasó en cada paso: el resultado se registra en Kyro (`debt-1` y la tarea T4.3 del sprint 2).
+
 ## 4. Levantar backend y frontend en la VM
 
 Lo más simple, desde cualquier carpeta de la VM: `bash ~/proyectos/agents-panel/scripts/dev-panel.sh`. Mata las sesiones `panel-api` y `panel-web` si existen, compila `packages/shared`, levanta la API y la web cada una en su sesión de tmux y espera a que `/api/health` responda. Sirve también para reiniciar después de cambiar código. A mano, lo mismo (hay que estar parado en el repo):
