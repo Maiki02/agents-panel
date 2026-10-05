@@ -669,7 +669,7 @@
         "id": "P3",
         "title": "Orquestador (R6, R7, R8, R10, R11, R15, R20)",
         "objective": "El piloto decide el paso por señales, abre una sesión nueva por paso con el modelo del rol, verifica los gates de calidad, frena con motivo y se retoma tras un reinicio.",
-        "status": "active",
+        "status": "done",
         "tasks": [
           {
             "id": "T3.1",
@@ -933,9 +933,36 @@
             "scenario_refs": [
               "S16"
             ],
-            "status": "pending",
-            "evidence": null,
-            "verdict": null
+            "status": "done",
+            "evidence": {
+              "summary": "Autopilot.resumeAll (llamado en onReady de app.ts tras marcar interrumpidos): un run active con sesión SDK abierta retoma el mismo paso con resume del sdk_session_id y un prompt corto de continuación (cuenta como sesión del sprint); sin sesión abierta vuelve a decidir desde Kyro; paused y off no se retoman; waiting_quota respeta retry_at; en el tope de sesiones frena con tope_de_sesiones. Soporte: AgentSessionRepository.lastOpen/closeOpen, AutopilotRunRepository.countSession y settle() extraído del bucle.",
+              "validation": [
+                "vitest apps/api completo: 42 archivos, 846 tests pasan (5 nuevos de reinicio: S16, pausado/apagado, retry_at, tope, entre pasos)",
+                "tsc --noEmit y eslint sin errores"
+              ],
+              "files_changed": [
+                "apps/api/src/pilot/autopilot.ts",
+                "apps/api/src/app.ts",
+                "apps/api/src/chats/sessions-repo.ts",
+                "apps/api/src/pilot/runs-repo.ts",
+                "apps/api/test/pilot-autopilot.test.ts"
+              ],
+              "by": "maker",
+              "recordedAt": "2026-10-05T19:53:30.547Z"
+            },
+            "verdict": {
+              "result": "pass",
+              "checked_criteria": [
+                "Con un run active a mitad de un paso y un reinicio simulado, el piloto reanuda el mismo paso con resume del sdk_session_id sin mensaje del usuario (S16).",
+                "Un run pausado o apagado no se retoma; uno en waiting_quota respeta su retry_at.",
+                "Reinicios repetidos sin avance terminan en tope_de_sesiones, no en bucle."
+              ],
+              "findings": [],
+              "by": "checker",
+              "reviewedAt": "2026-10-05T19:53:35.087Z",
+              "requestDigest": "0d53d6321371bd4333f71e126fee7bece9efe9bfda03c3c081dc5d2dde5e6eda",
+              "reviewedMaterialDigest": "0345185fca86abf81d41fea05d109aa45436506edca87e8742b3b51918920622"
+            }
           }
         ]
       },
@@ -1064,10 +1091,10 @@
   ],
   "handoff": {
     "nextAction": "execute_task",
-    "nextTaskId": "T3.5",
+    "nextTaskId": "T4.1",
     "blockers": [],
-    "note": "Task T3.4 passed checker review.",
-    "lastUpdated": "2026-10-05T19:49:31.218Z"
+    "note": "Task T3.5 passed checker review.",
+    "lastUpdated": "2026-10-05T19:53:35.087Z"
   },
   "author": {
     "name": "Maiki02",
