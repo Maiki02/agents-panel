@@ -176,6 +176,19 @@ describe('loop guards (S12)', () => {
     ).toMatchObject({ kind: 'stop', blockedReason: 'tope_de_sesiones' });
   });
 
+  it('the cap is per sprint: planning the next sprint ignores the sessions of the closed one', () => {
+    const planning = scope('plan_sprint_2');
+    expect(planning.sprint.current).toBeNull();
+    expect(decide(planning, { sessionsInSprint: 6, lastFingerprint: null })).toMatchObject({
+      kind: 'session',
+      step: 'plan',
+    });
+    // With a sprint open the same count still stops.
+    expect(
+      decide(scope('execute_task_sprint_2'), { sessionsInSprint: 6, lastFingerprint: null }),
+    ).toMatchObject({ kind: 'stop', blockedReason: 'tope_de_sesiones' });
+  });
+
   it('waiting for the user or finishing is not a loop: no guard applies', () => {
     const run = { sessionsInSprint: 9, lastFingerprint: fingerprint(scope('clarify')) };
     expect(decide(scope('clarify'), run, ended)).toMatchObject({ state: 'esperando_aclaracion' });

@@ -106,7 +106,10 @@ export function decideNextStep(
   ) {
     return stop('bloqueado', 'sin_avance', 'La sesión terminó sin que el estado avance');
   }
-  if (run.sessionsInSprint >= max) {
+  // Planning the next sprint starts a new count: the sessions of the one that just closed do not
+  // carry over (the cap is per sprint, R11).
+  const sessions = kyro.kind === 'scope' && kyro.sprint.current === null ? 0 : run.sessionsInSprint;
+  if (sessions >= max) {
     return stop(
       'bloqueado',
       'tope_de_sesiones',

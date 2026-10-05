@@ -172,7 +172,9 @@ export class AutopilotRunRepository {
     },
   ): AutopilotRun {
     const run = this.require(chatId);
-    const newSprint = input.sprintN !== null && input.sprintN !== run.sprintN;
+    // A planning step opens the count of the next sprint.
+    const newSprint =
+      input.step === 'plan' || (input.sprintN !== null && input.sprintN !== run.sprintN);
     this.db
       .prepare(
         `UPDATE autopilot_runs SET step = ?, sprint_n = ?, sessions_in_sprint = ?, last_fingerprint = ?,

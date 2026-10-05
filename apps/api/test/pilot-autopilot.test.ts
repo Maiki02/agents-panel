@@ -34,6 +34,8 @@ class FakeKyro implements PilotKyro {
   capabilities_ = [...CAPABILITIES];
   findings: AnalyzeFinding[] = [];
   analyzeCalls = 0;
+  /** When true a fix session does not clear the findings (to reach the session cap). */
+  keepFindings = false;
 
   constructor(total = 2) {
     this.state = {
@@ -101,7 +103,7 @@ class FakeKyro implements PilotKyro {
       s.nextTaskId = null;
       s.tasks.done += 1;
     } else if (step === 'fix') {
-      this.findings = [];
+      if (!this.keepFindings) this.findings = [];
       s.tasks.done += 1;
     } else if (step === 'close') {
       const closed = (s.sprint.closed ?? 0) + 1;
@@ -327,13 +329,32 @@ describe('loop guards, capabilities, queue and usage limit', () => {
   });
 
   it('stops with tope_de_sesiones when a sprint reaches the cap (S12)', async () => {
-    const t = await setup({ maxSessions: 2 });
+    const t = await setup({ total: 1, maxSessions: 2 });
+    // The findings never clear, so the sprint keeps asking for fixes until the cap.
+    t.kyro.keepFindings = true;
+    t.kyro.findings = [{ id: 'A1', severity: 'HIGH', category: 'spec', detail: 'x', remedy: '' }];
     await t.pilot.drive(t.chat.id);
     expect(t.states.get(t.chat.id)).toMatchObject({
       state: 'bloqueado',
       blockedReason: 'tope_de_sesiones',
     });
     expect(t.runs.get(t.chat.id)?.sessionsInSprint).toBe(2);
+    expect(t.sessions.listByChat(t.chat.id).map((s) => s.step)).toEqual(['plan', 'execute', 'fix']);
+  });
+
+  it('a sprint that used the whole cap and closed does not stop the next one from being planned', async () => {
+    const t = await setup({ total: 2, maxSessions: 2 });
+    await t.pilot.drive(t.chat.id);
+    // plan, execute and close of each sprint: the second one is planned after the first closed.
+    expect(t.sessions.listByChat(t.chat.id).map((s) => s.step)).toEqual([
+      'plan',
+      'execute',
+      'close',
+      'plan',
+      'execute',
+      'close',
+    ]);
+    expect(t.states.get(t.chat.id)?.blockedReason).toBeNull();
   });
 
   it('stops with kyro_bloqueado before opening anything when record-evidence or review is missing', async () => {
