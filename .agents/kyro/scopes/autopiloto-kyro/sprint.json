@@ -1080,7 +1080,101 @@
         ]
       }
     ],
-    "emergentTasks": [],
+    "emergentTasks": [
+      {
+        "id": "E1",
+        "title": "El primer turno de un chat con piloto lleva la política de gates (R16)",
+        "description": "En ChatService.create, cuando autopilot es true, el primer prompt (buildInitialPrompt) se arma con el bloque buildPolicy('plan') al final y el turno se abre como turno del piloto (paso plan, versión de política), para que el agente no pregunte en gates de rutina desde la primera sesión. Hoy el primer turno no lleva política.",
+        "files_to_touch": [
+          "apps/api/src/chats/service.ts",
+          "apps/api/test/pilot-runs.test.ts"
+        ],
+        "context": "Required by kyro qa (B1)",
+        "acceptance_criteria": [
+          "Con autopilot: true el prompt del primer turno contiene el bloque de política del paso plan y la sesión queda registrada con step plan y policy_version.",
+          "Sin autopilot el primer prompt no cambia.",
+          "Test en chats o pilot-runs que lo verifica con el runner falso."
+        ],
+        "depends_on": [],
+        "scenario_refs": [],
+        "status": "done",
+        "evidence": {
+          "summary": "ChatService.create con autopilot:true arma el primer prompt con buildPolicy('plan') y abre el turno como sesión del piloto (paso plan, POLICY_VERSION, rol pensante); sin autopilot el prompt y la sesión (manual) no cambian. pilotKyro inyectable en makeApp y stub en pilot-runs.test para que el bucle no corra el CLI real durante los tests de rutas.",
+          "validation": [
+            "vitest chats + pilot-runs: 39 pasan (2 tests nuevos: con autopilot lleva la política y step plan; sin autopilot no)",
+            "tsc --noEmit y eslint sin errores"
+          ],
+          "files_changed": [
+            "apps/api/src/chats/service.ts",
+            "apps/api/test/pilot-runs.test.ts",
+            "apps/api/test/helpers.ts"
+          ],
+          "by": "maker",
+          "recordedAt": "2026-10-05T20:00:05.792Z"
+        },
+        "verdict": {
+          "result": "pass",
+          "checked_criteria": [
+            "Con autopilot: true el prompt del primer turno contiene el bloque de política del paso plan y la sesión queda registrada con step plan y policy_version.",
+            "Sin autopilot el primer prompt no cambia.",
+            "Test en chats o pilot-runs que lo verifica con el runner falso."
+          ],
+          "findings": [],
+          "by": "checker",
+          "reviewedAt": "2026-10-05T20:00:06.044Z",
+          "requestDigest": "25a660ef1cf52d2e66489255b93913c55e18974808bd71b3f7b66973feed5258",
+          "reviewedMaterialDigest": "d1d8dc64da5e2c9bc07d364603a635a5e5cad7033a01dbe428086a1b921036c8"
+        }
+      },
+      {
+        "id": "E2",
+        "title": "El tope de sesiones se cuenta por sprint y no se arrastra al siguiente (R11)",
+        "description": "En decideNextStep, cuando el scope no tiene sprint activo (planificación del siguiente sprint) el contador de sesiones del sprint vale 0, y AutopilotRunRepository.beginSession reinicia el contador al abrir un paso de plan. Hoy un sprint que consume el tope y cierra bien frena el trabajo antes de planificar el siguiente.",
+        "files_to_touch": [
+          "apps/api/src/pilot/decide.ts",
+          "apps/api/src/pilot/runs-repo.ts",
+          "apps/api/test/pilot-decide.test.ts",
+          "apps/api/test/pilot-autopilot.test.ts"
+        ],
+        "context": "Required by kyro qa (B2)",
+        "acceptance_criteria": [
+          "Con el tope alcanzado en el sprint 1 y el sprint cerrado, el piloto planifica el sprint 2 en vez de frenar con tope_de_sesiones.",
+          "Dentro de un mismo sprint el tope sigue frenando (fix en bucle) y los tests existentes de tope se ajustan a eso.",
+          "Test en pilot-decide y pilot-autopilot."
+        ],
+        "depends_on": [],
+        "scenario_refs": [],
+        "status": "done",
+        "evidence": {
+          "summary": "decideNextStep cuenta 0 sesiones cuando el scope no tiene sprint activo (planificación del siguiente) y AutopilotRunRepository.beginSession reinicia el contador al abrir un paso plan: el tope es por sprint. Un sprint que usó todo el tope y cerró no frena la planificación del siguiente; dentro del sprint el tope sigue frenando (fix en bucle).",
+          "validation": [
+            "vitest apps/api completo (TMPDIR propio por globalSetup): sin fallas; tests nuevos en pilot-decide y pilot-autopilot (tope por sprint, cierre con el tope usado, tope en bucle de fix)",
+            "tsc --noEmit, eslint y format:check sin errores"
+          ],
+          "files_changed": [
+            "apps/api/src/pilot/decide.ts",
+            "apps/api/src/pilot/runs-repo.ts",
+            "apps/api/test/pilot-decide.test.ts",
+            "apps/api/test/pilot-autopilot.test.ts"
+          ],
+          "by": "maker",
+          "recordedAt": "2026-10-05T20:02:35.169Z"
+        },
+        "verdict": {
+          "result": "pass",
+          "checked_criteria": [
+            "Con el tope alcanzado en el sprint 1 y el sprint cerrado, el piloto planifica el sprint 2 en vez de frenar con tope_de_sesiones.",
+            "Dentro de un mismo sprint el tope sigue frenando (fix en bucle) y los tests existentes de tope se ajustan a eso.",
+            "Test en pilot-decide y pilot-autopilot."
+          ],
+          "findings": [],
+          "by": "checker",
+          "reviewedAt": "2026-10-05T20:02:35.426Z",
+          "requestDigest": "634c1257cfbe942631d294384e6a0eb9d85bbf0b42f8150e439c5e14053660b0",
+          "reviewedMaterialDigest": "5e2aff91a034bb1d5436b5d26b1f652549145575880a3f9f54ee949af16ea5fe"
+        }
+      }
+    ],
     "definitionOfDone": [
       "Todas las tareas done con evidencia y review pass.",
       "Un scope de 2 sprints con runner y Kyro falsos llega solo a await_scope_completion con una sesión por paso y el modelo de su rol.",
@@ -1135,14 +1229,32 @@
       "status": "open",
       "targetSprint": 6,
       "note": "Nunca un rm sin validar: rm -rf ~ pasaría la allowlist"
+    },
+    {
+      "id": "debt-6",
+      "title": "Verificar el veredicto de kyro-qa (APPROVED / APPROVED WITH NOTES) además de que la sesión de cierre invocó la skill",
+      "origin": 3,
+      "priority": "medium",
+      "status": "open",
+      "targetSprint": 6,
+      "note": "QA del sprint 3: hoy solo se comprueba el tool_use de kyro-qa"
+    },
+    {
+      "id": "debt-7",
+      "title": "AlreadyRunningError si el usuario manda un mensaje entre waitForIdle y start: el piloto debe reintentar en vez de frenar con otro",
+      "origin": 3,
+      "priority": "low",
+      "status": "open",
+      "targetSprint": 6,
+      "note": "QA del sprint 3: condición de carrera menor"
     }
   ],
   "handoff": {
     "nextAction": "qa_or_close",
     "nextTaskId": null,
     "blockers": [],
-    "note": "Task T4.2 passed checker review.",
-    "lastUpdated": "2026-10-05T19:56:37.953Z"
+    "note": "Task E2 passed checker review.",
+    "lastUpdated": "2026-10-05T20:02:35.426Z"
   },
   "author": {
     "name": "Maiki02",
