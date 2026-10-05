@@ -133,6 +133,13 @@ export class ChatRepository {
     this.db.prepare('DELETE FROM chats WHERE id = ?').run(id);
   }
 
+  /** An approved idea becomes a scope or a work: same chat, worktree and session. */
+  setKind(id: number, kind: ChatKind): void {
+    this.db
+      .prepare('UPDATE chats SET kind = ?, updated_at = ? WHERE id = ?')
+      .run(kind, this.now(), id);
+  }
+
   setStatus(id: number, status: ChatStatus): void {
     this.db
       .prepare('UPDATE chats SET status = ?, updated_at = ? WHERE id = ?')

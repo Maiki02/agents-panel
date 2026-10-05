@@ -624,3 +624,48 @@ describe('buildInitialPrompt', () => {
     );
   });
 });
+
+describe('idea chats', () => {
+  const body = (projectId: number, extra: object = {}) => ({
+    projectId,
+    kind: 'idea',
+    slug: 'idea-a',
+    prompt: 'Quiero un panel de métricas',
+    ...extra,
+  });
+
+  it('starts a thinker turn with kyro-idea and the idea policy', async () => {
+    const { runner, project, post, waitIdle } = await boot();
+    const res = await post('/api/chats', body(project.id));
+    expect(res.statusCode).toBe(201);
+    const chat = res.json<Chat>();
+    expect(chat.kind).toBe('idea');
+    await waitIdle(chat.id);
+
+    expect(runner.calls).toHaveLength(1);
+    const call = runner.calls[0];
+    expect(call?.role).toBe('thinker');
+    expect(call?.prompt).toContain('kyro-idea/SKILL.md');
+    expect(call?.prompt).toContain('This is an idea session');
+    expect(call?.prompt).toContain('Quiero un panel de métricas');
+  });
+
+  it('answers 400 to autopilot true and leaves no worktree', async () => {
+    const { runner, project, post, get, worktreesDir } = await boot();
+    const res = await post('/api/chats', body(project.id, { autopilot: true }));
+    expect(res.statusCode).toBe(400);
+    expect((await get('/api/chats')).json<Chat[]>()).toEqual([]);
+    expect(existsSync(join(worktreesDir, project.name))).toBe(false);
+    expect(runner.calls).toHaveLength(0);
+  });
+
+  it('answers 409 to a project without Kyro and leaves no worktree', async () => {
+    const { runner, project, post, get, worktreesDir } = await boot();
+    rmSync(join(project.repoPath, '.agents'), { recursive: true });
+    const res = await post('/api/chats', body(project.id));
+    expect(res.statusCode).toBe(409);
+    expect((await get('/api/chats')).json<Chat[]>()).toEqual([]);
+    expect(existsSync(join(worktreesDir, project.name))).toBe(false);
+    expect(runner.calls).toHaveLength(0);
+  });
+});

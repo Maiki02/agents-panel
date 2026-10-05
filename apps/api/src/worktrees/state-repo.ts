@@ -103,6 +103,8 @@ export interface TransitionInput {
   model?: string | null;
   /** Extra signals behind the transition (stored as JSON in the Timeline entry). */
   data?: unknown;
+  /** Adds a Timeline entry even when the state repeats (a decision that must stay on record). */
+  record?: boolean;
 }
 
 export interface TransitionResult {
@@ -152,6 +154,7 @@ export class WorktreeStateRepository {
     const now = this.now();
     const previous = this.get(chatId);
     const changed = previous?.state !== input.state;
+    const entry = changed || input.record === true;
     const columns = [
       input.state,
       input.detail ?? null,
@@ -192,7 +195,7 @@ export class WorktreeStateRepository {
             chatId,
           );
       }
-      if (changed) {
+      if (entry) {
         this.db
           .prepare(
             `INSERT INTO worktree_transitions (chat_id, from_state, to_state, reason, actor, role, model, data, created_at)

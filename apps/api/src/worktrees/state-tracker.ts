@@ -9,6 +9,8 @@ import type {
 import { mapKyroState } from '../kyro/map-state.js';
 import type { KyroReadResult } from '../kyro/reader.js';
 import type { KyroScopeState, KyroWorkState } from '../kyro/state.js';
+import type { IdeaScanner } from '../chats/idea.js';
+import type { QuestionRepository } from '../chats/questions-repo.js';
 import type { WorktreeStateRepository } from './state-repo.js';
 
 /** The part of KyroReader the tracker needs; tests inject a fake backed by fixtures. */
@@ -57,6 +59,9 @@ export class WorktreeStateTracker implements TurnObserver {
   constructor(
     private readonly states: WorktreeStateRepository,
     private readonly reader: KyroStateReader,
+    /** Finds the document of an idea chat in git; without it an idea stays in madurando_idea. */
+    private readonly ideas?: IdeaScanner,
+    private readonly questions?: QuestionRepository,
   ) {}
 
   private static tracked(chat: Chat): boolean {
@@ -87,11 +92,23 @@ export class WorktreeStateTracker implements TurnObserver {
     const actor = turn.pilot ? 'pilot' : 'agent';
     const data = turn.pilot ? { ...turn.pilot } : undefined;
     if (current === undefined || PREPARING.includes(current.state)) {
+      // An idea is matured by the user's own request: the first turn is theirs, not the agent's.
       this.states.transition(chat.id, {
-        state: 'planificando',
-        actor,
+        state: chat.kind === 'idea' ? 'madurando_idea' : 'planificando',
+        actor: chat.kind === 'idea' ? 'user' : actor,
         ...(data ? { data } : {}),
-        reason: 'Empezó el primer turno',
+        reason: chat.kind === 'idea' ? 'Empezó la idea' : 'Empezó el primer turno',
+        ...common,
+      });
+    } else if (
+      chat.kind === 'idea' &&
+      (current.state === 'esperando_aprobacion_plan' || current.state === 'bloqueado')
+    ) {
+      // The user keeps talking to the idea: the plan is not ready to approve anymore.
+      this.states.transition(chat.id, {
+        state: 'madurando_idea',
+        actor: 'user',
+        reason: 'Siguió madurando la idea con un mensaje',
         ...common,
       });
     } else if (STOPPED.includes(current.state)) {
@@ -123,7 +140,10 @@ export class WorktreeStateTracker implements TurnObserver {
         .find((transition) => transition.toState === state);
       state = entry?.fromState ?? null;
     }
-    return state === null || QUESTION_WAITS.includes(state) ? 'planificando' : state;
+    if (state === null || QUESTION_WAITS.includes(state)) {
+      return chat.kind === 'idea' ? 'madurando_idea' : 'planificando';
+    }
+    return state;
   }
 
   /** Reads Kyro after the turn: the next state is whatever the CLI reports. */
@@ -140,6 +160,10 @@ export class WorktreeStateTracker implements TurnObserver {
         detail: 'La sesión del agente terminó con error',
         ...common,
       });
+      return;
+    }
+    if (chat.kind === 'idea') {
+      await this.ideaFinished(chat, common);
       return;
     }
     const read =
@@ -182,6 +206,54 @@ export class WorktreeStateTracker implements TurnObserver {
     });
   }
 
+  /**
+   * An idea has no scope or work in Kyro yet, so git is the signal: exactly one new or changed
+   * document means the plan is written and waits for the user's approval.
+   */
+  private async ideaFinished(
+    chat: Chat,
+    common: { role: TurnInfo['role']; model: string },
+  ): Promise<void> {
+    // A question nobody answered keeps the work waiting for it, whatever the files say. The
+    // manager cancels the stored questions when the turn ends, so the state is the signal too.
+    if (
+      this.states.get(chat.id)?.state === 'esperando_respuesta' ||
+      this.questions?.listByChat(chat.id, 'pending').length
+    ) {
+      return;
+    }
+    const documents = await (this.ideas?.scan(chat) ?? Promise.resolve([])).catch(() => []);
+    if (documents.length === 1) {
+      const [file] = documents;
+      this.states.transition(chat.id, {
+        state: 'esperando_aprobacion_plan',
+        actor: 'agent',
+        reason: 'La idea quedó escrita: espera la aprobación del plan',
+        detail: file ?? null,
+        data: { path: file, waitingOn: 'user' },
+        ...common,
+      });
+    } else if (documents.length > 1) {
+      this.states.transition(chat.id, {
+        state: 'bloqueado',
+        actor: 'agent',
+        reason: 'Hay más de un documento de idea',
+        detail: `Hay ${String(documents.length)} documentos de idea y tiene que haber uno: ${documents.join(', ')}`,
+        blockedReason: 'otro',
+        data: { documents, waitingOn: 'user' },
+        ...common,
+      });
+    } else {
+      this.states.transition(chat.id, {
+        state: 'madurando_idea',
+        actor: 'agent',
+        reason: 'El turno de la idea terminó sin documento',
+        data: { waitingOn: 'user' },
+        ...common,
+      });
+    }
+  }
+
   questionAsked(chat: Chat): void {
     if (!WorktreeStateTracker.tracked(chat)) return;
     const current = this.states.get(chat.id);
@@ -221,12 +293,15 @@ export class WorktreeStateTracker implements TurnObserver {
       detail?: string | null;
       blockedReason?: BlockedReason | null;
       data?: Record<string, unknown>;
+      /** Keeps a Timeline entry even if the state does not change. */
+      record?: boolean;
     },
   ): void {
     if (!WorktreeStateTracker.tracked(chat)) return;
     const current = this.states.get(chat.id);
     this.states.transition(chat.id, {
       ...(current ? this.keep(current) : {}),
+      ...(mark.record ? { record: true } : {}),
       state: mark.state,
       actor: 'pilot',
       reason: mark.reason,

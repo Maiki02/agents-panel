@@ -315,6 +315,153 @@ export const migrations: readonly Migration[] = [
       ALTER TABLE agent_sessions ADD COLUMN policy_version INTEGER;
     `,
   },
+  {
+    version: 13,
+    name: 'chats_kind_idea',
+    // Same rebuild as chats_kind_direct, now with the model columns added by `models`.
+    rebuildsTable: true,
+    sql: `
+      CREATE TABLE chats_new (
+        id INTEGER PRIMARY KEY,
+        project_id INTEGER NOT NULL REFERENCES projects(id),
+        kind TEXT NOT NULL CHECK (kind IN ('scope', 'work', 'direct', 'idea')),
+        slug TEXT NOT NULL,
+        title TEXT NOT NULL,
+        worktree_path TEXT NOT NULL,
+        branch TEXT NOT NULL,
+        sdk_session_id TEXT,
+        status TEXT NOT NULL CHECK (status IN ('running', 'idle', 'error', 'interrupted', 'cancelled')),
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        provider TEXT NOT NULL DEFAULT 'claude',
+        thinker_model TEXT NOT NULL DEFAULT 'claude-opus-5-5',
+        executor_model TEXT NOT NULL DEFAULT 'claude-sonnet-5-5',
+        UNIQUE (project_id, slug)
+      );
+      INSERT INTO chats_new (id, project_id, kind, slug, title, worktree_path, branch, sdk_session_id,
+        status, created_at, updated_at, provider, thinker_model, executor_model)
+        SELECT id, project_id, kind, slug, title, worktree_path, branch, sdk_session_id,
+        status, created_at, updated_at, provider, thinker_model, executor_model FROM chats;
+      DROP TABLE chats;
+      ALTER TABLE chats_new RENAME TO chats;
+    `,
+  },
+  {
+    version: 14,
+    name: 'pilot_step_init',
+    // The step CHECKs are rebuilt to admit 'init' (the session that creates the scope of an
+    // approved idea); autopilot_runs also gets seed_path, the idea document that session reads.
+    rebuildsTable: true,
+    sql: `
+      CREATE TABLE agent_sessions_new (
+        id INTEGER PRIMARY KEY,
+        chat_id INTEGER NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
+        role TEXT NOT NULL CHECK (role IN ('thinker', 'executor')),
+        provider TEXT NOT NULL,
+        model TEXT NOT NULL,
+        sdk_session_id TEXT,
+        sprint_n INTEGER,
+        started_at INTEGER NOT NULL,
+        ended_at INTEGER,
+        result TEXT,
+        step TEXT NOT NULL DEFAULT 'manual'
+          CHECK (step IN ('init', 'plan', 'execute', 'fix', 'close', 'manual')),
+        policy_version INTEGER
+      );
+      INSERT INTO agent_sessions_new (id, chat_id, role, provider, model, sdk_session_id, sprint_n,
+        started_at, ended_at, result, step, policy_version)
+        SELECT id, chat_id, role, provider, model, sdk_session_id, sprint_n,
+        started_at, ended_at, result, step, policy_version FROM agent_sessions;
+      DROP TABLE agent_sessions;
+      ALTER TABLE agent_sessions_new RENAME TO agent_sessions;
+      CREATE INDEX agent_sessions_chat ON agent_sessions(chat_id, started_at);
+
+      CREATE TABLE autopilot_runs_new (
+        chat_id INTEGER PRIMARY KEY REFERENCES chats(id) ON DELETE CASCADE,
+        status TEXT NOT NULL CHECK (status IN
+          ('active', 'paused', 'off', 'stopped', 'waiting_quota', 'queued', 'finished')),
+        step TEXT CHECK (step IN ('init', 'plan', 'execute', 'fix', 'close', 'manual')),
+        sprint_n INTEGER,
+        sessions_in_sprint INTEGER NOT NULL DEFAULT 0,
+        last_fingerprint TEXT,
+        stop_reason TEXT,
+        retry_at INTEGER,
+        policy_version INTEGER,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        seed_path TEXT
+      );
+      INSERT INTO autopilot_runs_new (chat_id, status, step, sprint_n, sessions_in_sprint,
+        last_fingerprint, stop_reason, retry_at, policy_version, created_at, updated_at)
+        SELECT chat_id, status, step, sprint_n, sessions_in_sprint,
+        last_fingerprint, stop_reason, retry_at, policy_version, created_at, updated_at
+        FROM autopilot_runs;
+      DROP TABLE autopilot_runs;
+      ALTER TABLE autopilot_runs_new RENAME TO autopilot_runs;
+    `,
+  },
+  {
+    version: 15,
+    name: 'projects_validate_command',
+    // Optional, like setup_command: what the pilot runs in the worktree before opening the PR.
+    sql: 'ALTER TABLE projects ADD COLUMN validate_command TEXT;',
+  },
+  {
+    version: 16,
+    name: 'pilot_merge_phase',
+    // The step CHECKs admit the merge sessions, and a run remembers its phase and PRs so a restart
+    // takes the merge up again where it was.
+    rebuildsTable: true,
+    sql: `
+      CREATE TABLE agent_sessions_new (
+        id INTEGER PRIMARY KEY,
+        chat_id INTEGER NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
+        role TEXT NOT NULL CHECK (role IN ('thinker', 'executor')),
+        provider TEXT NOT NULL,
+        model TEXT NOT NULL,
+        sdk_session_id TEXT,
+        sprint_n INTEGER,
+        started_at INTEGER NOT NULL,
+        ended_at INTEGER,
+        result TEXT,
+        step TEXT NOT NULL DEFAULT 'manual'
+          CHECK (step IN ('init', 'plan', 'execute', 'fix', 'close', 'merge', 'merge_dev', 'manual')),
+        policy_version INTEGER
+      );
+      INSERT INTO agent_sessions_new (id, chat_id, role, provider, model, sdk_session_id, sprint_n,
+        started_at, ended_at, result, step, policy_version)
+        SELECT id, chat_id, role, provider, model, sdk_session_id, sprint_n,
+        started_at, ended_at, result, step, policy_version FROM agent_sessions;
+      DROP TABLE agent_sessions;
+      ALTER TABLE agent_sessions_new RENAME TO agent_sessions;
+      CREATE INDEX agent_sessions_chat ON agent_sessions(chat_id, started_at);
+
+      CREATE TABLE autopilot_runs_new (
+        chat_id INTEGER PRIMARY KEY REFERENCES chats(id) ON DELETE CASCADE,
+        status TEXT NOT NULL CHECK (status IN
+          ('active', 'paused', 'off', 'stopped', 'waiting_quota', 'queued', 'finished')),
+        step TEXT CHECK (step IN ('init', 'plan', 'execute', 'fix', 'close', 'merge', 'merge_dev', 'manual')),
+        sprint_n INTEGER,
+        sessions_in_sprint INTEGER NOT NULL DEFAULT 0,
+        last_fingerprint TEXT,
+        stop_reason TEXT,
+        retry_at INTEGER,
+        policy_version INTEGER,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        seed_path TEXT,
+        phase TEXT CHECK (phase IS NULL OR phase IN ('merge')),
+        pr_urls TEXT NOT NULL DEFAULT '[]'
+      );
+      INSERT INTO autopilot_runs_new (chat_id, status, step, sprint_n, sessions_in_sprint,
+        last_fingerprint, stop_reason, retry_at, policy_version, created_at, updated_at, seed_path)
+        SELECT chat_id, status, step, sprint_n, sessions_in_sprint,
+        last_fingerprint, stop_reason, retry_at, policy_version, created_at, updated_at, seed_path
+        FROM autopilot_runs;
+      DROP TABLE autopilot_runs;
+      ALTER TABLE autopilot_runs_new RENAME TO autopilot_runs;
+    `,
+  },
 ];
 
 /** Applies pending migrations in order, each in its own transaction. Safe to run repeatedly. */

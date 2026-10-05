@@ -40,6 +40,7 @@ export class ChatError extends Error {
 }
 
 const FLOW_SKILL: Record<Exclude<ChatKind, 'direct'>, { skill: string; command: string }> = {
+  idea: { skill: 'kyro-idea', command: '/kyro:idea' },
   scope: { skill: 'kyro-forge', command: '/kyro:forge' },
   work: { skill: 'kyro-work', command: '/kyro:work' },
 };
@@ -102,6 +103,9 @@ export class ChatService {
     if (input.autopilot === true && input.kind === 'direct') {
       throw new ChatError('Un pedido directo no admite piloto automático', 400);
     }
+    if (input.autopilot === true && input.kind === 'idea') {
+      throw new ChatError('Una idea no arranca con piloto: se prende al aprobar el plan', 400);
+    }
     // A clone still running (or failed) means an incomplete repo: no worktree, no chat.
     if (project.status !== 'ready') {
       throw new ChatError(`El proyecto todavía no está listo: ${project.status}`, 409);
@@ -109,7 +113,7 @@ export class ChatService {
     // Without Kyro in the repo the scope and work flows have nothing to run on.
     if (input.kind !== 'direct' && !project.hasKyro) {
       throw new ChatError(
-        'El proyecto no tiene Kyro: solo admite pedidos directos. Inicializá Kyro para usar scope y work.',
+        'El proyecto no tiene Kyro: solo admite pedidos directos. Inicializá Kyro para usar scope, work e idea.',
         409,
       );
     }
@@ -180,6 +184,8 @@ export class ChatService {
             policyVersion: POLICY_VERSION,
             sprintN: null,
           });
+        } else if (input.kind === 'idea') {
+          this.startTurn(chat.id, `${initial}\n\n${buildPolicy('idea')}`, 'thinker');
         } else {
           this.startTurn(chat.id, initial, input.kind === 'direct' ? 'executor' : 'thinker');
         }

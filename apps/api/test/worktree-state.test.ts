@@ -36,7 +36,7 @@ async function setup() {
   const bus = new ChatEventBus();
   let clock = 1000;
   const repo = new WorktreeStateRepository(db, chats, bus, () => (clock += 10));
-  const newChat = (slug: string, kind: 'scope' | 'work' | 'direct' = 'scope') =>
+  const newChat = (slug: string, kind: 'scope' | 'work' | 'direct' | 'idea' = 'scope') =>
     chats.create({
       projectId: project.id,
       kind,
@@ -231,6 +231,22 @@ describe('state and timeline routes', () => {
     ]);
   });
 
+  it('shows the fine state in the chat list and in the chat, null for a direct chat', async () => {
+    const { app: a, headers, create, repo } = await boot();
+    const work = create('s', 'scope');
+    const direct = create('d', 'direct');
+    repo.transition(work.id, { state: 'esperando_aprobacion_plan', actor: 'agent' });
+    const list = (await a.inject({ url: '/api/chats', headers })).json<
+      { id: number; workState: string | null }[]
+    >();
+    expect(list.find((c) => c.id === work.id)?.workState).toBe('esperando_aprobacion_plan');
+    expect(list.find((c) => c.id === direct.id)?.workState).toBeNull();
+    const one = (await a.inject({ url: `/api/chats/${String(work.id)}`, headers })).json<{
+      workState: string | null;
+    }>();
+    expect(one.workState).toBe('esperando_aprobacion_plan');
+  });
+
   it('answers 404 for a direct chat and for a missing one', async () => {
     const { app: a, headers, create } = await boot();
     const direct = create('d', 'direct');
@@ -272,7 +288,10 @@ describe('WorktreeStateTracker', () => {
     };
   }
 
-  async function wire(reader: KyroStateReader, kind: 'scope' | 'work' | 'direct' = 'scope') {
+  async function wire(
+    reader: KyroStateReader,
+    kind: 'scope' | 'work' | 'direct' | 'idea' = 'scope',
+  ) {
     const base = await setup();
     const states = new WorktreeStateRepository(base.db, base.chats, base.bus);
     const tracker = new WorktreeStateTracker(states, reader);
@@ -326,6 +345,36 @@ describe('WorktreeStateTracker', () => {
       model: 'claude-opus-5-5',
       data: { nextAction: 'execute_task', waitingOn: 'user' },
     });
+  });
+
+  it('an idea chat starts in madurando_idea by the user, stays there after the turn and never reads Kyro', async () => {
+    let reads = 0;
+    const reader: KyroStateReader = {
+      readScope: () => {
+        reads++;
+        return Promise.resolve({ ok: false, error: { kind: 'no_target', message: 'n/a' } });
+      },
+      readWork: () => {
+        reads++;
+        return Promise.resolve({ ok: false, error: { kind: 'no_target', message: 'n/a' } });
+      },
+    };
+    const { states, manager, chat, tracker } = await wire(reader, 'idea');
+    tracker.created(chat);
+    manager.start(chat.id, 'go', { role: 'thinker' });
+    await manager.waitForIdle(chat.id);
+
+    expect(reads).toBe(0);
+    expect(states.get(chat.id)).toMatchObject({
+      state: 'madurando_idea',
+      role: 'thinker',
+      model: 'claude-opus-5-5',
+    });
+    expect(states.timeline(chat.id).map((t) => [t.toState, t.actor])).toEqual([
+      ['creando_worktree', 'system'],
+      ['instalando_dependencias', 'system'],
+      ['madurando_idea', 'user'],
+    ]);
   });
 
   it('goes to esperando_respuesta on a question and back when the user answers', async () => {

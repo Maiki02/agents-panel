@@ -1,5 +1,13 @@
 import type { FastifyInstance } from 'fastify';
-import type { ChatKind } from '@agents-panel/shared';
+import {
+  IDEA_ACTIONS,
+  type Chat,
+  type ChatKind,
+  type IdeaAction,
+  type IdeaDocument,
+} from '@agents-panel/shared';
+import { readIdeaDocument, type IdeaScanner } from './idea.js';
+import type { IdeaActions } from './idea-actions.js';
 import { onlyKeys } from '../http/only-keys.js';
 import { ChatError, type ChatService } from './service.js';
 import type { ChatRepository } from './repo.js';
@@ -17,7 +25,7 @@ const createBody = {
   additionalProperties: false,
   properties: {
     projectId: { type: 'integer', minimum: 1 },
-    kind: { enum: ['scope', 'work', 'direct'] },
+    kind: { enum: ['scope', 'work', 'direct', 'idea'] },
     slug: { type: 'string', minLength: 1, maxLength: 50 },
     prompt: { type: 'string', minLength: 1, maxLength: 20000 },
     autopilot: { type: 'boolean' },
@@ -29,6 +37,16 @@ const createBody = {
         executor: { type: 'string', maxLength: 100 },
       },
     },
+  },
+} as const;
+
+const ideaActionBody = {
+  type: 'object',
+  required: ['action'],
+  additionalProperties: false,
+  properties: {
+    action: { enum: IDEA_ACTIONS },
+    text: { type: 'string', maxLength: 20000 },
   },
 } as const;
 
@@ -68,9 +86,20 @@ const answerBody = {
 
 export function registerChatRoutes(
   app: FastifyInstance,
-  deps: { chats: ChatRepository; service: ChatService; worktreeState: WorktreeStateRepository },
+  deps: {
+    chats: ChatRepository;
+    service: ChatService;
+    worktreeState: WorktreeStateRepository;
+    ideas: IdeaScanner;
+    ideaActions: IdeaActions;
+  },
 ): void {
-  const { chats, service, worktreeState } = deps;
+  const { chats, service, worktreeState, ideas, ideaActions } = deps;
+  /** The list and the sidebar show the fine state of a work next to the chat. */
+  const withState = (chat: Chat): Chat => ({
+    ...chat,
+    workState: chat.kind === 'direct' ? null : (worktreeState.get(chat.id)?.state ?? null),
+  });
 
   app.setErrorHandler((error, request, reply) => {
     if (error instanceof ChatError) {
@@ -118,13 +147,13 @@ export function registerChatRoutes(
         done();
       },
     },
-    (request) => chats.list(request.query.projectId),
+    (request) => chats.list(request.query.projectId).map(withState),
   );
 
   app.get<{ Params: { id: number } }>(
     '/api/chats/:id',
     { schema: { params: idParams } },
-    (request) => service.requireChat(request.params.id),
+    (request) => withState(service.requireChat(request.params.id)),
   );
 
   /**
@@ -137,6 +166,41 @@ export function registerChatRoutes(
     (request) => {
       requireStateful(service, request.params.id);
       return worktreeState.get(request.params.id) ?? null;
+    },
+  );
+
+  /** The document kyro-idea wrote, with the state of the idea, for the approval screen. */
+  app.get<{ Params: { id: number } }>(
+    '/api/chats/:id/idea',
+    { schema: { params: idParams } },
+    async (request): Promise<IdeaDocument> => {
+      const chat = service.requireChat(request.params.id);
+      if (chat.kind !== 'idea') throw new ChatError('El trabajo no es una idea', 404);
+      const documents = await ideas.scan(chat).catch(() => []);
+      const path = documents.length === 1 ? (documents[0] ?? null) : null;
+      const read = path === null ? null : await readIdeaDocument(chat.worktreePath, path);
+      return {
+        state: worktreeState.get(chat.id)?.state ?? null,
+        path,
+        documents,
+        content: read?.ok ? read.content : null,
+        truncated: read?.ok ? read.truncated : false,
+      };
+    },
+  );
+
+  /** The user's decision about the plan: approve it as a scope or a work, or ask for changes. */
+  app.post<{ Params: { id: number }; Body: { action: IdeaAction; text?: string } }>(
+    '/api/chats/:id/idea',
+    {
+      schema: { params: idParams, body: ideaActionBody },
+      preValidation: onlyKeys(Object.keys(ideaActionBody.properties)),
+    },
+    async (request) => {
+      // The guard guarantees a session; the decision is always the one of that session's user.
+      const userId = request.session?.userId;
+      if (userId === undefined) throw new ChatError('Unauthorized', 404);
+      return ideaActions.apply(request.params.id, userId, request.body);
     },
   );
 

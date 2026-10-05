@@ -47,9 +47,24 @@ export const AUTOPILOT_STATUSES = [
 ] as const;
 export type AutopilotStatus = (typeof AUTOPILOT_STATUSES)[number];
 
-/** What a pilot session is for: the plan of a sprint, its execution, a fix, or its closing. */
-export const AUTOPILOT_STEPS = ['plan', 'execute', 'fix', 'close', 'manual'] as const;
+/**
+ * What a pilot session is for: creating the scope of an approved idea, the plan of a sprint, its
+ * execution, a fix, or its closing.
+ */
+export const AUTOPILOT_STEPS = [
+  'init',
+  'plan',
+  'execute',
+  'fix',
+  'close',
+  'merge',
+  'merge_dev',
+  'manual',
+] as const;
 export type AutopilotStep = (typeof AUTOPILOT_STEPS)[number];
+
+/** Phase of a run past the work itself: the merge into the base, until the PR is ready. */
+export type AutopilotPhase = 'merge';
 
 /** The autopilot of one scope or work (one row per chat, created when it is switched on). */
 export interface AutopilotRun {
@@ -66,6 +81,12 @@ export interface AutopilotRun {
   /** When a `waiting_quota` run tries again. */
   retryAt: number | null;
   policyVersion: number | null;
+  /** Idea document an approved scope is created from; set until its init session opens. */
+  seedPath: string | null;
+  /** null while the work is being done; 'merge' once it is completed and goes to the PR. */
+  phase: AutopilotPhase | null;
+  /** Open PRs of the work (the root repo and its child repos), once the merge phase made them. */
+  prUrls: string[];
   createdAt: number;
   updatedAt: number;
 }
@@ -76,7 +97,7 @@ export interface AutopilotInfo {
   maxSessionsPerSprint: number;
 }
 
-export type AutopilotAction = 'pause' | 'resume' | 'off';
+export type AutopilotAction = 'pause' | 'resume' | 'off' | 'accept_debt';
 
 /** One SDK session the panel opened for a chat, with the model that ran it. */
 export interface AgentSession {
@@ -110,6 +131,8 @@ export interface Project {
   repoPath: string;
   baseBranch: string;
   setupCommand: string | null;
+  /** Command that validates a worktree before its PR (build, tests); null when it has none. */
+  validateCommand: string | null;
   status: ProjectStatus;
   statusDetail: string | null;
   /** The repo ships `.agents/kyro/`. Computed on read, never stored. */
@@ -142,7 +165,7 @@ export interface EnvApplyResult {
 }
 
 /** A Kyro scope (big stage) or work (small change); each one owns one worktree. */
-export type ChatKind = 'scope' | 'work' | 'direct';
+export type ChatKind = 'scope' | 'work' | 'direct' | 'idea';
 
 /** Coarse session state; see docs/estados.md. */
 export type ChatStatus = 'running' | 'idle' | 'error' | 'interrupted' | 'cancelled';
@@ -160,6 +183,8 @@ export interface Chat {
   status: ChatStatus;
   /** Resolved when the chat was created: changing the project later does not touch it. */
   models: ModelSelection;
+  /** Fine state of a scope, work or idea (`null` before the first transition and for a direct chat). */
+  workState?: WorktreeStateId | null;
   createdAt: number;
   updatedAt: number;
 }
@@ -316,6 +341,11 @@ export const BLOCKED_REASONS = [
   'kyro_bloqueado',
   'integridad_kyro',
   'qa_sin_correr',
+  'qa_sin_aprobar',
+  'secretos',
+  'conflicto',
+  'build_roto',
+  'merge_sin_pr',
   'git',
   'otro',
 ] as const;
@@ -377,3 +407,18 @@ export interface ProjectPermissions {
   fixedDenied: string[];
   suggestions: PermissionSuggestion[];
 }
+
+/** The document kyro-idea wrote in an idea chat, as the web shows it for approval. */
+export interface IdeaDocument {
+  state: WorktreeStateId | null;
+  /** Relative to the worktree; null until exactly one document exists. */
+  path: string | null;
+  /** Every candidate path found (more than one blocks the approval). */
+  documents: string[];
+  content: string | null;
+  truncated: boolean;
+}
+
+/** What the user decides about the plan of an idea (POST /api/chats/:id/idea). */
+export const IDEA_ACTIONS = ['approve_scope', 'approve_work', 'request_changes'] as const;
+export type IdeaAction = (typeof IDEA_ACTIONS)[number];
