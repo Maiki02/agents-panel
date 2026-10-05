@@ -67,7 +67,7 @@ Una vez aprobado el plan, un scope o un work tiene que llegar solo a la PR: el p
 |---|---|
 | L1. El paso siguiente se decide por señales verificables (`nextAction` de Kyro, `kyro work status`, git, `gh`, eventos del SDK), nunca por el texto del agente | Bucles o saltos de fase por una frase mal interpretada |
 | L2. Ningún gate de calidad se saltea: QA corre en cada sprint, no se cierra con CRITICAL/HIGH de `kyro analyze`, y Kyro sigue siendo dueño de sus escrituras (CLI) | "Automatizar" a costa de cerrar trabajo roto |
-| L3. Nada que pueda cambiar costos corre sin OK: el allowlist de Bash no suma `oci`, `tailscale`, `terraform` ni `curl`, y la política obliga a preguntar si una tarea lo requiere | Cargos en la cuenta Pay As You Go de Oracle o en otros proveedores |
+| L3. Nada que pueda cambiar costos corre sin OK: el allowlist de Bash nunca incluye `oci`, `tailscale`, `terraform`, `sudo`, `ssh` ni `scp` (ni siquiera por configuración de proyecto), `curl` solo en modo restringido (D30), y la política obliga a preguntar si una tarea lo requiere | Cargos en la cuenta Pay As You Go de Oracle o en otros proveedores |
 | L4. El agente nunca corre con `bypassPermissions`; el piloto pre-aprueba gates de Kyro, no permisos de herramientas | Que el piloto sea una puerta para ejecutar cualquier cosa desde una URL pública |
 | L5. Una pregunta material nunca se auto-responde: queda pendiente hasta que el usuario responde, sin timeout | Decisiones de producto tomadas por el agente |
 | L6. Una sesión que termina sin avanzar el estado y sin preguntar frena el piloto (`bloqueado`, "sin avance") | Bucles infinitos que consumen el límite de la suscripción |
@@ -98,6 +98,17 @@ Una vez aprobado el plan, un scope o un work tiene que llegar solo a la PR: el p
 
 ## Outcome-based scope
 
+### Partición en dos scopes (D31)
+
+El trabajo se entrega en dos scopes de Kyro, en este orden. El plan es uno solo; cada scope toma su parte.
+
+| | **Scope 1 · `autopiloto-kyro`** | **Scope 2 · `operaciones-worktree`** |
+|---|---|---|
+| Objetivo | Que un scope o work aprobado llegue solo a la PR, frene solo cuando corresponde y avise por push | Que todo lo que hace el agente también se pueda hacer a mano desde la web, y ver el uso de los proveedores |
+| Alcance (ítems de "In") | 1, 2, 3, 4, 5, 6, 7, 8 (sin filtros de la sidebar, pestaña Git ni tab Repositorio), 9, 10, 12, 13, 16 (docs del piloto), 17 | 11, 14, 15, 8 (filtros de la sidebar, pestaña Git, tab Repositorio), 16 (docs de operaciones) |
+| Workstreams | WS1–WS10, WS12, WS15 | WS11, WS13, WS14, WS16 y su WS10 |
+| Se puede ejecutar con el piloto | No: se construye a mano (el flujo de hoy) | **Sí**: es la primera prueba real del piloto (ver D31) |
+
 ### In
 
 1. **Preguntas desde la web:** `AskUserQuestion` permitido vía `canUseTool`, guardado como pregunta pendiente, mostrado con botones (más texto libre) y respondido por la API.
@@ -116,6 +127,7 @@ Una vez aprobado el plan, un scope o un work tiene que llegar solo a la PR: el p
 14. **Indicador de uso de proveedores** en el header, accesible desde todas las pantallas (D24).
 15. **Paridad manual:** toda acción que hace el agente o el piloto tiene su botón (catálogo en D26), incluida **Crear PR** (D25).
 16. **Docs y reglas:** `docs/plan.md`, `docs/estados.md`, `docs/panel-desarrollo.md`, `CLAUDE.md` (regla de commits) y `docs/vm-setup.md` si se agregan variables o claves en la VM.
+17. **Permisos de comandos por proyecto** (D30): lista de comandos y de hosts de `curl` permitidos, editable en Configuración con TOTP.
 
 ### Explicitly out
 
@@ -157,12 +169,14 @@ Una vez aprobado el plan, un scope o un work tiene que llegar solo a la PR: el p
 | D21 | **Tres estados, una etiqueta:** (1) **proyecto**: Clonando · Listo · Error, más transitorios Actualizando (pull) e Inicializando Kyro; (2) **trabajo** (worktree): el catálogo fino de `estados.md`; (3) **sesión** (`chats.status`): técnico, nunca se muestra como estado principal de un chat con worktree. Cada ítem muestra **una** etiqueta: la del trabajo si tiene worktree, la de la sesión si es una consulta. Las etiquetas son descriptivas ("Esperando tu respuesta", "Probando · go test", "Cerrando sprint 2/4") y el color sale de **quién actúa** | Hoy el badge muestra el estado de sesión ("En espera") que no dice nada del trabajo. `estados.md` ya separa proyecto y worktree | Mapear sesión→trabajo agrega lógica | `estados.md` suma la tabla de los tres niveles y el mapeo; la lista del proyecto marca cuántos trabajos te esperan |
 | D22 | **Dependencias:** no hay botón "Descargar dependencias" en el proyecto. Se instalan por worktree con el setup (estado `instalando_dependencias`). La pestaña Git del worktree tiene **Reinstalar dependencias**, y después de "Traer `<base>`" o "Traer mi rama" el panel la corre sola si cambió un lockfile (`package-lock.json`, `go.sum`, `uv.lock`, `pnpm-lock.yaml`, `yarn.lock`). Al registrar un proyecto sin setup y con un lockfile, Configuración → General sugiere el comando (`npm ci`, `go mod download`, `uv sync`) como hoy sugiere `panel-setup.sh` | Ningún flujo trabaja sobre el clon base: los worktrees parten de él pero instalan lo suyo. Instalar en el clon base gastaría disco y CPU sin uso | Una consulta libre sobre el clon base no puede correr tests | Si una consulta necesita correr algo, se crea un work. La sugerencia de setup sigue sin aplicarse sola |
 | D23 | **Criterios de UI** (en `docs/identidad-visual.md`, rigen desde ahora para pantallas nuevas y lo existente al tocarlo): anatomía de tarjeta e ítem de lista, colores de estado por actor, acciones, confirmaciones, operaciones largas, estados vacíos y celular | Pedido del usuario: seguir la UI de `proyectos-y-versiones` y dejar registradas las mejoras | Retocar pantallas existentes cuando se toquen | Ver el doc; el sprint 6 de `proyectos-y-versiones` ya puede usarlos |
-| D24 | **Indicador de uso** en el header (icono visible en todas las pantallas). Al hacer click, un panel por proveedor (hoy Claude) con barra y hora de reinicio de la **ventana de 5 h**, la **semanal** y, si vienen, las semanales por modelo (Opus/Sonnet). El icono muestra el % de 5 h con el tono de la UI: `ok` < 70 %, `warn` ≥ 70 %, `danger` ≥ 90 % o `rejected`. Fuentes: (1) a pedido, `usage_…({ skipBehaviors: true })` en una sesión corta sin prompt, con caché de 60 s en la API; (2) pasiva, el último `rate_limit_event` de cualquier sesión, guardado en la base. Se muestra "actualizado hace X" | Pedido del usuario ("como en Orca"). El SDK ya trae los datos y son los de la cuenta, así que incluyen el uso desde la PC y el celular | La llamada es experimental y puede cambiar de nombre; lanzar un proceso por consulta cuesta CPU | Si la llamada falla o cambia, queda el dato pasivo con su antigüedad (degradado, no roto). El piloto usa `resetsAt` para retomar `sin_cupo_de_uso` en la hora exacta en vez de reintentar cada 15 min. `GET /api/usage` con sesión (guard). Sin costo: no es un servicio pago |
+| D24 | **Indicador de uso** en el header (icono visible en todas las pantallas). Al hacer click, un panel por proveedor (hoy Claude) con barra y hora de reinicio de la **ventana de 5 h**, la **semanal** y, si vienen, las semanales por modelo (Opus/Sonnet). El icono muestra el % de 5 h con el tono de la UI: `ok` < 70 %, `warn` ≥ 70 %, `danger` ≥ 90 % o `rejected`. Fuentes: (1) a pedido, `usage_…({ skipBehaviors: true })` en una sesión corta sin prompt, con caché de 60 s en la API; (2) pasiva, el último `rate_limit_event` de cualquier sesión, guardado en la base. Se muestra "actualizado hace X" | Pedido del usuario ("como en Orca"). El SDK ya trae los datos y son los de la cuenta, así que incluyen el uso desde la PC y el celular | La llamada es experimental y puede cambiar de nombre; lanzar un proceso por consulta cuesta CPU | Si la llamada falla o cambia, queda el dato pasivo con su antigüedad (degradado, no roto). El scope 1 reintenta `sin_cupo_de_uso` cada 15 min; con este indicador (scope 2) retoma a la hora exacta de `resetsAt`. `GET /api/usage` con sesión (guard). Sin costo: no es un servicio pago |
 | D25 | **Botón Crear PR** en la pestaña Git: por cada repo del trabajo con commits que no están en su base, push y `gh pr create --base <base del repo> --head <rama>` con título y cuerpo prellenados (título del scope/work en formato Conventional Commits, cuerpo desde `git log <base>..HEAD --no-merges`), editables en un modal. Si la PR ya existe, muestra su link y el push la actualiza. Antes trae la base (L8); si hay conflicto, frena como en D19 | Pedido del usuario: "por si el agente se olvida de hacer la PR" | Un formulario más | Resultado por repo con el link; queda en el Timeline. En proyectos con `merge-dev` propia (ventas) el botón principal es **Correr merge-dev** (lanza al agente con esa skill, porque hace pasos propios como la versión y el merge de la raíz) y Crear PR queda como alternativa |
 | D26 | **Paridad manual:** todo lo que hace el agente o el piloto tiene un botón. Las acciones deterministas (git, `gh`, `kyro` CLI, setup) las ejecuta el panel con el **mismo servicio** que usa el orquestador, y cada una registra en el Timeline quién la hizo (vos / piloto / agente). Los pasos que necesitan razonar (planificar, ejecutar, QA, corregir deuda, merge-dev) son botones que lanzan ese paso del agente. Mientras el piloto o el agente corren, los botones se ven deshabilitados con el motivo; para usarlos se pausa el piloto | Pedido del usuario: "toda función que haga el agente también debe estar manual". Un solo servicio garantiza que manual y automático hacen lo mismo | Más superficie de UI | Catálogo de acciones abajo; cada fila nueva del piloto debe sumar su botón |
 | D27 | **Ver cambios (diff)** por repo del trabajo, en la pestaña Git: archivos cambiados sin commitear y diff contra la base, de solo lectura; también desde el modal de Commit y de Crear PR | Revisar desde el celular antes de commitear o abrir una PR; hoy no hay forma sin SSH | Diff grande en un teléfono | Se recorta por archivo con "ver más"; nunca muestra archivos ignorados (los `.env`) |
 | D28 | **Descartar cambios** de archivos sin commitear (`git restore`, y borrar los no rastreados elegidos) y **Borrar trabajo** (worktree + ramas locales; las remotas solo si se marca) como acciones manuales con confirmación `danger` | Hoy no hay cómo deshacer lo que dejó el agente sin SSH; la limpieza automática es de la etapa 6 | Riesgo de perder trabajo | Modal que nombra cada archivo o rama; rechaza archivos ignorados; Borrar trabajo exige que no haya sesión corriendo y avisa si hay commits sin pushear |
 | D29 | **El piloto no usa `kyro-sprint-executor`.** Cada sesión de ejecución entra por `kyro-forge` y sigue el `nextAction` (`execute_task`, `review_task`, `qa_or_close`, `close_sprint`), que ya registra evidencia y review con el CLI (`record-evidence`, `review`); QA va por la skill `kyro-qa` (en el SDK no hay slash commands, ver `chats/service.ts`). Antes de arrancar un paso el panel corre `kyro capabilities --json` y frena si faltan `record-evidence` o `review` | `kyro-sprint-executor` es "manual-only" y pensada para ejecutar **fuera** del flujo forge; sus gates (aprobar el cierre, QA opcional) son justo los que el piloto pre-aprueba, así que no aporta. El forge cubre lo mismo (maker/checker, 3 rondas, `blocked`) | Se pierde su handshake de capacidades, que se replica en el panel | Una sola ruta de ejecución para scope y work. El test de WS5 verifica que la sesión de ejecución no invoca esa skill |
+| D30 | **Permisos de comandos por proyecto.** La base (`git`, `gh`, `npm`, `go`, `kyro`) no cambia. Cada proyecto puede sumar **comandos** (`uv`, `python`, `pytest`, `make`…) y **hosts** para `curl`, en Configuración (tab Permisos), con TOTP porque amplía lo que el agente puede ejecutar. Reglas: (a) un comando es un nombre simple (sin rutas ni espacios); (b) hay una **lista de denegados fija** que ninguna configuración puede saltar: `oci`, `tailscale`, `terraform`, `sudo`, `su`, `ssh`, `scp`, `sftp`, `nc`, `ncat`, `socat`, `wget`; (c) **`curl` está en modo restringido para todos los proyectos**: solo `GET`/`HEAD`, solo a `localhost`/`127.0.0.1` (por defecto) o a los hosts del proyecto, sin `-L`, `-d/--data`, `-F`, `-T`, `-X`, `-o`/`-O` ni `@archivo`; (d) la configuración sugiere comandos según los archivos del repo (`uv.lock` → `uv`, `python`, `pytest`), sin aplicarlos sola. La lectura de archivos sigue por `Read`/`Glob`/`Grep`, que validan la ruta: no se agregan `cat` ni `ls` | Pedido del usuario: ampliar por proyecto. Hoy `permissions.ts` es una lista global y en expedientes-ai (Python/`uv`) el agente no podría correr los tests (debt-7 del sprint 4 de `proyectos-y-versiones`). `curl` tiene un uso real: verificar un endpoint de la app que el agente levanta, o una API pública | `curl` sin restricciones podría llamar a una API paga con una clave del `.env` (costo) o sacar datos; esta lista **no es un sandbox**: `npm`, `go` y `python` ya ejecutan código arbitrario, y el riesgo que se acepta es el que ya figura en el plan (el agente lee el `.env` de desarrollo) | Un test del parser de Bash cubre cada flag prohibida de `curl`, los denegados fijos y el nombre inválido; cada denegación queda como evento `permission_denied` (ya existe). Un host externo hay que agregarlo a mano |
+| D31 | **Dos scopes, en este orden: `autopiloto-kyro` y después `operaciones-worktree`.** El segundo se ejecuta con el piloto como primera prueba real (con el usuario mirando) | Son entregables separables: el piloto no necesita los botones manuales para funcionar, y las operaciones son útiles aun sin piloto. Dos scopes chicos se validan mejor que uno de 8 sprints | Sin los botones de commit, push y PR del scope 2, si el piloto falla en esos pasos solo queda SSH | Hasta que llegue el scope 2, un fallo de commit, pull, push o PR deja el trabajo `bloqueado` con la salida de git y se resuelve por SSH (como hoy). El scope 2 depende del scope 1 en el estado fino, el Timeline y el actor de cada acción (WS4). No se mezclan scopes en un worktree. La primera ejecución con el piloto la vigila el usuario y prueba antes los frenos (pregunta, bloqueo, sin avance) en un work de prueba |
 
 ### Catálogo de acciones (paridad manual, D26)
 
@@ -197,6 +211,7 @@ Una vez aprobado el plan, un scope o un work tiene que llegar solo a la PR: el p
 - **Límite de uso compartido:** el piloto consume el mismo límite de la suscripción que el uso manual (riesgo de `plan.md`). QA siempre y sesiones nuevas suben el consumo; el tope de sesiones por sprint lo acota.
 - **VM 2 OCPU / 12 GB:** el tope de 4 sesiones paralelas sigue; el piloto se encola.
 - **Seguridad:** la URL es pública. Responder preguntas y activar el piloto requieren sesión y CSRF (rutas no públicas, test del guard). Aceptar deuda y completar el scope no exige TOTP (no exponen secretos ni cambian costos).
+- **El allowlist no es un sandbox:** frena accidentes y herramientas que cuestan plata, no a un agente malicioso: `npm`, `go` o `python` ya ejecutan código arbitrario. La defensa real es que el worktree es de desarrollo, con `.env` de desarrollo y sin credenciales de producción (`CLAUDE.md`, Secretos).
 - **Systemd es de la etapa 6:** hasta tenerlo, "cerrar el navegador" funciona pero cerrar la terminal donde corre el panel no. Se recomienda adelantar el servicio systemd o documentar `tmux` como paso intermedio.
 - **Kyro Work requiere checker distinto del maker** (`--by`): la política usa actores distintos para evidencia y review.
 
@@ -212,6 +227,7 @@ Una vez aprobado el plan, un scope o un work tiene que llegar solo a la PR: el p
 | Conflicto de versión en ventas | Dos features suben `ProjectVersion` | PR con conflicto | D14 (calcular después de traer dev) | Conflicto en `config.go` |
 | Push no llega | Permiso denegado o iOS sin PWA | El usuario no se entera del freno | La lista de proyectos marca "te toca actuar"; prueba de notificación en Configuración | Suscripción ausente o error del push service |
 | La lectura de uso cambia en el SDK | Llamada experimental renombrada o quitada | El panel de uso no se actualiza a pedido | Fuente pasiva (`rate_limit_event`) + "actualizado hace X"; test de contrato que falla al actualizar el SDK | Error en `GET /api/usage` |
+| Un comando permitido sale a internet o gasta | Prompt injection en un repo o `curl` a una API paga con una clave del `.env` | Costo o fuga de datos de desarrollo | `curl` restringido (D30), denegados fijos, TOTP para ampliar permisos, política de preguntar ante costos | Eventos `permission_denied` repetidos en el Timeline |
 | Operación git de la web pisa al agente | Pull o commit mientras el agente edita | Estado del repo inconsistente | 409 si hay sesión corriendo o piloto activo sin pausa (D19) | Respuesta 409 con el motivo |
 | Repos hijos mal detectados | Carpeta git no ignorada o anidada más profundo | Pull o push incompleto | Lista editable en Repositorio (D20); solo primer nivel e ignorados | Repo faltante en la pestaña Git |
 | Reinicio a mitad de un commit o cierre | Corte de luz o despliegue | Estado a medias | Los verbos de Kyro son retomables (`close-sprint` con los mismos inputs); `repair` con findings frena (no se aplica solo) | `bloqueado` "Kyro pide reparar estado" |
@@ -220,69 +236,77 @@ Una vez aprobado el plan, un scope o un work tiene que llegar solo a la PR: el p
 
 Orden por dependencia y por reducción de incertidumbre. Cada workstream cierra con su gate.
 
-**WS1. Spike y fixtures** (sin dependencias)
+**WS1. Spike y fixtures** · scope 1 (sin dependencias)
 - Confirmar en la VM: respuesta a `AskUserQuestion` vía `canUseTool` + `updatedInput`; `model` por `query()`; salida JSON de `kyro context-pack --json` (`nextAction`, sprint actual, total de sprints, tarea n/m, deuda) y de `kyro work status --json`.
 - Entregable: fixtures JSON en `apps/api/test/fixtures/` y una nota en `docs/plan.md` cerrando el pendiente "confirmar campos de `kyro status --json`".
 - *Gate:* test que parsea las fixtures; prueba manual documentada de una pregunta respondida.
 
-**WS2. Preguntas desde la web** (depende de WS1)
+**WS2. Preguntas desde la web** · scope 1 (depende de WS1)
 - Tabla `pending_questions` (chat, tool_use_id, preguntas, respuesta, respondida_por, fechas); `AskUserQuestion` sale de la lista de denegadas solo por `canUseTool`, que espera la respuesta; `GET/POST /api/chats/:id/questions`; evento SSE.
 - *Gate:* tests con runner fake: pregunta → pendiente → respuesta → el runner recibe la respuesta; ruta sin sesión da 401 (test del guard).
 
-**WS3. Modelos por rol** (depende de WS1)
+**WS3. Modelos por rol** · scope 1 (depende de WS1)
 - Configuración de proveedor + modelo pensante + modelo ejecutor (con valores por defecto), override por chat; `SdkRunner` pasa `model`; cada evento de sesión guarda rol y modelo.
 - *Gate:* tests de que cada paso usa el modelo de su rol.
 
-**WS4. Estado fino mínimo y timeline** (depende de WS1)
+**WS4. Estado fino mínimo y timeline** · scope 1 (depende de WS1)
 - Tabla `worktree_state` + eventos de transición; lector de Kyro (`context-pack` / `work status`) después de cada turno; fase, sprint n/m, tarea n/m, deuda postergada.
 - *Gate:* tests con fixtures; `docs/estados.md` actualizado (detección real de cada estado usado y estado `bloqueado` con motivos "sin avance" y "demasiadas sesiones").
 
-**WS5. Orquestador y política** (depende de WS2–WS4)
+**WS5. Orquestador y política** · scope 1 (depende de WS2–WS4 y WS15)
 - Tabla `autopilot_runs` (chat, activo, paso, sesiones por sprint); bucle: leer estado → elegir rol y prompt → sesión nueva → leer estado → repetir o frenar. Paso de plan del sprint con el pensante que termina generando el prompt de task-context; paso de ejecución con el ejecutor sembrado con ese prompt.
 - Política de gates como archivo versionado (D4–D8) inyectado en cada sesión; test que verifica que cubre los gates conocidos.
 - Frenos (tabla de garantías), retoma al arrancar (D16), pausa/reanudar/apagar.
 - *Gate:* tests con runner y Kyro fakes que recorren: scope de 2 sprints sin frenos, freno por pregunta, freno por `blocked`, "sin avance", reinicio a mitad, fin con y sin deuda.
 
-**WS6. Idea → aprobación → scope/work** (depende de WS5)
+**WS6. Idea → aprobación → scope/work** · scope 1 (depende de WS5)
 - `ChatKind` suma `idea`; prompt inicial con `kyro-idea`; detección de plan escrito (archivo nuevo en `.agents/kyro/plan/` del worktree) → `esperando_aprobacion_plan`; acciones aprobar como scope, aprobar como work, pedir cambios.
 - *Gate:* test de las tres acciones con fakes.
 
-**WS7. Cierre y merge** (depende de WS5)
+**WS7. Cierre y merge** · scope 1 (depende de WS5; commit, pull, push y PR los hace el agente; si fallan, `bloqueado` con la salida de git, D31)
 - Push de la rama del worktree después de cada commit de cierre de sprint (D17), en todos los repos del worktree que tengan commits nuevos; endpoint `POST /api/chats/:id/push` para el botón de la web (sesión + CSRF).
 - Fin sin deuda → `kyro scope complete --yes` (o `kyro work close`) → paso de merge: skill `merge-dev` del proyecto si existe en el worktree; si no, merge genérico (D13).
 - *Gate:* tests del selector de merge y del prompt genérico; prueba real en agents-panel con un work chico que termina en PR a `main`.
 
-**WS8. Web y notificaciones** (depende de WS2–WS7)
+**WS8. Web del piloto y notificaciones** · scope 1 (depende de WS2–WS7; sin filtros de la sidebar, pestaña Git ni tab Repositorio, que son de WS16)
 - `/projects/:id`: tarjetas de worktree con solo el estado; vista del worktree con timeline + chat; preguntas con botones; aprobación de plan y de deuda; formulario de chat nuevo (tipo, piloto, modelos); Configuración de modelos y de notificaciones.
 - Web Push: envío a todas las suscripciones (D10), lista de dispositivos con Probar y Quitar, borrado de suscripciones vencidas; claves VAPID en el `.env` del panel (`.env.example` con valores falsos), service worker, `POST /api/push/subscriptions`, envío al frenar y en `pr_lista`.
 - *Gate:* specs de componentes; build de la web; recorrido manual por el túnel SSH; un prompt mandado desde la PC que frena hace llegar el push a la PC (navegador abierto) y al Android con Chrome cerrado; una suscripción vencida se borra.
 
-**WS9. ventas: `merge-dev` con versión** (independiente; Kyro Work en el repo `ventas`)
+**WS9. ventas: `merge-dev` con versión** · scope 1 (independiente; Kyro Work en el repo `ventas`)
 - Paso nuevo en la sección de be-ventas, después de traer `origin/dev` y antes del push: calcular la subida según D14 sobre `git log origin/dev..feature-<scope> --no-merges`, editar `ProjectVersion` en `be-ventas/pkg/consts/config.go`, `go build ./...`, commit `chore(version): <x.y.z>`; si be-ventas no participa, no se toca nada. Ajustes de worktree pendientes de la etapa 3 (no restaurar rama en worktree).
 - *Gate:* corrida de prueba sobre una rama con un `feat` (minor) y otra con solo `fix` (patch).
 
-**WS11. Repos del proyecto y operaciones git** (depende de WS4; el pull del clon base lo entrega el sprint 6 de `proyectos-y-versiones`)
+**WS11. Repos del proyecto y operaciones git** · scope 2 (depende de WS4 del scope 1; el pull del clon base lo entrega el sprint 6 de `proyectos-y-versiones`)
 - Tabla `project_repos` (ruta relativa, rama base) con detección de repos hijos; tab Repositorio (lista editable + Pull por repo).
 - API por worktree: `GET /api/chats/:id/git` (estado por repo), `POST …/git/commit` (repo, archivos, mensaje), `…/git/pull-base`, `…/git/pull-branch`, `…/git/push`, `…/setup` (reinstalar dependencias); 409 con agente corriendo; resultado por repo; conflicto → `merge --abort` + archivos.
 - Reinstalación automática si cambió un lockfile (D22).
 - *Gate:* tests con repos temporales y remoto bare: commit de archivos elegidos, pull con conflicto abortado, push sin `--force`, 409 con agente corriendo, lockfile cambiado → setup corrido; guard test de rutas nuevas.
 
-**WS12. Estados de tres niveles y criterios de UI** (con WS4 y WS8)
+**WS12. Estados de tres niveles y criterios de UI** · scope 1 (con WS4 y WS8)
 - `docs/estados.md`: tabla proyecto / trabajo / sesión, mapeo a una etiqueta y tono por actor (D21). Etiquetas en un solo módulo compartido de la web.
 - `docs/identidad-visual.md`: sección de criterios (D23).
 - *Gate:* spec de la función que elige la etiqueta (consulta → sesión, trabajo → estado fino) y del tono por actor.
 
-**WS13. Uso de proveedores** (depende de WS1)
+**WS13. Uso de proveedores** · scope 2 (spike en WS1 del scope 1)
 - Spike en WS1: confirmar que la llamada de uso funciona en una sesión sin prompt y cuánto tarda.
-- Tabla `provider_usage` (proveedor, ventana, utilización, reinicio, fuente, fecha); guardar cada `rate_limit_event`; `GET /api/usage` con caché de 60 s; el piloto usa `resetsAt` para `sin_cupo_de_uso`.
+- Tabla `provider_usage` (proveedor, ventana, utilización, reinicio, fuente, fecha); guardar cada `rate_limit_event`; `GET /api/usage` con caché de 60 s; el piloto pasa a usar `resetsAt` para `sin_cupo_de_uso` (antes reintentaba cada 15 min).
 - Web: icono en el header con el % de 5 h y su tono; panel con las barras (componente compartido, criterios de `identidad-visual.md`).
 - *Gate:* tests con fixtures de la respuesta y del evento; degradado si la llamada falla; spec del tono por umbral.
 
-**WS14. Paridad manual y acciones extra** (depende de WS5 y WS11)
+**WS14. Paridad manual y acciones extra** · scope 2 (depende de WS5 del scope 1 y de WS11)
 - Servicio único de acciones con actor (vos / piloto / agente) usado por el orquestador y por la API; botones del catálogo; Crear PR (D25); Ver cambios (D27); Descartar y Borrar trabajo (D28).
 - *Gate:* test que recorre el catálogo y verifica que cada acción del orquestador tiene ruta manual; tests de Crear PR (PR nueva y existente) con `gh` falso; tests de descarte (rechaza ignorados) y de borrado (rechaza con sesión corriendo).
 
-**WS10. Docs y reglas** (al final, salvo `estados.md` que va con WS4)
+**WS15. Permisos de comandos por proyecto** · scope 1 (depende de WS1)
+- Columnas `allowed_commands` y `allowed_hosts` en `projects`; `decide()` y `checkBash()` reciben la política del proyecto (base + extras − denegados fijos); parser de `curl` restringido (D30); API `GET/PUT /api/projects/:id/permissions` con TOTP; tab Permisos con sugerencias según lockfiles (`uv.lock`, `go.mod`, `package.json`).
+- *Gate:* tests del parser: cada flag prohibida de `curl`, host fuera de la lista, `localhost` permitido, nombre inválido, denegados fijos aunque se configuren; la ruta exige sesión y TOTP; el chat de un proyecto con `uv` puede correr `uv run pytest` y uno sin él recibe `permission_denied`.
+
+**WS16. Web de operaciones** · scope 2 (depende de WS8 del scope 1, WS11 y WS14)
+- Sidebar: filtros Activos · Te toca · Terminados · Todos (D18). Vista del trabajo: pestaña **Git** con estado por repo, Ver cambios, Commit, Traer base, Traer mi rama, Push, Crear PR, Reinstalar dependencias, Descartar y Borrar trabajo. Configuración: tab **Repositorio**. Icono de uso en el header y su panel (D24).
+- *Gate:* specs de componentes; build de la web; recorrido manual en un worktree de ventas (raíz y repos hijos).
+
+**WS10. Docs y reglas** · uno por scope (al final de cada uno, salvo `estados.md` que va con WS4)
 - `docs/plan.md` (piloto, modelos por rol, merge, etapas), `docs/panel-desarrollo.md` (VAPID, cómo probar push), `CLAUDE.md` (commits al cerrar sprint, push de la rama del worktree por el agente o desde la web, frenos del piloto), `docs/vm-setup.md` + bitácora si cambia algo en la VM (Costos: US$0).
 - *Gate:* revisión de que cada decisión D1–D16 está reflejada en un doc.
 
@@ -306,7 +330,8 @@ Orden por dependencia y por reducción de incertidumbre. Cada workstream cierra 
 | D26 | Cada acción del orquestador tiene botón y el Timeline registra el actor | Test del catálogo | Test WS14 |
 | D27, D28 | Ver cambios sin `.env`; descartar y borrar con confirmación | Specs y tests | WS14 |
 | L1 | El paso cambia solo por señales de la CLI | El orquestador no lee texto del agente | Test: un texto engañoso no cambia el paso |
-| L3, L4 | Allowlist intacto; nunca `bypassPermissions` | `permissions.ts` sin binarios nuevos | Test existente de permisos + test de que el piloto no cambia `permissionMode` |
+| L3, L4, D30 | La base no crece; los extras salen de la configuración del proyecto y nunca incluyen los denegados fijos; `curl` solo restringido; nunca `bypassPermissions` | Tests del parser y eventos `permission_denied` | Tests WS15 + test de que el piloto no cambia `permissionMode` |
+| D31 | Scope 2 depende del Timeline y del actor del scope 1; un fallo de git del piloto deja `bloqueado` con la salida | Estado `bloqueado` con el motivo | Test WS7 con git falso que falla |
 | L6 | Sesión sin avance → `bloqueado` | Evento de transición | Test WS5 |
 | L7, D17 | Commit solo al cerrar sprint, en `feature/<slug>`; push de esa rama (agente y botón), nunca `--force` ni de otra rama | `git log` del worktree y del remoto | Test con git real en un repo temporal con remoto bare |
 | L8, D13 | Pull de la base antes de la PR; conflicto con lógica de ambos lados frena | Evento de merge | Test del merge genérico con repo temporal en conflicto |
@@ -314,13 +339,26 @@ Orden por dependencia y por reducción de incertidumbre. Cada workstream cierra 
 
 ## Forge handoff
 
-- **Objetivo del scope:** que un scope o work, después de aprobar su plan desde la web, llegue solo a la PR usando un modelo pensante para planificar y uno ejecutor para ejecutar, y que frene solo por decisiones materiales, costos o bloqueos, avisando por push y respondiendo desde la web.
-- **Requisitos candidatos:** R1 preguntas desde la web · R2 modelos por rol · R3 estado fino mínimo + timeline · R4 orquestador + política de gates · R5 Idea → aprobación → scope/work · R6 cierre y merge (skill del proyecto o genérico) · R7 web (tarjetas, timeline, formularios, configuración) · R8 Web Push · R9 docs y `CLAUDE.md` · R10 repos del proyecto y operaciones git por worktree y por proyecto · R11 estados de tres niveles con una etiqueta · R12 criterios de UI aplicados · R13 indicador de uso de proveedores · R14 paridad manual (catálogo, Crear PR, Ver cambios, Descartar, Borrar trabajo).
+**No crear ningún scope todavía:** primero hay que cerrar `proyectos-y-versiones` y recibir el OK explícito del usuario. Después se crea el scope 1; el scope 2 se crea cuando el scope 1 esté cerrado.
+
+### Scope 1 · `autopiloto-kyro`
+
+- **Objetivo:** que un scope o work, después de aprobar su plan desde la web, llegue solo a la PR usando un modelo pensante para planificar y uno ejecutor para ejecutar (por `kyro-forge`, sin `kyro-sprint-executor`, D29), que frene solo por decisiones materiales, costos o bloqueos, y que avise por push y se pueda responder desde la web.
+- **Requisitos candidatos:** R1 preguntas desde la web · R2 modelos por rol · R3 estado fino mínimo + timeline · R4 orquestador + política de gates · R5 Idea → aprobación → scope/work · R6 cierre y merge (skill del proyecto o genérico) · R7 web del piloto (estado en la sidebar, Timeline, formularios, Configuración) · R8 Web Push a todos los dispositivos · R9 permisos de comandos por proyecto (con `curl` restringido) · R10 estados de tres niveles con una etiqueta · R11 criterios de UI aplicados · R12 docs y `CLAUDE.md` (commits al cerrar sprint, push de la rama del worktree, frenos del piloto).
 - **Aparte:** WS9 es un Kyro Work en el repo `ventas` (puede correr en paralelo).
-- **No objetivos:** otros proveedores, piloto desde terminal, modificar Kyro, mergear PRs en GitHub, limpieza automática y checks de PR.
-- **Dependencias:** cerrar `proyectos-y-versiones` (layout `/projects/:id`, componentes de UI y, del sprint 6, pull del clon base e Inicializar Kyro); Kyro 6.1.0 instalado en la VM.
-- **Orden sugerido de sprints:** S1 WS1+WS2 · S2 WS3+WS4 · S3 WS5 · S4 WS6+WS7 · S5 WS11+WS12 · S6 WS13+WS14 · S7 WS8 · S8 WS10 y cierre. WS13 (uso) puede adelantarse: solo depende del spike de WS1.
-- **Seguimiento no bloqueante:** piloto desde la terminal de la PC; QA con el modelo pensante en una sesión aparte; adelantar systemd de la etapa 6.
+- **No objetivos:** botones manuales de commit, pull, push y PR, uso de proveedores, otros proveedores, piloto desde terminal, modificar Kyro, mergear PRs en GitHub, limpieza automática y checks de PR.
+- **Dependencias:** `proyectos-y-versiones` cerrado (layout `/projects/:id`, componentes de UI, Inicializar Kyro y pedido directo sin Kyro del sprint 6); Kyro 6.1.0 en la VM.
+- **Orden sugerido de sprints:** S1 WS1+WS2 · S2 WS3+WS4+WS15 · S3 WS5 · S4 WS6+WS7 · S5 WS8+WS12 · S6 WS10 y cierre.
+- **Hipótesis a confirmar en WS1:** (1) la respuesta de `AskUserQuestion` vuelve al agente por `updatedInput`; (2) una sesión con `kyro-forge` y la política de gates avanza sin preguntar; (3) Web Push funciona sin costo con el HTTPS de Funnel (se confirma en WS8).
+
+### Scope 2 · `operaciones-worktree`
+
+- **Objetivo:** que toda acción que hace el agente o el piloto tenga su botón en la web, usando el mismo servicio que el piloto (D26), y ver el uso de los proveedores desde cualquier pantalla.
+- **Requisitos candidatos:** R1 repos del proyecto y operaciones git por worktree y por proyecto (D19, D20, D22) · R2 Crear PR y Correr merge-dev (D25) · R3 Ver cambios, Descartar y Borrar trabajo (D27, D28) · R4 catálogo de paridad manual (D26) · R5 indicador de uso de proveedores (D24) · R6 filtros de la sidebar y pestaña Git · R7 docs.
+- **No objetivos:** mergear PRs en GitHub, comandos arbitrarios desde la web, resolver conflictos desde la web.
+- **Dependencias:** scope 1 cerrado (estado fino, Timeline y actor de cada acción); pull del clon base del sprint 6 de `proyectos-y-versiones`.
+- **Orden sugerido de sprints:** S1 WS11 · S2 WS14 · S3 WS13+WS16 · S4 WS10 y cierre. Se ejecuta con el piloto, vigilado por el usuario (D31).
+- **Seguimiento no bloqueante (ambos):** piloto desde la terminal de la PC; QA con el modelo pensante en una sesión aparte; adelantar systemd de la etapa 6.
 
 ## Quality gate
 
@@ -332,8 +370,8 @@ Orden por dependencia y por reducción de incertidumbre. Cada workstream cierra 
 | Observable outcomes | 14/15 |
 | Invariants and failures | 9/10 |
 | Decisions and tradeoffs | 10/10 |
-| Scope coherence | 9/10 |
+| Scope coherence | 10/10 |
 | Executable handoff | 9/10 |
-| **Total** | **93/100** (puntaje de antes de sumar D17–D29 y WS11–WS14; pendiente re-puntuar al cerrar los puntos abiertos) |
+| **Total** | **94/100** (autoevaluación después de sumar D17–D31, WS11–WS16 y la partición en dos scopes) |
 
-Fuentes revisadas: `CLAUDE.md`, `docs/plan.md`, `docs/estados.md`, `.agents/kyro/plan/2026-10-04-proyectos-versiones-env.md`, `apps/api/src/agent/{sdk-runner,manager,permissions}.ts`, `apps/api/src/chats/service.ts`, `packages/shared/src/index.ts`, tipos del Agent SDK 0.3.289, runtime de Kyro 6.1.0 (`commands/forge.md`, `task-context.md`, `sprint-forge/assets/modes/{qa-or-close,close-sprint}.md`, `protocols/gates.md`, `kyro-sprint-executor/SKILL.md`, `kyro work --help`), `ventas/.claude/skills/merge-dev/SKILL.md`, `be-ventas/pkg/consts/config.go`. Dos hipótesis quedan explícitas y se validan primero (WS1: respuesta de `AskUserQuestion`; WS8: Web Push sin costo). No quedan contradicciones materiales.
+Fuentes revisadas: `CLAUDE.md`, `docs/plan.md`, `docs/estados.md`, `.agents/kyro/plan/2026-10-04-proyectos-versiones-env.md`, `apps/api/src/agent/{sdk-runner,manager,permissions}.ts`, `apps/api/src/chats/service.ts`, `packages/shared/src/index.ts`, tipos del Agent SDK 0.3.289, runtime de Kyro 6.1.0 (`commands/forge.md`, `task-context.md`, `sprint-forge/assets/modes/{qa-or-close,close-sprint}.md`, `protocols/gates.md`, `kyro-sprint-executor/SKILL.md`, `kyro work --help`), `ventas/.claude/skills/merge-dev/SKILL.md`, `be-ventas/pkg/consts/config.go`. Tres hipótesis quedan explícitas (WS1: respuesta de `AskUserQuestion` y avance de `kyro-forge` sin preguntar; WS8: Web Push sin costo), y la llamada de uso del SDK es experimental (D24). `apps/api/src/agent/permissions.ts` y los tipos de uso del SDK también se revisaron para D24 y D30. No quedan contradicciones materiales.
