@@ -25,6 +25,7 @@ import {
   type QuestionRepository,
 } from './questions-repo.js';
 import type { ChatRepository } from './repo.js';
+import type { AutopilotRunRepository } from '../pilot/runs-repo.js';
 
 export class ChatError extends Error {
   override readonly name = 'ChatError';
@@ -75,6 +76,8 @@ export interface ChatServiceDeps {
   envFiles: EnvFileRepository;
   /** Fine state of scopes and works; absent in tests that do not track it. */
   tracker?: WorktreeStateTracker;
+  /** Autopilot rows; absent in tests that do not use the pilot. */
+  autopilot?: AutopilotRunRepository;
 }
 
 export class ChatService {
@@ -86,10 +89,15 @@ export class ChatService {
     slug: string;
     prompt: string;
     models?: { thinker?: string; executor?: string };
+    /** Switch the autopilot on from the start: only a scope or a work can have one. */
+    autopilot?: boolean;
   }): Promise<Chat> {
     const { chats, projects, manager, worktreesDir } = this.deps;
     const project = projects.findById(input.projectId);
     if (!project) throw new ChatError('Project not found', 404);
+    if (input.autopilot === true && input.kind === 'direct') {
+      throw new ChatError('Un pedido directo no admite piloto automático', 400);
+    }
     // A clone still running (or failed) means an incomplete repo: no worktree, no chat.
     if (project.status !== 'ready') {
       throw new ChatError(`El proyecto todavía no está listo: ${project.status}`, 409);
@@ -152,6 +160,7 @@ export class ChatService {
         models,
       });
       try {
+        if (input.autopilot === true) this.deps.autopilot?.create(chat.id);
         for (const event of buffered) chats.appendEvent(chat.id, event.type, event.payload);
         this.deps.tracker?.created(
           chat,

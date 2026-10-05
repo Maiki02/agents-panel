@@ -47,7 +47,7 @@ describe('migrations', () => {
       'INSERT INTO projects (name, repo_path, base_branch, setup_command, created_at) VALUES (?, ?, ?, ?, ?)',
     ).run('novagent', '/home/ubuntu/proyectos/novagent', 'dev', 'bash scripts/panel-setup.sh', 1);
     expect(runMigrations(db, migrations.slice(0, 4))).toEqual([4]);
-    expect(runMigrations(db)).toEqual([5, 6, 7, 8, 9, 10, 11]);
+    expect(runMigrations(db)).toEqual([5, 6, 7, 8, 9, 10, 11, 12]);
     const row = db.prepare('SELECT * FROM projects').get();
     expect(row).toMatchObject({
       name: 'novagent',
@@ -72,7 +72,7 @@ describe('migrations', () => {
     insert.run('b', '/b', 'dev', null);
     insert.run('c', '/c', 'dev', 'https://github.com/o/c');
     insert.run('d', '/d', 'dev', 'https://github.com/o/d');
-    expect(runMigrations(db)).toEqual([5, 6, 7, 8, 9, 10, 11]);
+    expect(runMigrations(db)).toEqual([5, 6, 7, 8, 9, 10, 11, 12]);
     expect(runMigrations(db)).toEqual([]);
     expect(() => insert.run('e', '/e', 'dev', 'https://github.com/O/C')).toThrow(/UNIQUE/);
     expect(db.prepare('SELECT count(*) AS n FROM projects').get()).toEqual({ n: 4 });
@@ -91,7 +91,7 @@ describe('migrations', () => {
     db.prepare(
       "INSERT INTO chat_events (chat_id, seq, type, payload, created_at) VALUES (1, 1, 'x', '{}', 1)",
     ).run();
-    expect(runMigrations(db)).toEqual([6, 7, 8, 9, 10, 11]);
+    expect(runMigrations(db)).toEqual([6, 7, 8, 9, 10, 11, 12]);
     expect(db.prepare('SELECT kind, slug FROM chats').all()).toEqual([{ kind: 'work', slug: 's' }]);
     expect(db.prepare('SELECT count(*) AS n FROM chat_events').get()).toEqual({ n: 1 });
     expect(db.prepare('PRAGMA foreign_keys').get()).toEqual({ foreign_keys: 1 });
@@ -119,7 +119,7 @@ describe('migrations', () => {
     db.prepare(
       "INSERT INTO chats (project_id, kind, slug, title, worktree_path, branch, status, created_at, updated_at) VALUES (1, 'work', 's', 't', '/w', 'b', 'idle', 1, 1)",
     ).run();
-    expect(runMigrations(db)).toEqual([7, 8, 9, 10, 11]);
+    expect(runMigrations(db)).toEqual([7, 8, 9, 10, 11, 12]);
     expect(db.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
     expect(db.prepare('SELECT count(*) AS n FROM chats').get()).toEqual({ n: 1 });
     const insert = db.prepare(
@@ -141,7 +141,7 @@ describe('migrations', () => {
     db.prepare(
       "INSERT INTO chats (project_id, kind, slug, title, worktree_path, branch, status, created_at, updated_at) VALUES (1, 'work', 's', 't', '/w', 'b', 'idle', 1, 1)",
     ).run();
-    expect(runMigrations(db)).toEqual([8, 9, 10, 11]);
+    expect(runMigrations(db)).toEqual([8, 9, 10, 11, 12]);
     expect(db.prepare('SELECT provider, thinker_model, executor_model FROM chats').get()).toEqual({
       provider: 'claude',
       thinker_model: 'claude-opus-5-5',
@@ -163,7 +163,7 @@ describe('migrations', () => {
     db.prepare(
       "INSERT INTO chats (project_id, kind, slug, title, worktree_path, branch, status, created_at, updated_at) VALUES (1, 'work', 's', 't', '/w', 'b', 'idle', 1, 1)",
     ).run();
-    expect(runMigrations(db)).toEqual([10, 11]);
+    expect(runMigrations(db)).toEqual([10, 11, 12]);
     expect(db.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
     db.prepare(
       "INSERT INTO worktree_state (chat_id, state, actor, since) VALUES (1, 'qa', 'pilot', 1)",
@@ -189,11 +189,67 @@ describe('migrations', () => {
     db.prepare(
       "INSERT INTO projects (name, repo_path, base_branch, created_at) VALUES ('p', '/x', 'dev', 1)",
     ).run();
-    expect(runMigrations(db)).toEqual([11]);
+    expect(runMigrations(db)).toEqual([11, 12]);
     expect(db.prepare('SELECT allowed_commands, allowed_hosts FROM projects').get()).toEqual({
       allowed_commands: '[]',
       allowed_hosts: '[]',
     });
+  });
+
+  it('migration 12 creates autopilot_runs and leaves existing sessions as manual', () => {
+    const db = new DatabaseSync(':memory:');
+    db.exec('PRAGMA foreign_keys = ON');
+    runMigrations(db, migrations.slice(0, 11));
+    db.prepare(
+      "INSERT INTO projects (name, repo_path, base_branch, created_at) VALUES ('p', '/x', 'dev', 1)",
+    ).run();
+    db.prepare(
+      "INSERT INTO chats (project_id, kind, slug, title, worktree_path, branch, status, created_at, updated_at) VALUES (1, 'work', 's', 't', '/w', 'b', 'idle', 1, 1)",
+    ).run();
+    db.prepare(
+      "INSERT INTO agent_sessions (chat_id, role, provider, model, started_at) VALUES (1, 'executor', 'claude', 'm', 1)",
+    ).run();
+    expect(runMigrations(db)).toEqual([12]);
+    expect(db.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
+    expect(db.prepare('SELECT step, policy_version FROM agent_sessions').get()).toEqual({
+      step: 'manual',
+      policy_version: null,
+    });
+    expect(
+      (db.prepare('PRAGMA table_info(autopilot_runs)').all() as { name: string }[]).map(
+        (c) => c.name,
+      ),
+    ).toEqual([
+      'chat_id',
+      'status',
+      'step',
+      'sprint_n',
+      'sessions_in_sprint',
+      'last_fingerprint',
+      'stop_reason',
+      'retry_at',
+      'policy_version',
+      'created_at',
+      'updated_at',
+    ]);
+    db.prepare(
+      "INSERT INTO autopilot_runs (chat_id, status, created_at, updated_at) VALUES (1, 'active', 1, 1)",
+    ).run();
+    expect(() =>
+      db
+        .prepare(
+          "INSERT INTO autopilot_runs (chat_id, status, created_at, updated_at) VALUES (1, 'x', 1, 1)",
+        )
+        .run(),
+    ).toThrow();
+    expect(() =>
+      db.prepare("UPDATE autopilot_runs SET status = 'bogus' WHERE chat_id = 1").run(),
+    ).toThrow(/CHECK/);
+    expect(() => db.prepare("UPDATE agent_sessions SET step = 'bogus' WHERE id = 1").run()).toThrow(
+      /CHECK/,
+    );
+    db.prepare('DELETE FROM chats WHERE id = 1').run();
+    expect(db.prepare('SELECT count(*) AS n FROM autopilot_runs').get()).toEqual({ n: 0 });
   });
 
   it('fails with a clear message, and deletes nothing, when repo_url is already duplicated', () => {

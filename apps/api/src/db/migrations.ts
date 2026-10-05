@@ -290,6 +290,31 @@ export const migrations: readonly Migration[] = [
       ALTER TABLE projects ADD COLUMN allowed_hosts TEXT NOT NULL DEFAULT '[]';
     `,
   },
+  {
+    version: 12,
+    name: 'autopilot_runs',
+    // One autopilot per scope or work; step and status are validated here because the pilot reads
+    // them back after a restart. Existing sessions were all started by hand.
+    sql: `
+      CREATE TABLE autopilot_runs (
+        chat_id INTEGER PRIMARY KEY REFERENCES chats(id) ON DELETE CASCADE,
+        status TEXT NOT NULL CHECK (status IN
+          ('active', 'paused', 'off', 'stopped', 'waiting_quota', 'queued', 'finished')),
+        step TEXT CHECK (step IN ('plan', 'execute', 'fix', 'close', 'manual')),
+        sprint_n INTEGER,
+        sessions_in_sprint INTEGER NOT NULL DEFAULT 0,
+        last_fingerprint TEXT,
+        stop_reason TEXT,
+        retry_at INTEGER,
+        policy_version INTEGER,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+      ALTER TABLE agent_sessions ADD COLUMN step TEXT NOT NULL DEFAULT 'manual'
+        CHECK (step IN ('plan', 'execute', 'fix', 'close', 'manual'));
+      ALTER TABLE agent_sessions ADD COLUMN policy_version INTEGER;
+    `,
+  },
 ];
 
 /** Applies pending migrations in order, each in its own transaction. Safe to run repeatedly. */

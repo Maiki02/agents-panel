@@ -20,6 +20,7 @@ const createBody = {
     kind: { enum: ['scope', 'work', 'direct'] },
     slug: { type: 'string', minLength: 1, maxLength: 50 },
     prompt: { type: 'string', minLength: 1, maxLength: 20000 },
+    autopilot: { type: 'boolean' },
     models: {
       type: 'object',
       additionalProperties: false,
@@ -85,6 +86,7 @@ export function registerChatRoutes(
       slug: string;
       prompt: string;
       models?: { thinker?: string; executor?: string };
+      autopilot?: boolean;
     };
   }>(
     '/api/chats',

@@ -13,6 +13,8 @@ import { KyroVersions } from './maintenance/versions.js';
 import type { AgentRunner } from './agent/runner.js';
 import { SdkRunner } from './agent/sdk-runner.js';
 import { AgentSessionRepository } from './chats/sessions-repo.js';
+import { registerAutopilotRoutes } from './pilot/routes.js';
+import { AutopilotRunRepository } from './pilot/runs-repo.js';
 import { ChatEventBus } from './chats/events.js';
 import { QuestionRepository } from './chats/questions-repo.js';
 import { ChatRepository } from './chats/repo.js';
@@ -136,6 +138,7 @@ export function buildApp(deps: AppDeps, options: FastifyServerOptions = {}): Fas
   const chats = new ChatRepository(deps.db, now);
   const bus = deps.bus ?? new ChatEventBus();
   const questions = new QuestionRepository(deps.db, now);
+  const autopilotRuns = new AutopilotRunRepository(deps.db, now);
   const worktreeState = new WorktreeStateRepository(deps.db, chats, bus, now);
   const tracker = new WorktreeStateTracker(worktreeState, deps.kyroReader ?? new KyroReader());
   const manager =
@@ -165,6 +168,7 @@ export function buildApp(deps: AppDeps, options: FastifyServerOptions = {}): Fas
     worktreesDir: deps.config.worktreesDir,
     envFiles,
     tracker,
+    autopilot: autopilotRuns,
   });
 
   const runs = new MaintenanceRunRepository(deps.db, now);
@@ -223,6 +227,11 @@ export function buildApp(deps: AppDeps, options: FastifyServerOptions = {}): Fas
     chats,
     service: chatService,
     worktreeState,
+  });
+  registerAutopilotRoutes(app, {
+    service: chatService,
+    runs: autopilotRuns,
+    maxSessionsPerSprint: deps.config.pilotMaxSessionsPerSprint,
   });
   registerStreamRoute(app, {
     chats,

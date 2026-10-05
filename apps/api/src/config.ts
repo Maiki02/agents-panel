@@ -17,6 +17,8 @@ export interface Config {
   readonly secretKey: Buffer;
   readonly sessionIdleTtlSeconds: number;
   readonly sessionAbsoluteTtlSeconds: number;
+  /** Sessions the pilot may open for one sprint before it stops the work (R11). */
+  readonly pilotMaxSessionsPerSprint: number;
 }
 
 export class ConfigError extends Error {
@@ -94,5 +96,6 @@ export function loadConfig(env: Env = process.env): Config {
     secretKey,
     sessionIdleTtlSeconds: positiveInt(env, 'PANEL_SESSION_IDLE_TTL_SECONDS', 30 * 60),
     sessionAbsoluteTtlSeconds: positiveInt(env, 'PANEL_SESSION_ABSOLUTE_TTL_SECONDS', 12 * 60 * 60),
+    pilotMaxSessionsPerSprint: positiveInt(env, 'PILOT_MAX_SESSIONS_PER_SPRINT', 6),
   };
 }

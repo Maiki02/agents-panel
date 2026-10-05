@@ -1,4 +1,4 @@
-import type { AgentSession, ModelProvider, ModelRole } from '@agents-panel/shared';
+import type { AgentSession, AutopilotStep, ModelProvider, ModelRole } from '@agents-panel/shared';
 import type { Db } from '../db/index.js';
 
 interface SessionRow {
@@ -9,6 +9,8 @@ interface SessionRow {
   model: string;
   sdk_session_id: string | null;
   sprint_n: number | null;
+  step: AutopilotStep;
+  policy_version: number | null;
   started_at: number;
   ended_at: number | null;
   result: string | null;
@@ -23,6 +25,8 @@ function toSession(row: SessionRow): AgentSession {
     model: row.model,
     sdkSessionId: row.sdk_session_id,
     sprintN: row.sprint_n,
+    step: row.step,
+    policyVersion: row.policy_version,
     startedAt: row.started_at,
     endedAt: row.ended_at,
     result: row.result,
@@ -41,13 +45,17 @@ export class AgentSessionRepository {
     provider: ModelProvider,
     model: string,
     sprintN: number | null = null,
+    pilot: { step: AutopilotStep; policyVersion: number | null } = {
+      step: 'manual',
+      policyVersion: null,
+    },
   ): number {
     const result = this.db
       .prepare(
-        `INSERT INTO agent_sessions (chat_id, role, provider, model, sprint_n, started_at)
-         VALUES (?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO agent_sessions (chat_id, role, provider, model, sprint_n, step, policy_version, started_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(chatId, role, provider, model, sprintN, this.now());
+      .run(chatId, role, provider, model, sprintN, pilot.step, pilot.policyVersion, this.now());
     return Number(result.lastInsertRowid);
   }
 

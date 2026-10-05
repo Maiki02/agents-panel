@@ -35,6 +35,49 @@ export interface ModelSelection {
   executor: string;
 }
 
+/** Where the autopilot of a job stands. `stopped` always carries a reason the user can read. */
+export const AUTOPILOT_STATUSES = [
+  'active',
+  'paused',
+  'off',
+  'stopped',
+  'waiting_quota',
+  'queued',
+  'finished',
+] as const;
+export type AutopilotStatus = (typeof AUTOPILOT_STATUSES)[number];
+
+/** What a pilot session is for: the plan of a sprint, its execution, a fix, or its closing. */
+export const AUTOPILOT_STEPS = ['plan', 'execute', 'fix', 'close', 'manual'] as const;
+export type AutopilotStep = (typeof AUTOPILOT_STEPS)[number];
+
+/** The autopilot of one scope or work (one row per chat, created when it is switched on). */
+export interface AutopilotRun {
+  chatId: number;
+  status: AutopilotStatus;
+  /** Step of the session in progress or about to open; null before the first one. */
+  step: AutopilotStep | null;
+  sprintN: number | null;
+  /** Sessions opened for the current sprint: the cap is `maxSessionsPerSprint`. */
+  sessionsInSprint: number;
+  /** Signals read after the last turn, to notice a turn that moved nothing. */
+  lastFingerprint: Record<string, unknown> | null;
+  stopReason: string | null;
+  /** When a `waiting_quota` run tries again. */
+  retryAt: number | null;
+  policyVersion: number | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** Answer of `GET`/`POST /api/chats/:id/autopilot`. */
+export interface AutopilotInfo {
+  run: AutopilotRun | null;
+  maxSessionsPerSprint: number;
+}
+
+export type AutopilotAction = 'pause' | 'resume' | 'off';
+
 /** One SDK session the panel opened for a chat, with the model that ran it. */
 export interface AgentSession {
   id: number;
@@ -45,6 +88,10 @@ export interface AgentSession {
   sdkSessionId: string | null;
   /** Sprint the session worked on; null until the pilot assigns one. */
   sprintN: number | null;
+  /** What the session was for; `manual` for the ones the user started by hand. */
+  step: AutopilotStep;
+  /** Version of the gates policy the session ran with; null when none was injected. */
+  policyVersion: number | null;
   startedAt: number;
   endedAt: number | null;
   /** Final chat status of the turn (idle, error, cancelled); null while running. */
