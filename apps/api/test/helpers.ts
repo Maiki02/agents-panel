@@ -31,6 +31,9 @@ export function makeApp(
       | 'kyroScriptRunner'
       | 'kyroInstaller'
       | 'pilotKyro'
+      | 'kyroRunner'
+      | 'pilotGit'
+      | 'pilotGh'
     >
   > = {},
 ): {
@@ -61,6 +64,9 @@ export function makeApp(
     ...(extra.kyroScriptRunner ? { kyroScriptRunner: extra.kyroScriptRunner } : {}),
     ...(extra.kyroInstaller ? { kyroInstaller: extra.kyroInstaller } : {}),
     ...(extra.pilotKyro ? { pilotKyro: extra.pilotKyro } : {}),
+    ...(extra.kyroRunner ? { kyroRunner: extra.kyroRunner } : {}),
+    ...(extra.pilotGit ? { pilotGit: extra.pilotGit } : {}),
+    ...(extra.pilotGh ? { pilotGh: extra.pilotGh } : {}),
   });
   return { app, db, worktreesDir, projectsDir };
 }

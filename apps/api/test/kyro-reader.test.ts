@@ -214,3 +214,67 @@ describe('KyroReader task context and capabilities', () => {
     });
   });
 });
+
+describe('KyroReader completion verbs', () => {
+  const record = () => {
+    const calls: Call[] = [];
+    const run: CommandRunner = (file, args, options) => {
+      calls.push({ file, args, cwd: options.cwd });
+      return Promise.resolve('{}');
+    };
+    return { calls, reader: new KyroReader(run) };
+  };
+
+  it('completes a scope with scope complete --yes and never accepts debt on its own', async () => {
+    const { calls, reader } = record();
+    expect(await reader.completeScope('/w', 'demo')).toEqual({ ok: true });
+    expect(calls).toEqual([
+      { file: 'kyro', args: ['scope', 'complete', '--kyro-scope', 'demo', '--yes'], cwd: '/w' },
+    ]);
+    expect(calls[0]?.args).not.toContain('--accept-open-debt');
+  });
+
+  it('accepts open debt only with the reason the user gave', async () => {
+    const { calls, reader } = record();
+    await reader.completeScope('/w', 'demo', { reason: 'se hace en el sprint 5' });
+    expect(calls[0]?.args).toEqual([
+      'scope',
+      'complete',
+      '--kyro-scope',
+      'demo',
+      '--accept-open-debt',
+      '--reason',
+      'se hace en el sprint 5',
+      '--yes',
+    ]);
+  });
+
+  it('closes a work as completed against the expected revision', async () => {
+    const { calls, reader } = record();
+    await reader.closeWork('/w', 'w1', 7, 'listo');
+    expect(calls[0]?.args).toEqual([
+      'work',
+      'close',
+      '--work',
+      'w1',
+      '--outcome',
+      'completed',
+      '--reason',
+      'listo',
+      '--expect-revision',
+      '7',
+      '--by',
+      'pilot',
+      '--yes',
+      '--json',
+    ]);
+  });
+
+  it('returns the failure of the CLI instead of throwing', async () => {
+    const reader = new KyroReader(() => Promise.reject(new Error('NOT_READY_TO_COMPLETE')));
+    expect(await reader.completeScope('/w', 'demo')).toMatchObject({
+      ok: false,
+      error: { kind: 'cli_failed', message: 'NOT_READY_TO_COMPLETE' },
+    });
+  });
+});

@@ -12,7 +12,11 @@ export type PilotDecision =
       state: WorktreeStateId;
       blockedReason: BlockedReason | null;
       detail: string | null;
+      /** Extra signals for the Timeline entry of the stop (the debt that blocks a completion). */
+      data?: Record<string, unknown>;
     }
+  /** Everything is done: the panel itself completes the scope or closes the work (R18). */
+  | { kind: 'complete' }
   /** The sprint's tasks are done: QA and analyze decide between fixing and closing. */
   | { kind: 'check_quality' }
   | { kind: 'finished' };
@@ -59,6 +63,17 @@ export function progressed(before: Fingerprint, after: Fingerprint): boolean {
   return [...keys].some((key) => before[key] !== after[key]);
 }
 
+/**
+ * The scope of an approved idea does not exist yet: Kyro has no `local.json` target or no
+ * `sprint.json`, and no session of the run began. Only then the pilot opens the `init` session.
+ */
+export function needsScopeInit(
+  readError: { kind: string },
+  run: Pick<AutopilotRun, 'step' | 'seedPath'>,
+): boolean {
+  return readError.kind === 'no_target' && run.seedPath !== null && run.step === null;
+}
+
 const session = (step: PilotStep, role: ModelRole): PilotDecision => ({
   kind: 'session',
   step,
@@ -69,7 +84,14 @@ const stop = (
   state: WorktreeStateId,
   blockedReason: BlockedReason | null,
   detail: string | null,
-): PilotDecision => ({ kind: 'stop', state, blockedReason, detail });
+  data?: Record<string, unknown>,
+): PilotDecision => ({
+  kind: 'stop',
+  state,
+  blockedReason,
+  detail,
+  ...(data ? { data } : {}),
+});
 
 /** A blocker that asks for `kyro repair` is an integrity finding, which is never applied alone. */
 function isIntegrity(reason: string): boolean {
@@ -95,7 +117,7 @@ export function decideNextStep(
   const route = kyro.kind === 'work' ? workRoute(kyro) : scopeRoute(kyro);
 
   // Terminal or waiting-for-a-person routes win over the loop guards: they are not a failure.
-  if (route.kind === 'finished' || route.kind === 'stop') return route;
+  if (route.kind === 'finished' || route.kind === 'stop' || route.kind === 'complete') return route;
 
   // A session that moved nothing and asked nothing is a loop in the making (R11).
   if (
@@ -150,10 +172,16 @@ function scopeRoute(kyro: KyroScopeState): PilotDecision {
     case 'close_sprint':
       return { kind: 'check_quality' };
     case 'await_scope_completion':
-      // An open sprint still has its quality check to run; closing and merging the scope is sprint 4.
-      return kyro.sprint.current !== null
-        ? { kind: 'check_quality' }
-        : stop('esperando_aprobacion_cierre', null, 'El scope está listo para completarse');
+      // An open sprint still has its quality check to run.
+      if (kyro.sprint.current !== null) return { kind: 'check_quality' };
+      // Without debt the panel completes the scope; with debt it stops once and the user decides (R20).
+      if (kyro.openDebt === 0) return { kind: 'complete' };
+      return stop(
+        'esperando_aprobacion_cierre',
+        null,
+        `El scope tiene ${String(kyro.openDebt)} deuda abierta: se completa solo con tu OK`,
+        { debt: kyro.debtItems ?? [] },
+      );
   }
 }
 
@@ -169,6 +197,6 @@ function workRoute(kyro: KyroWorkState): PilotDecision {
     case 'resolve_blocker':
       return stop('bloqueado', 'tarea_bloqueada', kyro.blockedReason);
     case 'ready_to_close':
-      return stop('cerrando', null, 'El work está listo para cerrarse');
+      return { kind: 'complete' };
   }
 }

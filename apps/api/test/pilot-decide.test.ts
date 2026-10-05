@@ -7,6 +7,7 @@ import {
   progressed,
   type LastSession,
   type PilotDecision,
+  needsScopeInit,
 } from '../src/pilot/decide.js';
 import {
   parseScopeState,
@@ -52,13 +53,20 @@ describe('decideNextStep for a scope', () => {
     expect(decide(scope(name))).toEqual(expected);
   });
 
-  it('stops at await_scope_completion when no sprint is open (closing is sprint 4)', () => {
-    const kyro = scope('await_scope_completion');
+  it('completes the scope at await_scope_completion with no sprint open and no open debt', () => {
+    const kyro = withAction(scope('await_scope_completion'), { openDebt: 0 });
     expect(kyro.sprint.current).toBeNull();
+    expect(decide(kyro)).toEqual({ kind: 'complete' });
+  });
+
+  it('stops once in esperando_aprobacion_cierre with the open debt as data when there is some', () => {
+    const debtItems = [{ id: 'debt-1', title: 'Algo pendiente', priority: 'high' }];
+    const kyro = withAction(scope('await_scope_completion'), { openDebt: 1, debtItems });
     expect(decide(kyro)).toMatchObject({
       kind: 'stop',
       state: 'esperando_aprobacion_cierre',
       blockedReason: null,
+      data: { debt: debtItems },
     });
   });
 
@@ -111,7 +119,7 @@ describe('decideNextStep for a work', () => {
       'resolve_blocker',
       expect.objectContaining({ kind: 'stop', blockedReason: 'tarea_bloqueada' }),
     ],
-    ['ready_to_close', expect.objectContaining({ kind: 'stop', state: 'cerrando' })],
+    ['ready_to_close', { kind: 'complete' }],
     ['closed', { kind: 'finished' }],
   ] as [string, PilotDecision][])('%s', (name, expected) => {
     expect(decide(work(name))).toEqual(expected);
@@ -217,5 +225,14 @@ describe('fingerprint and progressed', () => {
   it('is plain JSON so it can be stored in the run', () => {
     const f = fingerprint(work('execute_task'));
     expect(JSON.parse(JSON.stringify(f))).toEqual(f);
+  });
+});
+
+describe('needsScopeInit', () => {
+  it('is true only without a Kyro target, with a seed and before any session', () => {
+    expect(needsScopeInit({ kind: 'no_target' }, { step: null, seedPath: 'a.md' })).toBe(true);
+    expect(needsScopeInit({ kind: 'no_target' }, { step: 'init', seedPath: 'a.md' })).toBe(false);
+    expect(needsScopeInit({ kind: 'no_target' }, { step: null, seedPath: null })).toBe(false);
+    expect(needsScopeInit({ kind: 'cli_failed' }, { step: null, seedPath: 'a.md' })).toBe(false);
   });
 });

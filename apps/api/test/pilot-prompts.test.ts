@@ -11,6 +11,7 @@ import {
 import { buildPolicy } from '../src/pilot/policy.js';
 import {
   REQUIRED_CAPABILITIES,
+  buildInitPrompt,
   buildStepPrompt,
   checkCapabilities,
   type PromptStep,
@@ -155,5 +156,16 @@ describe('capability check', () => {
       blockedReason: 'kyro_bloqueado',
       detail: expect.stringContaining('ENOENT') as string,
     });
+  });
+});
+
+describe('init prompt', () => {
+  it('names kyro-forge, the scope and the idea document and carries the plan policy', () => {
+    const prompt = buildInitPrompt({ scope: 'mi-scope', seedPath: '.agents/kyro/plan/a.md', home });
+    expect(prompt).toContain(`${home}/.agents/skills/kyro-forge/SKILL.md`);
+    expect(prompt).toContain('Scope: mi-scope');
+    expect(prompt).toContain('.agents/kyro/plan/a.md');
+    expect(prompt).toContain('INIT mode');
+    expect(prompt).toContain(buildPolicy('plan'));
   });
 });

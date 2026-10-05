@@ -1,4 +1,9 @@
-import type { AutopilotRun, AutopilotStatus, AutopilotStep } from '@agents-panel/shared';
+import type {
+  AutopilotPhase,
+  AutopilotRun,
+  AutopilotStatus,
+  AutopilotStep,
+} from '@agents-panel/shared';
 import type { Db } from '../db/index.js';
 
 interface RunRow {
@@ -11,6 +16,9 @@ interface RunRow {
   stop_reason: string | null;
   retry_at: number | null;
   policy_version: number | null;
+  seed_path: string | null;
+  phase: AutopilotPhase | null;
+  pr_urls: string;
   created_at: number;
   updated_at: number;
 }
@@ -27,6 +35,15 @@ function parseFingerprint(raw: string | null): Record<string, unknown> | null {
   }
 }
 
+function parseUrls(raw: string): string[] {
+  try {
+    const value: unknown = JSON.parse(raw);
+    return Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
 function toRun(row: RunRow): AutopilotRun {
   return {
     chatId: row.chat_id,
@@ -38,6 +55,9 @@ function toRun(row: RunRow): AutopilotRun {
     stopReason: row.stop_reason,
     retryAt: row.retry_at,
     policyVersion: row.policy_version,
+    seedPath: row.seed_path,
+    phase: row.phase,
+    prUrls: parseUrls(row.pr_urls),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -92,6 +112,24 @@ export class AutopilotRunRepository {
     return this.require(chatId);
   }
 
+  /** Moves the run to a phase (null clears it); a restart takes the phase up again. */
+  setPhase(chatId: number, phase: AutopilotPhase | null): AutopilotRun {
+    this.require(chatId);
+    this.db
+      .prepare('UPDATE autopilot_runs SET phase = ?, updated_at = ? WHERE chat_id = ?')
+      .run(phase, this.now(), chatId);
+    return this.require(chatId);
+  }
+
+  /** Remembers the PRs of the work (replaces the list; the merge phase re-reads them from GitHub). */
+  setPrUrls(chatId: number, urls: readonly string[]): AutopilotRun {
+    this.require(chatId);
+    this.db
+      .prepare('UPDATE autopilot_runs SET pr_urls = ?, updated_at = ? WHERE chat_id = ?')
+      .run(JSON.stringify([...new Set(urls)]), this.now(), chatId);
+    return this.require(chatId);
+  }
+
   /** Runs in a status, oldest first (the pilot lists the queued ones when a session frees up). */
   listByStatus(status: AutopilotStatus): AutopilotRun[] {
     return (
@@ -101,15 +139,22 @@ export class AutopilotRunRepository {
     ).map(toRun);
   }
 
-  /** Switches the autopilot on for a chat that has none. */
-  create(chatId: number, policyVersion: number | null = null): AutopilotRun {
+  /**
+   * Switches the autopilot on for a chat that has none. `seedPath` is the idea document of an
+   * approved scope: the pilot creates the scope from it before anything else.
+   */
+  create(
+    chatId: number,
+    policyVersion: number | null = null,
+    seedPath: string | null = null,
+  ): AutopilotRun {
     const now = this.now();
     this.db
       .prepare(
-        `INSERT INTO autopilot_runs (chat_id, status, policy_version, created_at, updated_at)
-         VALUES (?, 'active', ?, ?, ?)`,
+        `INSERT INTO autopilot_runs (chat_id, status, policy_version, seed_path, created_at, updated_at)
+         VALUES (?, 'active', ?, ?, ?, ?)`,
       )
-      .run(chatId, policyVersion, now, now);
+      .run(chatId, policyVersion, seedPath, now, now);
     return this.require(chatId);
   }
 

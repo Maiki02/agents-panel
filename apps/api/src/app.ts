@@ -19,9 +19,14 @@ import { AutopilotRunRepository } from './pilot/runs-repo.js';
 import { ChatEventBus } from './chats/events.js';
 import { QuestionRepository } from './chats/questions-repo.js';
 import { ChatRepository } from './chats/repo.js';
-import { KyroReader } from './kyro/reader.js';
+import { KyroReader, type CommandRunner } from './kyro/reader.js';
 import { WorktreeStateRepository } from './worktrees/state-repo.js';
 import { WorktreeStateTracker, type KyroStateReader } from './worktrees/state-tracker.js';
+import { scanIdeaDocuments, type IdeaScanner } from './chats/idea.js';
+import { IdeaActions } from './chats/idea-actions.js';
+import { DebtAcceptance } from './pilot/accept-debt.js';
+import type { MergeGit, PilotGit } from './pilot/git-ops.js';
+import type { PilotGh } from './pilot/github-cli.js';
 import { registerChatRoutes } from './chats/routes.js';
 import { registerStreamRoute } from './chats/stream.js';
 import { ChatService } from './chats/service.js';
@@ -90,6 +95,12 @@ export interface AppDeps {
   kyroReader?: KyroStateReader;
   /** Everything the pilot reads from Kyro; tests inject fixtures. */
   pilotKyro?: PilotKyro;
+  /** Git operations of the pilot (the closing commit); tests replace them. */
+  pilotGit?: PilotGit & MergeGit;
+  /** `gh` of the merge phase; tests replace it so nothing calls GitHub. */
+  pilotGh?: PilotGh;
+  /** Runs `kyro work create` when an idea is approved as a work; tests replace it. */
+  kyroRunner?: CommandRunner;
 }
 
 export function buildApp(deps: AppDeps, options: FastifyServerOptions = {}): FastifyInstance {
@@ -145,7 +156,11 @@ export function buildApp(deps: AppDeps, options: FastifyServerOptions = {}): Fas
   const worktreeState = new WorktreeStateRepository(deps.db, chats, bus, now);
   const realKyro = new KyroReader();
   const kyroReader = deps.kyroReader ?? realKyro;
-  const tracker = new WorktreeStateTracker(worktreeState, kyroReader);
+  const ideaScanner: IdeaScanner = {
+    scan: (chat) =>
+      scanIdeaDocuments(chat.worktreePath, projects.findById(chat.projectId)?.baseBranch),
+  };
+  const tracker = new WorktreeStateTracker(worktreeState, kyroReader, ideaScanner, questions);
   const agentSessions = new AgentSessionRepository(deps.db, now);
   const manager =
     deps.manager ??
@@ -173,6 +188,10 @@ export function buildApp(deps: AppDeps, options: FastifyServerOptions = {}): Fas
     tracker,
     questions,
     sessions: agentSessions,
+    ...(deps.pilotGit ? { git: deps.pilotGit } : {}),
+    projectOf: (chat) => projects.findById(chat.projectId),
+    validateTimeoutMs: deps.config.pilotValidateTimeoutMs,
+    ...(deps.pilotGh ? { gh: deps.pilotGh } : {}),
     maxSessionsPerSprint: deps.config.pilotMaxSessionsPerSprint,
     now,
   });
@@ -245,10 +264,24 @@ export function buildApp(deps: AppDeps, options: FastifyServerOptions = {}): Fas
       isUpdating: () => manager.inMaintenance,
     });
   });
+  const ideaActions = new IdeaActions({
+    chats,
+    states: worktreeState,
+    manager,
+    runs: autopilotRuns,
+    scanner: ideaScanner,
+    usernameOf: (userId) => users.findById(userId)?.username,
+    onApproved: (chatId) => {
+      pilot.kick(chatId);
+    },
+    ...(deps.kyroRunner ? { run: deps.kyroRunner } : {}),
+  });
   registerChatRoutes(app, {
     chats,
     service: chatService,
     worktreeState,
+    ideas: ideaScanner,
+    ideaActions,
   });
   registerAutopilotRoutes(app, {
     service: chatService,
@@ -257,6 +290,17 @@ export function buildApp(deps: AppDeps, options: FastifyServerOptions = {}): Fas
     onResume: (chatId) => {
       pilot.kick(chatId);
     },
+    debt: new DebtAcceptance({
+      service: chatService,
+      states: worktreeState,
+      runs: autopilotRuns,
+      kyro: deps.pilotKyro ?? realKyro,
+      ...(deps.pilotGit ? { git: deps.pilotGit } : {}),
+      usernameOf: (userId) => users.findById(userId)?.username,
+      onResume: (chatId) => {
+        pilot.kick(chatId);
+      },
+    }),
   });
   registerStreamRoute(app, {
     chats,

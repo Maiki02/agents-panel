@@ -45,6 +45,13 @@ export interface TaskProgress {
   total: number;
 }
 
+/** One open debt item of a scope (read from the `debt[]` of its `sprint.json`). */
+export interface DebtItem {
+  id: string;
+  title: string;
+  priority: string;
+}
+
 export interface KyroScopeState {
   kind: 'scope';
   scope: string;
@@ -60,6 +67,8 @@ export interface KyroScopeState {
   blockers: string[];
   /** Tasks Kyro reports as blocked (after three correction rounds); empty when none. */
   blockedTasks?: string[];
+  /** Debt not yet resolved, with its title and priority; empty when `sprint.json` was not read. */
+  debtItems?: DebtItem[];
 }
 
 export interface KyroWorkState {
@@ -151,6 +160,40 @@ function envelopeData(raw: unknown, command: string): Json {
   return data;
 }
 
+/** Debt of a scope that is not resolved yet: the user decides about it before the scope completes. */
+export function parseOpenDebt(sprintJson: unknown): DebtItem[] {
+  if (!isRecord(sprintJson) || !Array.isArray(sprintJson['debt'])) return [];
+  const items: DebtItem[] = [];
+  for (const entry of sprintJson['debt'] as unknown[]) {
+    if (!isRecord(entry) || entry['status'] === 'resolved') continue;
+    items.push({
+      id: typeof entry['id'] === 'string' ? entry['id'] : '?',
+      title: typeof entry['title'] === 'string' ? entry['title'] : '',
+      priority: typeof entry['priority'] === 'string' ? entry['priority'] : 'medium',
+    });
+  }
+  return items;
+}
+
+/** What a PR says about a scope: its title, objective and the sprints it closed. */
+export interface ScopeSummary {
+  title: string;
+  objective: string;
+  sprints: string[];
+}
+
+export function parseScopeSummary(sprintJson: unknown): ScopeSummary {
+  if (!isRecord(sprintJson)) throw new KyroStateError('sprint.json is not a JSON object');
+  const text = (value: unknown): string => (typeof value === 'string' ? value : '');
+  const ledger = Array.isArray(sprintJson['ledger']) ? (sprintJson['ledger'] as unknown[]) : [];
+  const sprints = ledger.map((entry, index) => {
+    const item = isRecord(entry) ? entry : {};
+    const n = typeof item['n'] === 'number' ? item['n'] : index + 1;
+    return `Sprint ${String(n)}: ${text(item['title']) || text(item['slug']) || 'cerrado'}`;
+  });
+  return { title: text(sprintJson['title']), objective: text(sprintJson['objective']), sprints };
+}
+
 /** Roadmap total and closed sprints, read from the scope's `sprint.json` (no CLI prints them). */
 export function parseSprintRoadmap(sprintJson: unknown): { total: number; closed: number } {
   if (!isRecord(sprintJson)) throw new KyroStateError('sprint.json is not a JSON object');
@@ -238,6 +281,7 @@ export function parseScopeState(
     pendingReview: int(status, 'pendingReviewCount', 'status.data'),
     blockers: blockerReasons(pack),
     blockedTasks: blockedTaskIds(pack),
+    debtItems: sprintJson === undefined ? [] : parseOpenDebt(sprintJson),
   };
 }
 

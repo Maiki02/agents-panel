@@ -7,6 +7,7 @@ import {
   parseAnalyzeFindings,
   parseCapabilities,
   parseScopeState,
+  parseScopeSummary,
   parseScopeTaskContext,
   parseWorkState,
   parseWorkTaskContext,
@@ -14,6 +15,7 @@ import {
   type KyroScopeState,
   type KyroTaskContext,
   type KyroWorkState,
+  type ScopeSummary,
 } from './state.js';
 
 const execFileAsync = promisify(execFile);
@@ -43,6 +45,9 @@ export interface KyroReadError {
 }
 
 export type KyroReadResult<T> = { ok: true; state: T } | { ok: false; error: KyroReadError };
+
+/** Outcome of a Kyro verb that writes (completing a scope, closing a work). */
+export type KyroActionResult = { ok: true } | { ok: false; error: KyroReadError };
 
 function fail<T>(kind: KyroReadError['kind'], message: string): KyroReadResult<T> {
   return { ok: false, error: { kind, message } };
@@ -174,6 +179,73 @@ export class KyroReader {
     try {
       const out = await this.json(cwd, ['analyze', '--kyro-scope', scope, '--json']);
       return { ok: true, state: parseAnalyzeFindings(out) };
+    } catch (error) {
+      return { ok: false, error: this.toError(error) };
+    }
+  }
+
+  /**
+   * Completes a scope with the CLI (`scope complete --yes`): the panel does it, never the agent.
+   * `acceptOpenDebt` is the user's explicit OK to complete with debt still open.
+   */
+  async completeScope(
+    cwd: string,
+    scope: string,
+    acceptOpenDebt?: { reason: string },
+  ): Promise<KyroActionResult> {
+    const args = ['scope', 'complete', '--kyro-scope', scope];
+    if (acceptOpenDebt) args.push('--accept-open-debt', '--reason', acceptOpenDebt.reason);
+    args.push('--yes');
+    return this.action(cwd, args);
+  }
+
+  /** Closes a work as completed (`work close`), against the revision the panel just read. */
+  async closeWork(
+    cwd: string,
+    work: string,
+    revision: number,
+    reason: string,
+  ): Promise<KyroActionResult> {
+    return this.action(cwd, [
+      'work',
+      'close',
+      '--work',
+      work,
+      '--outcome',
+      'completed',
+      '--reason',
+      reason,
+      '--expect-revision',
+      String(revision),
+      '--by',
+      'pilot',
+      '--yes',
+      '--json',
+    ]);
+  }
+
+  private async action(cwd: string, args: string[]): Promise<KyroActionResult> {
+    try {
+      await this.run(this.bin, args, { cwd, timeoutMs: this.timeoutMs });
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, error: this.toError(error) };
+    }
+  }
+
+  /** Title, objective and closed sprints of a scope, for the body of its PR. */
+  async scopeSummary(cwd: string, scope: string): Promise<KyroReadResult<ScopeSummary>> {
+    let artifactRoot = join('.agents', 'kyro', 'scopes');
+    try {
+      const project = await readJsonFile(join(cwd, '.agents', 'kyro', 'project.json'));
+      const root = isRecord(project) ? project['artifactRoot'] : undefined;
+      if (typeof root === 'string' && root !== '') artifactRoot = root;
+    } catch {
+      // The default artifact root applies.
+    }
+    try {
+      const sprint = await readJsonFile(join(cwd, artifactRoot, scope, 'sprint.json'));
+      return { ok: true, state: parseScopeSummary(sprint) };
     } catch (error) {
       return { ok: false, error: this.toError(error) };
     }

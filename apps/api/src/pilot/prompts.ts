@@ -117,6 +117,66 @@ export function buildStepPrompt(step: PromptStep, ctx: StepPromptContext): strin
   return lines.join('\n');
 }
 
+/**
+ * First message of the `init` session: the idea was approved as a scope, which does not exist in
+ * Kyro yet, so kyro-forge runs its INIT mode on the idea document (no re-interview).
+ */
+export function buildInitPrompt(input: { scope: string; seedPath: string; home?: string }): string {
+  const home = input.home ?? homedir();
+  return [
+    'Create the scope of an approved idea.',
+    `Read ${skillPath(home, 'kyro-forge')} first and follow it exactly.`,
+    '',
+    `Scope: ${input.scope}`,
+    `The scope does not exist yet: run the INIT mode of kyro-forge for it, from the matured idea document ${input.seedPath} (relative to the worktree). Apply the Seedbed mapping of the document and do not re-ask what it already decides.`,
+    'Stop once the scope exists with its roadmap; the panel plans and runs the sprints after that.',
+    '',
+    buildPolicy('plan'),
+  ].join('\n');
+}
+
+/**
+ * First message of a `merge` session: bringing the base into the branch left conflicts. The panel
+ * pushed nothing yet and will verify that no path is left unmerged when the session ends.
+ */
+export function buildMergePrompt(input: {
+  base: string;
+  conflicts: readonly string[];
+  /** Plain-language name of the work, for context. */
+  name: string;
+}): string {
+  return [
+    `Resolve the merge conflicts of ${input.name}.`,
+    `The panel ran "git pull --no-rebase origin ${input.base}" in this worktree and a merge is in progress with conflicts in:`,
+    ...list(input.conflicts),
+    '',
+    'Resolve them in place, "git add" every resolved path and finish the merge with "git commit --no-edit". The panel checks afterwards that no path is left unmerged.',
+    '',
+    buildPolicy('merge'),
+  ].join('\n');
+}
+
+/**
+ * First message of a `merge_dev` session: the project ships its own merge-dev skill (it knows the
+ * child repos and the way the project merges), so the agent follows it for this work.
+ */
+export function buildMergeDevPrompt(input: {
+  worktree: string;
+  base: string;
+  /** Scope or work being merged. */
+  name: string;
+}): string {
+  return [
+    `Merge ${input.name} into ${input.base} with the merge-dev skill of this project.`,
+    `Read ${join(input.worktree, '.claude', 'skills', 'merge-dev', 'SKILL.md')} first and follow it exactly for ${input.name}.`,
+    '',
+    `Base branch: ${input.base}`,
+    'Stop once the branch is pushed and the pull requests are open; the panel looks for them afterwards.',
+    '',
+    buildPolicy('merge_dev'),
+  ].join('\n');
+}
+
 /** The part of KyroReader the capability check needs; tests inject a fake. */
 export interface CapabilityReader {
   capabilities(cwd: string): Promise<KyroReadResult<string[]>>;

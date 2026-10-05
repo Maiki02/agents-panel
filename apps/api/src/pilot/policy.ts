@@ -5,11 +5,22 @@
  */
 
 /** Bump it when any clause changes: every pilot session records the version it ran with. */
-export const POLICY_VERSION = 1;
+export const POLICY_VERSION = 2;
 
-/** The kinds of session the pilot opens: planning, execution of a sprint, and closing it. */
-export type PolicyStep = 'plan' | 'execute' | 'close';
-export const POLICY_STEPS: readonly PolicyStep[] = ['plan', 'execute', 'close'];
+/**
+ * The kinds of session the pilot opens: planning, execution of a sprint, and closing it; plus the
+ * maturing of an idea (kyro-idea), which the user starts and the pilot does not drive, and the
+ * merge sessions (conflicts after bringing the base, or the project's own merge-dev skill).
+ */
+export type PolicyStep = 'plan' | 'execute' | 'close' | 'idea' | 'merge' | 'merge_dev';
+export const POLICY_STEPS: readonly PolicyStep[] = [
+  'plan',
+  'execute',
+  'close',
+  'idea',
+  'merge',
+  'merge_dev',
+];
 
 /**
  * What the pilot does at a gate: `proceed` (the policy pre-approves it), `stop` (this session ends
@@ -50,7 +61,7 @@ export const KNOWN_GATES = {
     decision: 'stop',
     steps: ['execute', 'close'],
     clause:
-      'When nextAction is qa_or_close: in the execution session stop here and report it; do not run QA and do not close the sprint, because the closing session does it. In the closing session QA is mandatory: always run the kyro-qa skill, never offer "close without QA".',
+      'When nextAction is qa_or_close: in the execution session stop here and report it; do not run QA and do not close the sprint, because the closing session does it. In the closing session QA is mandatory: always run the kyro-qa skill, never offer "close without QA". Before "kyro close-sprint" write the QA report to <worktree>/.agents/kyro/qa/<scope>/sprint-<n>.md (n is the sprint number; create the folder if needed) with the exact first line "Verdict: <VERDICT>" (APPROVED, APPROVED WITH NOTES, CHANGES REQUIRED or REJECTED) followed by the report. The panel reads that file and stops the work if it is missing or not an approval.',
   },
   close_sprint: {
     keyword: 'close_sprint',
@@ -141,6 +152,41 @@ export const KNOWN_GATES = {
     clause:
       'Deleting a file of the repository needs no question: use "git rm <path>" for a tracked file and "git clean -f <path>" for one you created. Never use rm (the panel denies it) and never delete anything outside the worktree.',
   },
+  idea_confirmation: {
+    keyword: 'docType',
+    decision: 'proceed',
+    steps: ['idea'],
+    clause:
+      'The kyro-idea skill asks to confirm the docType and the path it inferred: that confirmation is routine, so confirm it yourself and write the document without asking. Ask with AskUserQuestion only for a material gap of the idea itself. Do not create a scope or a work (the panel does it when the user approves the plan) and end the turn once the document is written and verified.',
+  },
+  merge_conflicts: {
+    keyword: 'conflict',
+    decision: 'ask',
+    steps: ['merge', 'merge_dev'],
+    clause:
+      'Resolve the merge conflicts that are mechanical (lockfiles, imports, docs, formatting) yourself, then "git add" the files and finish with "git commit --no-edit". If a hunk has business logic from both sides, show both sides to the user with AskUserQuestion and wait for the answer; never pick one on your own.',
+  },
+  merge_forbidden: {
+    keyword: 'git merge --abort',
+    decision: 'stop',
+    steps: ['merge', 'merge_dev'],
+    clause:
+      'Never run "git merge --abort", "git rebase", "git reset --hard" or anything with --force or --force-with-lease, and never merge or close a pull request: the user reviews and merges it.',
+  },
+  merge_no_push: {
+    keyword: 'git push',
+    decision: 'stop',
+    steps: ['merge'],
+    clause:
+      'Never run "git push": the panel pushes the branch and opens the pull request once the conflicts are resolved.',
+  },
+  merge_dev_flow: {
+    keyword: 'merge-dev',
+    decision: 'proceed',
+    steps: ['merge_dev'],
+    clause:
+      'Follow the merge-dev skill of this project for the work below: it brings the base in, resolves what is mechanical, validates and opens the pull request. Push only the branch of the work (never the base, never forced) and stop once its pull requests are open.',
+  },
   material_decision: {
     keyword: 'material product decision',
     decision: 'ask',
@@ -167,6 +213,16 @@ export function gateDecision(gate: string): GateDecision {
   return (KNOWN_GATES as Record<string, PolicyGate>)[gate]?.decision ?? 'ask';
 }
 
+const IDEA_RULES = [
+  'Work through the kyro-idea skill. Never edit Kyro state by hand.',
+  'Use absolute paths in commands, no "~", no echo and no redirections: the panel denies those calls.',
+];
+
+const MERGE_RULES = [
+  'Work only on the merge that is in progress in this worktree. Never edit Kyro state by hand.',
+  'Use absolute paths in commands, no "~", no echo and no redirections: the panel denies those calls.',
+];
+
 const COMMON_RULES = [
   'Work through the kyro-forge skill and "kyro context-pack --kyro-scope <scope> --json"; follow its nextAction. Never edit sprint.json or any Kyro state by hand.',
   'Record every decision you take on your own (without asking) as an ADR with "kyro adr".',
@@ -177,6 +233,11 @@ const STEP_INTRO: Record<PolicyStep, string> = {
   plan: 'This is a planning session.',
   execute: 'This is an execution session: it ends when Kyro routes qa_or_close.',
   close: 'This is a closing session: QA, debt, the commit and "kyro close-sprint".',
+  merge_dev:
+    "This is a merge session driven by the project's merge-dev skill: it ends when the branch is pushed and the pull requests are open.",
+  merge:
+    'This is a merge session: it resolves the conflicts of bringing the base branch into this one and ends there.',
+  idea: 'This is an idea session: it matures the request into a pre-scope document and ends there.',
 };
 
 /** The policy block for one kind of session, ready to append to the first prompt. */
@@ -187,7 +248,12 @@ export function buildPolicy(step: PolicyStep): string {
   return [
     `Autopilot policy v${String(POLICY_VERSION)} (the user pre-approved the routine Kyro gates; follow it instead of asking):`,
     STEP_INTRO[step],
-    ...COMMON_RULES.map((rule) => `- ${rule}`),
+    ...(step === 'idea'
+      ? IDEA_RULES
+      : step === 'merge' || step === 'merge_dev'
+        ? MERGE_RULES
+        : COMMON_RULES
+    ).map((rule) => `- ${rule}`),
     ...clauses,
   ].join('\n');
 }

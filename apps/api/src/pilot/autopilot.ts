@@ -1,10 +1,16 @@
 import type { AutopilotRun, AutopilotStep, Chat, ChatEvent, ModelRole } from '@agents-panel/shared';
-import { SessionLimitError, MaintenanceError, type AgentManager } from '../agent/manager.js';
+import {
+  AlreadyRunningError,
+  SessionLimitError,
+  MaintenanceError,
+  type AgentManager,
+} from '../agent/manager.js';
 import type { ChatRepository } from '../chats/repo.js';
 import type { AgentSessionRepository } from '../chats/sessions-repo.js';
 import type { QuestionRepository } from '../chats/questions-repo.js';
-import type { KyroReadResult } from '../kyro/reader.js';
+import type { KyroActionResult, KyroReadResult } from '../kyro/reader.js';
 import type {
+  ScopeSummary,
   AnalyzeFinding,
   KyroScopeState,
   KyroTaskContext,
@@ -15,15 +21,24 @@ import {
   DEFAULT_MAX_SESSIONS_PER_SPRINT,
   decideNextStep,
   fingerprint,
+  needsScopeInit,
   type LastSession,
 } from './decide.js';
 import { POLICY_VERSION } from './policy.js';
+import { APPROVED_VERDICTS, readQaVerdict } from './qa-report.js';
 import {
+  buildInitPrompt,
+  buildMergeDevPrompt,
+  buildMergePrompt,
   buildStepPrompt,
   checkCapabilities,
   type CapabilityReader,
   type PromptStep,
 } from './prompts.js';
+import { realGit, type MergeGit, type PilotGit } from './git-ops.js';
+import { realGh, type PilotGh } from './github-cli.js';
+import { runMergePhase, type MergePhaseOutcome } from './merge-phase.js';
+import type { SecretFinding } from './secrets.js';
 import type { AutopilotRunRepository } from './runs-repo.js';
 
 /** Everything the pilot reads from the Kyro CLI. */
@@ -31,10 +46,20 @@ export interface PilotKyro extends KyroStateReader, CapabilityReader {
   contextPackTask(cwd: string, scope: string): Promise<KyroReadResult<KyroTaskContext>>;
   workContextPack(cwd: string, work: string): Promise<KyroReadResult<KyroTaskContext>>;
   analyze(cwd: string, scope: string): Promise<KyroReadResult<AnalyzeFinding[]>>;
+  /** Title, objective and closed sprints of a scope, for its PR; without it the PR is plain. */
+  scopeSummary?(cwd: string, scope: string): Promise<KyroReadResult<ScopeSummary>>;
+  completeScope(
+    cwd: string,
+    scope: string,
+    acceptOpenDebt?: { reason: string },
+  ): Promise<KyroActionResult>;
+  closeWork(cwd: string, work: string, revision: number, reason: string): Promise<KyroActionResult>;
 }
 
 export const QUOTA_RETRY_MS = 15 * 60 * 1000;
 export const QUEUE_RETRY_MS = 30 * 1000;
+/** Times in a row a step may find the chat busy (a user message got in first) before the pilot stops. */
+export const MAX_BUSY_RETRIES = 3;
 
 export interface AutopilotDeps {
   chats: ChatRepository;
@@ -43,6 +68,16 @@ export interface AutopilotDeps {
   kyro: PilotKyro;
   tracker: WorktreeStateTracker;
   questions: QuestionRepository;
+  /** Git operations the pilot runs itself; the real ones by default. */
+  git?: PilotGit & MergeGit;
+  /** `gh` for the PRs of the merge phase; the real one by default. */
+  gh?: PilotGh;
+  /** Base branch and validate command of the chat's project (R14, the push and merge checks). */
+  projectOf?: (chat: Chat) => { baseBranch: string; validateCommand: string | null } | undefined;
+  /** Secrets scan of a worktree; the real one by default, replaced by tests. */
+  scan?: (cwd: string, base: string) => Promise<SecretFinding[]>;
+  /** Longest the project's validate command may run in the merge phase. */
+  validateTimeoutMs?: number;
   /** Sessions of every chat; needed to resume an interrupted step after a restart. */
   sessions?: AgentSessionRepository;
   maxSessionsPerSprint?: number;
@@ -66,6 +101,10 @@ interface PendingResume {
 
 interface AfterClose {
   closedBefore: number;
+  sprintN: number | null;
+  /** HEAD and local base branch before the closing session, to prove it committed and left the base alone. */
+  headBefore: string | null;
+  baseBefore: string | null;
   fromSeq: number;
 }
 
@@ -176,6 +215,7 @@ export class Autopilot {
     const { chats, runs, manager, kyro, questions } = this.deps;
     let last: LastSession | null = null;
     let afterClose: AfterClose | null = null;
+    let busy = 0;
     for (;;) {
       let run = runs.get(chatId);
       const chat = chats.findById(chatId);
@@ -202,6 +242,13 @@ export class Autopilot {
       }
       const read = chat.kind === 'scope' ? await kyro.readScope(cwd) : await kyro.readWork(cwd);
       if (!read.ok) {
+        // The scope of an approved idea is created by the pilot's first session.
+        if (chat.kind === 'scope' && run.seedPath !== null && needsScopeInit(read.error, run)) {
+          const initial = await this.openInit(chat, run.seedPath);
+          if (initial === 'exit') return;
+          last = initial;
+          continue;
+        }
         this.stop(chat, {
           state: 'bloqueado',
           blockedReason: 'kyro_bloqueado',
@@ -216,9 +263,20 @@ export class Autopilot {
         this.pendingResume.delete(chatId);
         const resumed = await this.resumeStep(chat, resume, state);
         if (resumed === null) return;
+        if (resumed === 'busy') {
+          if (this.tooBusy(chat, ++busy)) return;
+          continue;
+        }
+        busy = 0;
         last = resumed.last;
         afterClose = resumed.afterClose;
         continue;
+      }
+
+      // A completed work goes to the PR: the phase is stored, so a restart takes it up again.
+      if (run.phase === 'merge') {
+        await this.mergePhase(chat, state);
+        return;
       }
 
       // Closing a sprint without having run QA is never accepted (R8).
@@ -233,12 +291,36 @@ export class Autopilot {
           });
           return;
         }
+        if (closed > afterClose.closedBefore && state.kind === 'scope') {
+          const qa = await readQaVerdict(cwd, state.scope, afterClose.sprintN ?? closed);
+          const verdict = qa.ok ? qa.verdict : qa.detail;
+          if (!qa.ok || !APPROVED_VERDICTS.includes(qa.verdict)) {
+            this.stop(chat, {
+              state: 'bloqueado',
+              blockedReason: 'qa_sin_aprobar',
+              detail: `El QA del sprint no quedó aprobado: ${verdict}`,
+            });
+            return;
+          }
+        }
+        if (closed > afterClose.closedBefore && state.kind === 'scope') {
+          if (!(await this.pushAfterSprint(chat, afterClose))) return;
+        }
         afterClose = null;
       }
 
       const decision = decideNextStep(state, run, last, { maxSessionsPerSprint: this.max });
+      if (decision.kind === 'complete') {
+        if (!(await this.complete(chat, state))) return;
+        last = { result: 'idle', answeredQuestion: false };
+        continue;
+      }
       if (decision.kind === 'finished') {
         runs.finish(chatId);
+        this.deps.tracker.pilotMark(chat, {
+          state: 'terminado',
+          reason: 'El piloto terminó el trabajo',
+        });
         return;
       }
       if (decision.kind === 'stop') {
@@ -281,6 +363,8 @@ export class Autopilot {
       const sprintN = state.kind === 'scope' ? state.sprint.current : null;
       const fromSeq = chats.lastSeq(chatId);
       const answeredBefore = questions.listByChat(chatId, 'answered').length;
+      const before =
+        step === 'close' ? await this.gitMarks(chat) : { headBefore: null, baseBefore: null };
       try {
         this.deps.manager.start(chatId, prompt, {
           role,
@@ -292,8 +376,14 @@ export class Autopilot {
           this.queue(chat);
           return;
         }
+        if (error instanceof AlreadyRunningError) {
+          // The user's message got in first: their turn wins, and the step is decided again after it.
+          if (this.tooBusy(chat, ++busy)) return;
+          continue;
+        }
         throw error;
       }
+      busy = 0;
       runs.beginSession(chatId, {
         step: step,
         sprintN,
@@ -301,7 +391,12 @@ export class Autopilot {
         policyVersion: POLICY_VERSION,
       });
       if (step === 'close' && state.kind === 'scope') {
-        afterClose = { closedBefore: state.sprint.closed ?? 0, fromSeq };
+        afterClose = {
+          closedBefore: state.sprint.closed ?? 0,
+          sprintN,
+          fromSeq,
+          ...before,
+        };
       }
 
       const settled = await this.settle(chat, fromSeq, answeredBefore);
@@ -309,6 +404,279 @@ export class Autopilot {
       last = settled;
       this.drainQueue();
     }
+  }
+
+  /** HEAD and local base branch right now; null where git cannot say. */
+  private async gitMarks(
+    chat: Chat,
+  ): Promise<{ headBefore: string | null; baseBefore: string | null }> {
+    const git = this.deps.git ?? realGit;
+    const base = this.deps.projectOf?.(chat)?.baseBranch;
+    try {
+      return {
+        headBefore: await git.head(chat.worktreePath),
+        baseBefore: base === undefined ? null : await git.branchHead(chat.worktreePath, base),
+      };
+    } catch {
+      return { headBefore: null, baseBefore: null };
+    }
+  }
+
+  /**
+   * After a closing session that closed the sprint: the branch got a commit, the local base did
+   * not move, and the branch goes to origin (never forced). False when the pilot stopped.
+   */
+  private async pushAfterSprint(chat: Chat, close: AfterClose): Promise<boolean> {
+    const git = this.deps.git ?? realGit;
+    const cwd = chat.worktreePath;
+    try {
+      if (close.headBefore !== null && (await git.head(cwd)) === close.headBefore) {
+        throw new Error('La sesión de cierre no dejó ningún commit nuevo en la rama');
+      }
+      const base = this.deps.projectOf?.(chat)?.baseBranch;
+      if (
+        base !== undefined &&
+        close.baseBefore !== null &&
+        (await git.branchHead(cwd, base)) !== close.baseBefore
+      ) {
+        throw new Error(`La rama base ${base} cambió durante el cierre`);
+      }
+    } catch (error) {
+      this.stop(chat, {
+        state: 'bloqueado',
+        blockedReason: 'git',
+        detail:
+          error instanceof Error ? error.message : 'No se pudo comprobar el commit del cierre',
+      });
+      return false;
+    }
+    return this.push(chat);
+  }
+
+  /** `git push -u origin <branch>` of the chat's branch; a failure stops with `git` and the output. */
+  private async push(chat: Chat): Promise<boolean> {
+    try {
+      await (this.deps.git ?? realGit).push(chat.worktreePath, chat.branch);
+      this.deps.chats.appendEvent(chat.id, 'git_push', { branch: chat.branch, remote: 'origin' });
+      return true;
+    } catch (error) {
+      this.stop(chat, {
+        state: 'bloqueado',
+        blockedReason: 'git',
+        detail: error instanceof Error ? error.message : 'El push falló',
+      });
+      return false;
+    }
+  }
+
+  /**
+   * The panel completes the scope or closes the work through the CLI and commits what Kyro wrote
+   * under `.agents/kyro/` (R18); false when the pilot stopped.
+   */
+  private async complete(chat: Chat, state: KyroScopeState | KyroWorkState): Promise<boolean> {
+    const { kyro, tracker } = this.deps;
+    const cwd = chat.worktreePath;
+    const name = state.kind === 'scope' ? state.scope : state.work;
+    tracker.pilotMark(chat, {
+      state: 'cerrando',
+      reason: state.kind === 'scope' ? 'El piloto completa el scope' : 'El piloto cierra el work',
+      data: { step: 'complete' },
+    });
+    const done =
+      state.kind === 'scope'
+        ? await kyro.completeScope(cwd, state.scope)
+        : await kyro.closeWork(cwd, state.work, state.revision, 'Trabajo completado por el piloto');
+    if (!done.ok) {
+      this.stop(chat, {
+        state: 'bloqueado',
+        blockedReason: 'kyro_bloqueado',
+        detail: `Kyro no pudo cerrar ${name}: ${done.error.message}`,
+      });
+      return false;
+    }
+    if (!(await this.commitCompletion(chat, state))) return false;
+    this.deps.runs.setPhase(chat.id, 'merge');
+    return true;
+  }
+
+  /**
+   * The merge phase (R14): the project's merge-dev skill or the generic merge, until the PRs are
+   * open. Ends the loop either way: the run finishes with the PR ready, or it stops with a reason.
+   */
+  private async mergePhase(chat: Chat, state: KyroScopeState | KyroWorkState): Promise<void> {
+    const { runs, tracker, chats } = this.deps;
+    const project = this.deps.projectOf?.(chat);
+    if (project === undefined) {
+      this.stop(chat, {
+        state: 'bloqueado',
+        blockedReason: 'otro',
+        detail: 'No se encontró el proyecto del trabajo para armar el merge',
+      });
+      return;
+    }
+    const name = state.kind === 'scope' ? state.scope : state.work;
+    const pr = await this.prText(chat, state);
+    const outcome: MergePhaseOutcome = await runMergePhase(
+      {
+        git: this.deps.git ?? realGit,
+        gh: this.deps.gh ?? realGh,
+        mark: (markState, reason, extra) => {
+          tracker.pilotMark(chat, {
+            state: markState,
+            reason,
+            ...(extra?.detail !== undefined ? { detail: extra.detail } : {}),
+            ...(extra?.data ? { data: extra.data } : {}),
+            ...(extra?.record ? { record: true } : {}),
+          });
+        },
+        record: (type, payload) => {
+          chats.appendEvent(chat.id, type, payload);
+        },
+        session: (step, prompt) => this.mergeSession(chat, step, prompt),
+        conflictPrompt: (conflicts) =>
+          buildMergePrompt({ base: project.baseBranch, conflicts, name }),
+        ...(this.deps.validateTimeoutMs !== undefined
+          ? { validateTimeoutMs: this.deps.validateTimeoutMs }
+          : {}),
+        ...(this.deps.scan ? { scan: this.deps.scan } : {}),
+      },
+      {
+        chat,
+        base: project.baseBranch,
+        project: { validateCommand: project.validateCommand },
+        name,
+        pr,
+        mergeDevPrompt: buildMergeDevPrompt({
+          worktree: chat.worktreePath,
+          base: project.baseBranch,
+          name,
+        }),
+      },
+    );
+    if (outcome.kind === 'exit') return;
+    if (outcome.kind === 'stop') {
+      this.stop(chat, {
+        state: 'bloqueado',
+        blockedReason: outcome.blockedReason,
+        detail: outcome.detail,
+      });
+      return;
+    }
+    runs.setPrUrls(chat.id, outcome.prUrls);
+    runs.finish(chat.id);
+  }
+
+  /** Title and body of the PR: the scope's objective and the sprints it closed. */
+  private async prText(
+    chat: Chat,
+    state: KyroScopeState | KyroWorkState,
+  ): Promise<{ title: string; body: string }> {
+    const footer = 'Abierta por el piloto del panel. Revisá los cambios antes de mergear.';
+    if (state.kind === 'work') {
+      return {
+        title: `Work ${state.work}`,
+        body: `Work \`${state.work}\` completado.\n\n${footer}`,
+      };
+    }
+    const summary = await this.deps.kyro.scopeSummary?.(chat.worktreePath, state.scope);
+    if (!summary?.ok)
+      return { title: `Scope ${state.scope}`, body: `Scope \`${state.scope}\`.\n\n${footer}` };
+    const { title, objective, sprints } = summary.state;
+    return {
+      title: title === '' ? `Scope ${state.scope}` : title,
+      body: [
+        objective === '' ? `Scope \`${state.scope}\`.` : objective,
+        '',
+        '## Sprints cerrados',
+        ...(sprints.length === 0 ? ['- ninguno'] : sprints.map((sprint) => `- ${sprint}`)),
+        '',
+        footer,
+      ].join('\n'),
+    };
+  }
+
+  /** The executor session of the merge phase; 'exit' when the loop must stop. */
+  private async mergeSession(
+    chat: Chat,
+    step: 'merge' | 'merge_dev',
+    prompt: string,
+  ): Promise<'done' | 'exit'> {
+    const { chats, runs, questions } = this.deps;
+    const fromSeq = chats.lastSeq(chat.id);
+    const answeredBefore = questions.listByChat(chat.id, 'answered').length;
+    try {
+      this.deps.manager.start(chat.id, prompt, {
+        role: 'executor',
+        freshSession: true,
+        pilot: { step, policyVersion: POLICY_VERSION, sprintN: null },
+      });
+    } catch (error) {
+      if (error instanceof SessionLimitError || error instanceof MaintenanceError) {
+        this.queue(chat);
+        return 'exit';
+      }
+      throw error;
+    }
+    runs.beginSession(chat.id, {
+      step,
+      sprintN: null,
+      fingerprint: {},
+      policyVersion: POLICY_VERSION,
+    });
+    const settled = await this.settle(chat, fromSeq, answeredBefore);
+    return settled === 'exit' ? 'exit' : 'done';
+  }
+
+  /** Commits the `.agents/kyro/` changes of the completion; a git failure stops the pilot. */
+  private async commitCompletion(
+    chat: Chat,
+    state: KyroScopeState | KyroWorkState,
+  ): Promise<boolean> {
+    const message =
+      state.kind === 'scope'
+        ? `chore(kyro): completar scope ${state.scope}`
+        : `chore(kyro): cerrar work ${state.work}`;
+    try {
+      await (this.deps.git ?? realGit).commitKyro(chat.worktreePath, message);
+      return await this.push(chat);
+    } catch (error) {
+      this.stop(chat, {
+        state: 'bloqueado',
+        blockedReason: 'git',
+        detail: error instanceof Error ? error.message : 'El commit de cierre falló',
+      });
+      return false;
+    }
+  }
+
+  /** Opens the session that creates the scope from the approved idea; 'exit' when the loop stops. */
+  private async openInit(chat: Chat, seedPath: string): Promise<LastSession | 'exit'> {
+    const { chats, runs, questions } = this.deps;
+    const fromSeq = chats.lastSeq(chat.id);
+    const answeredBefore = questions.listByChat(chat.id, 'answered').length;
+    try {
+      this.deps.manager.start(chat.id, buildInitPrompt({ scope: chat.slug, seedPath }), {
+        role: 'thinker',
+        freshSession: true,
+        pilot: { step: 'init', policyVersion: POLICY_VERSION, sprintN: null },
+      });
+    } catch (error) {
+      if (error instanceof SessionLimitError || error instanceof MaintenanceError) {
+        this.queue(chat);
+        return 'exit';
+      }
+      throw error;
+    }
+    runs.beginSession(chat.id, {
+      step: 'init',
+      sprintN: null,
+      fingerprint: {},
+      policyVersion: POLICY_VERSION,
+    });
+    const settled = await this.settle(chat, fromSeq, answeredBefore);
+    if (settled === 'exit') return 'exit';
+    this.drainQueue();
+    return settled;
   }
 
   /** Waits for the session to end and reads how it ended; 'exit' when the loop must stop. */
@@ -405,7 +773,7 @@ export class Autopilot {
     chat: Chat,
     resume: PendingResume,
     state: KyroScopeState | KyroWorkState,
-  ): Promise<{ last: LastSession; afterClose: AfterClose | null } | null> {
+  ): Promise<{ last: LastSession; afterClose: AfterClose | null } | 'busy' | null> {
     const { chats, runs, manager, questions } = this.deps;
     const fromSeq = chats.lastSeq(chat.id);
     const answeredBefore = questions.listByChat(chat.id, 'answered').length;
@@ -424,6 +792,10 @@ export class Autopilot {
         this.pendingResume.set(chat.id, resume);
         return null;
       }
+      if (error instanceof AlreadyRunningError) {
+        this.pendingResume.set(chat.id, resume);
+        return 'busy';
+      }
       throw error;
     }
     runs.countSession(chat.id);
@@ -432,9 +804,27 @@ export class Autopilot {
     // The QA check covers the whole step, so it counts from where the interrupted session began.
     const afterClose =
       resume.step === 'close' && state.kind === 'scope'
-        ? { closedBefore: state.sprint.closed ?? 0, fromSeq: this.stepStartSeq(chat.id) }
+        ? {
+            closedBefore: state.sprint.closed ?? 0,
+            sprintN: resume.sprintN,
+            fromSeq: this.stepStartSeq(chat.id),
+            // The session began before the restart: there is no mark to compare against.
+            headBefore: null,
+            baseBefore: null,
+          }
         : null;
     return { last: settled, afterClose };
+  }
+
+  /** True (and the pilot stops) when the chat was busy `count` times in a row. */
+  private tooBusy(chat: Chat, count: number): boolean {
+    if (count <= MAX_BUSY_RETRIES) return false;
+    this.stop(chat, {
+      state: 'bloqueado',
+      blockedReason: 'otro',
+      detail: `El chat siguió ocupado por mensajes del usuario tras ${String(MAX_BUSY_RETRIES)} intentos`,
+    });
+    return true;
   }
 
   /** Seq just before the latest `session_started` event of the chat. */
@@ -461,6 +851,7 @@ export class Autopilot {
       state: Parameters<WorktreeStateTracker['pilotMark']>[1]['state'];
       blockedReason: Parameters<WorktreeStateTracker['pilotMark']>[1]['blockedReason'];
       detail: string | null;
+      data?: Record<string, unknown>;
     },
   ): undefined {
     const reason = stop.detail ?? stop.blockedReason ?? stop.state;
@@ -469,6 +860,7 @@ export class Autopilot {
       reason: `El piloto frenó: ${reason}`,
       detail: stop.detail,
       blockedReason: stop.blockedReason ?? null,
+      ...(stop.data ? { data: stop.data, record: true } : {}),
     });
     try {
       this.deps.runs.stop(chat.id, reason);

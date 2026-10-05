@@ -1,7 +1,10 @@
+import { mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { fingerprint } from '../src/pilot/decide.js';
 import { describe, expect, it } from 'vitest';
 import type { AutopilotStep } from '@agents-panel/shared';
-import { AgentManager } from '../src/agent/manager.js';
+import { AgentManager, AlreadyRunningError } from '../src/agent/manager.js';
 import { buildQueryOptions } from '../src/agent/sdk-runner.js';
 import type { AgentEvent, RunParams } from '../src/agent/runner.js';
 import { ChatEventBus } from '../src/chats/events.js';
@@ -9,8 +12,16 @@ import { QuestionRepository } from '../src/chats/questions-repo.js';
 import { ChatRepository } from '../src/chats/repo.js';
 import { AgentSessionRepository } from '../src/chats/sessions-repo.js';
 import { openDatabase } from '../src/db/index.js';
-import type { KyroReadResult } from '../src/kyro/reader.js';
-import type { AnalyzeFinding, KyroScopeState, KyroTaskContext } from '../src/kyro/state.js';
+import type { KyroActionResult, KyroReadResult } from '../src/kyro/reader.js';
+import type { MergeGit, PilotGit } from '../src/pilot/git-ops.js';
+import type { SecretFinding } from '../src/pilot/secrets.js';
+import type { PilotGh } from '../src/pilot/github-cli.js';
+import type {
+  AnalyzeFinding,
+  KyroScopeState,
+  KyroTaskContext,
+  ScopeSummary,
+} from '../src/kyro/state.js';
 import {
   Autopilot,
   QUOTA_RETRY_MS,
@@ -36,6 +47,8 @@ class FakeKyro implements PilotKyro {
   analyzeCalls = 0;
   /** When true a fix session does not clear the findings (to reach the session cap). */
   keepFindings = false;
+  /** The scope of an approved idea: Kyro has none until the init session creates it. */
+  missing = false;
 
   constructor(total = 2) {
     this.state = {
@@ -53,6 +66,9 @@ class FakeKyro implements PilotKyro {
   }
 
   readScope(): Promise<KyroReadResult<KyroScopeState>> {
+    if (this.missing) {
+      return Promise.resolve({ ok: false, error: { kind: 'no_target', message: 'sin scope' } });
+    }
     return Promise.resolve({ ok: true, state: structuredClone(this.state) });
   }
   readWork(): Promise<never> {
@@ -85,6 +101,30 @@ class FakeKyro implements PilotKyro {
   workContextPack(): Promise<never> {
     return Promise.reject(new Error('not a work'));
   }
+  scopeSummary(): Promise<KyroReadResult<ScopeSummary>> {
+    return Promise.resolve({
+      ok: true,
+      state: { title: 'Mi scope', objective: 'Objetivo del scope', sprints: ['Sprint 1: uno'] },
+    });
+  }
+  completed: string[] = [];
+  /** When set, completing fails with this message. */
+  completeError: string | null = null;
+
+  completeScope(): Promise<KyroActionResult> {
+    if (this.completeError !== null) {
+      return Promise.resolve({
+        ok: false,
+        error: { kind: 'cli_failed', message: this.completeError },
+      });
+    }
+    this.completed.push(`scope ${this.state.scope}`);
+    this.state.nextAction = 'done';
+    return Promise.resolve({ ok: true });
+  }
+  closeWork(): Promise<KyroActionResult> {
+    return Promise.resolve({ ok: true });
+  }
   analyze(): Promise<KyroReadResult<AnalyzeFinding[]>> {
     this.analyzeCalls++;
     return Promise.resolve({ ok: true, state: this.findings });
@@ -93,7 +133,11 @@ class FakeKyro implements PilotKyro {
   /** What a session of each step does to Kyro. */
   apply(step: string): void {
     const s = this.state;
-    if (step === 'plan') {
+    if (step === 'merge' || step === 'merge_dev') return;
+    if (step === 'init') {
+      this.missing = false;
+      s.nextAction = 'plan_sprint';
+    } else if (step === 'plan') {
       s.sprint.current = (s.sprint.closed ?? 0) + 1;
       s.nextAction = 'execute_task';
       s.nextTaskId = `T${String(s.sprint.current)}.1`;
@@ -116,6 +160,9 @@ class FakeKyro implements PilotKyro {
 
 function stepOf(prompt: string): string {
   if (prompt.includes('panel restarted')) return 'execute';
+  if (prompt.includes('Create the scope of an approved idea')) return 'init';
+  if (prompt.includes('Resolve the merge conflicts')) return 'merge';
+  if (prompt.includes('with the merge-dev skill')) return 'merge_dev';
   if (prompt.includes('This is a planning session')) return 'plan';
   if (prompt.includes('Fix the findings')) return 'fix';
   if (prompt.includes('This is a closing session')) return 'close';
@@ -129,9 +176,125 @@ const qaEvent: AgentEvent = {
   },
 };
 
+function writeReport(cwd: string, sprintN: number, report: string | undefined): void {
+  if (report === 'none') return;
+  const dir = path.join(cwd, '.agents', 'kyro', 'qa', 'demo');
+  mkdirSync(dir, { recursive: true });
+  const file = path.join(dir, `sprint-${String(sprintN)}.md`);
+  if (report === 'symlink') {
+    const target = path.join(cwd, 'outside.md');
+    writeFileSync(target, 'Verdict: APPROVED\n');
+    symlinkSync(target, file);
+    return;
+  }
+  writeFileSync(file, `${report ?? 'Verdict: APPROVED'}\n\nInforme.\n`);
+}
+
+/** Records the PRs instead of calling GitHub. */
+class FakeGh implements PilotGh {
+  created: { base: string; head: string; title: string; body: string }[] = [];
+  open: string[] = [];
+  openPr(): Promise<string | null> {
+    return Promise.resolve(this.open[0] ?? null);
+  }
+  openPrsOf(): Promise<string[]> {
+    return Promise.resolve(this.open);
+  }
+  createPr(
+    _cwd: string,
+    input: { base: string; head: string; title: string; bodyFile: string },
+  ): Promise<string> {
+    this.created.push({
+      base: input.base,
+      head: input.head,
+      title: input.title,
+      body: readFileSync(input.bodyFile, 'utf8'),
+    });
+    return Promise.resolve('https://github.com/o/r/pull/1');
+  }
+}
+
+/** Records the commits of the closing instead of running git. */
+class FakeGit implements PilotGit, MergeGit {
+  commits: string[] = [];
+  pushes: string[] = [];
+  /** Moves when a closing session commits; the pilot compares it with the mark it took before. */
+  headCounter = 0;
+  base = 'base-1';
+  pushError: string | null = null;
+  /** The merge phase: what the pull finds, and what the merge session leaves behind. */
+  pending = false;
+  pulls: string[] = [];
+  conflicts: string[] = [];
+  merging = false;
+  ancestor = false;
+  branchName = 'feature/a';
+  hasPendingChanges(): Promise<boolean> {
+    return Promise.resolve(this.pending);
+  }
+  commitPending(): Promise<{ committed: boolean }> {
+    this.pending = false;
+    return Promise.resolve({ committed: true });
+  }
+  pull(_cwd: string, base: string): Promise<{ ok: boolean; output: string }> {
+    this.pulls.push(base);
+    if (this.conflicts.length > 0) {
+      this.merging = true;
+      return Promise.resolve({ ok: false, output: 'CONFLICT' });
+    }
+    return Promise.resolve({ ok: true, output: 'Already up to date.' });
+  }
+  unmergedPaths(): Promise<string[]> {
+    return Promise.resolve(this.conflicts);
+  }
+  mergeInProgress(): Promise<boolean> {
+    return Promise.resolve(this.merging);
+  }
+  currentBranch(): Promise<string> {
+    return Promise.resolve(this.branchName);
+  }
+  isAncestor(): Promise<boolean> {
+    return Promise.resolve(this.ancestor);
+  }
+  head(): Promise<string> {
+    return Promise.resolve(`head-${String(this.headCounter)}`);
+  }
+  branchHead(): Promise<string> {
+    return Promise.resolve(this.base);
+  }
+  push(_cwd: string, branch: string): Promise<void> {
+    if (this.pushError !== null) return Promise.reject(new Error(this.pushError));
+    this.pushes.push(branch);
+    return Promise.resolve();
+  }
+  /** When set, the commit fails with this message. */
+  error: string | null = null;
+  commitKyro(_cwd: string, message: string): Promise<{ committed: boolean }> {
+    if (this.error !== null) return Promise.reject(new Error(this.error));
+    this.commits.push(message);
+    return Promise.resolve({ committed: true });
+  }
+}
+
 async function setup(
-  opts: { total?: number; maxConcurrent?: number; maxSessions?: number; skipQa?: boolean } = {},
+  opts: {
+    total?: number;
+    maxConcurrent?: number;
+    maxSessions?: number;
+    skipQa?: boolean;
+    /** What the closing session leaves as QA report: file content, or no file / a symlink. */
+    report?: string;
+    /** The chat comes from an approved idea: no scope in Kyro yet, this document seeds it. */
+    seedPath?: string;
+    /** The init session leaves Kyro without a scope (it failed). */
+    initFails?: boolean;
+    /** The closing session leaves no new commit on the branch. */
+    noCommit?: boolean;
+    /** The merge session leaves the conflicts as they were. */
+    leaveConflicts?: boolean;
+  } = {},
 ) {
+  const fakeGitRef = new FakeGit();
   const db = openDatabase(':memory:');
   const project = await new ProjectRepository(db).add({
     name: 'demo',
@@ -141,6 +304,7 @@ async function setup(
   const chats = new ChatRepository(db);
   const bus = new ChatEventBus();
   const kyro = new FakeKyro(opts.total);
+  kyro.missing = opts.seedPath !== undefined;
   const states = new WorktreeStateRepository(db, chats, bus);
   const tracker = new WorktreeStateTracker(states, kyro);
   const questions = new QuestionRepository(db);
@@ -151,8 +315,14 @@ async function setup(
     const step = stepOf(params.prompt);
     // Only the pilot's prompts move Kyro; a manual message does nothing to it.
     if (params.prompt.includes('Autopilot policy') || params.prompt.includes('panel restarted')) {
-      kyro.apply(step);
+      if (!(step === 'init' && opts.initFails === true)) kyro.apply(step);
     }
+    if (step === 'close' && opts.noCommit !== true) fakeGitRef.headCounter++;
+    if (step === 'merge' && opts.leaveConflicts !== true) {
+      fakeGitRef.conflicts = [];
+      fakeGitRef.merging = false;
+    }
+    if (step === 'close') writeReport(params.cwd, kyro.state.sprint.closed ?? 0, opts.report);
     n++;
     const events: AgentEvent[] = [
       { type: 'system:init', payload: {}, sessionId: `sess-${String(n)}` },
@@ -172,6 +342,9 @@ async function setup(
     tracker,
   );
   const runs = new AutopilotRunRepository(db);
+  const fakeGit = fakeGitRef;
+  const fakeGh = new FakeGh();
+  const scanFindings: SecretFinding[] = [];
   const scheduled: { fn: () => void; ms: number }[] = [];
   let clock = 1_000_000;
   const pilot = new Autopilot({
@@ -182,6 +355,10 @@ async function setup(
     tracker,
     questions,
     sessions,
+    git: fakeGit,
+    gh: fakeGh,
+    scan: () => Promise.resolve(scanFindings),
+    projectOf: () => ({ baseBranch: 'main', validateCommand: null }),
     maxSessionsPerSprint: opts.maxSessions ?? 6,
     now: () => clock,
     schedule: (fn, ms) => scheduled.push({ fn, ms }),
@@ -192,17 +369,20 @@ async function setup(
       kind: 'scope',
       slug,
       title: slug,
-      worktreePath: `/tmp/wt/${slug}`,
+      worktreePath: mkdtempSync(path.join(tmpdir(), `wt-${slug}-`)),
       branch: `feature/${slug}`,
       status: 'idle',
     });
   const chat = newChat('a');
   tracker.created(chat);
-  runs.create(chat.id);
+  runs.create(chat.id, null, opts.seedPath ?? null);
   return {
     db,
     chats,
     kyro,
+    git: fakeGit,
+    gh: fakeGh,
+    secrets: scanFindings,
     states,
     tracker,
     sessions,
@@ -219,7 +399,7 @@ async function setup(
 }
 
 describe('Autopilot over a 2-sprint scope (S7)', () => {
-  it('opens a new session per step with the model of its role and stops at await_scope_completion', async () => {
+  it('opens a new session per step with the model of its role and completes the scope at await_scope_completion', async () => {
     const t = await setup();
     await t.pilot.drive(t.chat.id);
 
@@ -240,8 +420,10 @@ describe('Autopilot over a 2-sprint scope (S7)', () => {
       ]),
     );
     expect(t.kyro.analyzeCalls).toBe(2);
-    expect(t.runs.get(t.chat.id)).toMatchObject({ status: 'stopped' });
-    expect(t.states.get(t.chat.id)?.state).toBe('esperando_aprobacion_cierre');
+    expect(t.runs.get(t.chat.id)).toMatchObject({ status: 'finished' });
+    expect(t.states.get(t.chat.id)?.state).toBe('pr_lista');
+    expect(t.kyro.completed).toEqual(['scope demo']);
+    expect(t.git.commits).toEqual(['chore(kyro): completar scope demo']);
   });
 
   it('leaves every pilot transition in the Timeline with actor pilot, step, role, model and policy', async () => {
@@ -308,6 +490,346 @@ describe('quality gate (S9)', () => {
     });
     expect(t.runs.get(t.chat.id)).toMatchObject({ status: 'stopped' });
     expect(t.runner.calls).toHaveLength(3);
+  });
+});
+
+describe('push after each close (R12)', () => {
+  it('pushes the branch of the worktree after every sprint that closed, after the completion and in the merge', async () => {
+    const t = await setup();
+    await t.pilot.drive(t.chat.id);
+    // Two sprints, the completion and the merge: the same branch every time, never forced.
+    expect(t.git.pushes).toEqual(['feature/a', 'feature/a', 'feature/a', 'feature/a']);
+    expect(t.states.get(t.chat.id)?.state).toBe('pr_lista');
+  });
+
+  it('stops with git when the closing session left no new commit, and does not push', async () => {
+    const t = await setup({ total: 1, noCommit: true });
+    await t.pilot.drive(t.chat.id);
+    expect(t.states.get(t.chat.id)).toMatchObject({ state: 'bloqueado', blockedReason: 'git' });
+    expect(t.states.get(t.chat.id)?.detail).toContain('ningún commit nuevo');
+    expect(t.git.pushes).toEqual([]);
+  });
+
+  it('stops with git when the local base branch moved during the closing', async () => {
+    const t = await setup({ total: 1 });
+    const base = t.runner.script;
+    t.runner.script = (params) => {
+      if (stepOf(params.prompt) === 'close') t.git.base = 'base-2';
+      return base(params);
+    };
+    await t.pilot.drive(t.chat.id);
+    expect(t.states.get(t.chat.id)).toMatchObject({ state: 'bloqueado', blockedReason: 'git' });
+    expect(t.states.get(t.chat.id)?.detail).toContain('main');
+    expect(t.git.pushes).toEqual([]);
+  });
+
+  it('stops with git and the output of git when the push fails, without retrying', async () => {
+    const t = await setup({ total: 1 });
+    t.git.pushError = 'git push falló: rejected (non-fast-forward)';
+    await t.pilot.drive(t.chat.id);
+    expect(t.states.get(t.chat.id)).toMatchObject({ state: 'bloqueado', blockedReason: 'git' });
+    expect(t.states.get(t.chat.id)?.detail).toContain('non-fast-forward');
+    expect(t.runs.get(t.chat.id)).toMatchObject({ status: 'stopped' });
+    expect(t.kyro.completed).toEqual([]);
+  });
+});
+
+describe('merge phase (R14)', () => {
+  it('opens the PR of the branch against the base with the objective and the sprints, and keeps the phase and URL in the run', async () => {
+    const t = await setup({ total: 1 });
+    await t.pilot.drive(t.chat.id);
+    expect(t.git.pulls).toEqual(['main']);
+    expect(t.gh.created).toHaveLength(1);
+    expect(t.gh.created[0]).toMatchObject({ base: 'main', head: 'feature/a', title: 'Mi scope' });
+    expect(t.gh.created[0]?.body).toContain('Objetivo del scope');
+    expect(t.gh.created[0]?.body).toContain('- Sprint 1: uno');
+    expect(t.runs.get(t.chat.id)).toMatchObject({
+      status: 'finished',
+      phase: 'merge',
+      prUrls: ['https://github.com/o/r/pull/1'],
+    });
+    const states = t.states.timeline(t.chat.id).map((x) => x.toState);
+    expect(states.slice(-5)).toEqual([
+      'cerrando',
+      'trayendo_dev',
+      'validando_post_merge',
+      'abriendo_pr',
+      'pr_lista',
+    ]);
+    expect(t.states.get(t.chat.id)?.state).toBe('pr_lista');
+  });
+
+  it('with conflicts opens a merge session with the executor and goes on when they are resolved', async () => {
+    const t = await setup({ total: 1 });
+    t.git.conflicts = ['shared.txt'];
+    await t.pilot.drive(t.chat.id);
+    const steps = t.sessions.listByChat(t.chat.id).map((s) => s.step);
+    expect(steps.at(-1)).toBe('merge');
+    const merge = t.runner.calls.at(-1);
+    expect(merge).toMatchObject({ role: 'executor', model: 'claude-sonnet-5-5' });
+    expect(merge?.prompt).toContain('shared.txt');
+    expect(merge?.prompt).toContain('git commit --no-edit');
+    expect(t.states.timeline(t.chat.id).map((x) => x.toState)).toContain('resolviendo_conflictos');
+    expect(t.gh.created).toHaveLength(1);
+    expect(t.runs.get(t.chat.id)).toMatchObject({ status: 'finished' });
+  });
+
+  it('stops with conflicto when the merge session leaves paths unmerged, and opens no PR', async () => {
+    const t = await setup({ total: 1, leaveConflicts: true });
+    t.git.conflicts = ['shared.txt'];
+    await t.pilot.drive(t.chat.id);
+    expect(t.states.get(t.chat.id)).toMatchObject({
+      state: 'bloqueado',
+      blockedReason: 'conflicto',
+    });
+    expect(t.states.get(t.chat.id)?.detail).toContain('shared.txt');
+    expect(t.gh.created).toEqual([]);
+    expect(t.runs.get(t.chat.id)).toMatchObject({ status: 'stopped', phase: 'merge' });
+  });
+
+  it('stops with secretos listing only files and kinds, before pushing the final branch', async () => {
+    const t = await setup({ total: 1 });
+    t.secrets.push({ file: 'src/a.ts', kind: 'github_token' });
+    const pushesBefore = t.git.pushes.length;
+    await t.pilot.drive(t.chat.id);
+    expect(t.states.get(t.chat.id)).toMatchObject({
+      state: 'bloqueado',
+      blockedReason: 'secretos',
+    });
+    expect(t.states.get(t.chat.id)?.detail).toBe('src/a.ts (token de GitHub)');
+    expect(t.gh.created).toEqual([]);
+    // Only the pushes of the sprint close and of the completion happened.
+    expect(t.git.pushes.length).toBe(pushesBefore + 2);
+  });
+
+  it('a restart in the merge phase resumes the merge without opening any Kyro session', async () => {
+    const t = await setup({ total: 1 });
+    t.kyro.state.nextAction = 'done';
+    t.kyro.state.sprint.closed = 1;
+    t.runs.setPhase(t.chat.id, 'merge');
+    await t.pilot.drive(t.chat.id);
+    expect(t.runner.calls).toHaveLength(0);
+    expect(t.gh.created).toHaveLength(1);
+    expect(t.runs.get(t.chat.id)).toMatchObject({ status: 'finished' });
+  });
+
+  describe('with the merge-dev skill of the project', () => {
+    const withSkill = async (opts: Parameters<typeof setup>[0] = {}) => {
+      const t = await setup(opts);
+      const skill = path.join(t.chat.worktreePath, '.claude', 'skills', 'merge-dev', 'SKILL.md');
+      mkdirSync(path.dirname(skill), { recursive: true });
+      writeFileSync(skill, '# merge-dev\n');
+      return { t, skill };
+    };
+
+    it('opens a merge_dev session with the executor that reads the skill and finishes when the PRs are open', async () => {
+      const { t, skill } = await withSkill({ total: 1 });
+      t.gh.open = ['https://github.com/o/ventas/pull/4', 'https://github.com/o/ventas-api/pull/5'];
+      await t.pilot.drive(t.chat.id);
+      const call = t.runner.calls.at(-1);
+      expect(t.sessions.listByChat(t.chat.id).at(-1)?.step).toBe('merge_dev');
+      expect(call).toMatchObject({ role: 'executor' });
+      expect(call?.prompt).toContain(skill);
+      expect(call?.prompt).toContain('Never run "git merge --abort"');
+      expect(call?.prompt).not.toContain('Never run "git push"');
+      expect(t.gh.created).toEqual([]); // the skill opens the PRs, not the panel
+      expect(t.runs.get(t.chat.id)).toMatchObject({
+        status: 'finished',
+        prUrls: ['https://github.com/o/ventas/pull/4', 'https://github.com/o/ventas-api/pull/5'],
+      });
+    });
+
+    it('accepts a branch that already reached the base as the success signal', async () => {
+      const { t } = await withSkill({ total: 1 });
+      t.git.ancestor = true;
+      await t.pilot.drive(t.chat.id);
+      expect(t.runs.get(t.chat.id)).toMatchObject({ status: 'finished', prUrls: [] });
+      expect(t.states.get(t.chat.id)?.state).toBe('mergeada');
+    });
+
+    it('stops with merge_sin_pr when there is no PR and the branch is not in the base', async () => {
+      const { t } = await withSkill({ total: 1 });
+      await t.pilot.drive(t.chat.id);
+      expect(t.states.get(t.chat.id)).toMatchObject({
+        state: 'bloqueado',
+        blockedReason: 'merge_sin_pr',
+      });
+      expect(t.runs.get(t.chat.id)).toMatchObject({ status: 'stopped' });
+    });
+  });
+});
+
+describe('completing the scope (R18)', () => {
+  it('without open debt the panel completes the scope, commits and does not ask', async () => {
+    const t = await setup({ total: 1 });
+    await t.pilot.drive(t.chat.id);
+    expect(t.kyro.completed).toEqual(['scope demo']);
+    expect(t.git.commits).toEqual(['chore(kyro): completar scope demo']);
+    expect(t.runs.get(t.chat.id)).toMatchObject({ status: 'finished' });
+    const cerrando = t.states.timeline(t.chat.id).find((x) => x.toState === 'cerrando');
+    expect(cerrando?.actor).toBe('pilot');
+  });
+
+  it('with open debt it stops once in esperando_aprobacion_cierre with the debt list and completes nothing', async () => {
+    const t = await setup({ total: 1 });
+    const base = t.runner.script;
+    t.runner.script = (params) => {
+      const events = base(params);
+      if (stepOf(params.prompt) === 'close') {
+        t.kyro.state.openDebt = 1;
+        t.kyro.state.debtItems = [{ id: 'debt-9', title: 'Pendiente', priority: 'high' }];
+      }
+      return events;
+    };
+    await t.pilot.drive(t.chat.id);
+    expect(t.kyro.completed).toEqual([]);
+    expect(t.git.commits).toEqual([]);
+    expect(t.states.get(t.chat.id)).toMatchObject({ state: 'esperando_aprobacion_cierre' });
+    expect(t.states.timeline(t.chat.id).at(-1)).toMatchObject({
+      toState: 'esperando_aprobacion_cierre',
+      actor: 'pilot',
+      data: { debt: [{ id: 'debt-9', title: 'Pendiente', priority: 'high' }] },
+    });
+    expect(t.runs.get(t.chat.id)).toMatchObject({ status: 'stopped' });
+  });
+
+  it('a Kyro failure while completing stops with kyro_bloqueado and commits nothing', async () => {
+    const t = await setup({ total: 1 });
+    t.kyro.completeError = 'NOT_READY_TO_COMPLETE';
+    await t.pilot.drive(t.chat.id);
+    expect(t.states.get(t.chat.id)).toMatchObject({
+      state: 'bloqueado',
+      blockedReason: 'kyro_bloqueado',
+    });
+    expect(t.git.commits).toEqual([]);
+  });
+
+  it('a failed commit stops with the reason git', async () => {
+    const t = await setup({ total: 1 });
+    t.git.error = 'git commit falló: no identity';
+    await t.pilot.drive(t.chat.id);
+    expect(t.states.get(t.chat.id)).toMatchObject({ state: 'bloqueado', blockedReason: 'git' });
+    expect(t.runs.get(t.chat.id)).toMatchObject({ status: 'stopped' });
+  });
+});
+
+describe('scope of an approved idea (init step)', () => {
+  it('opens an init session with the thinker, kyro-forge and the idea path, then follows the normal loop', async () => {
+    const t = await setup({ total: 1, seedPath: '.agents/kyro/plan/idea.md' });
+    await t.pilot.drive(t.chat.id);
+    expect(t.sessions.listByChat(t.chat.id).map((s) => s.step)).toEqual([
+      'init',
+      'plan',
+      'execute',
+      'close',
+    ]);
+    const init = t.runner.calls[0];
+    expect(init).toMatchObject({ role: 'thinker', model: 'claude-opus-5-5' });
+    expect(init?.prompt).toContain('kyro-forge/SKILL.md');
+    expect(init?.prompt).toContain('.agents/kyro/plan/idea.md');
+    expect(init?.prompt).toContain('Scope: a');
+    expect(init?.prompt).toContain('Autopilot policy');
+    expect(t.runner.calls.map((c) => c.resumeSessionId)).toEqual([
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+    ]);
+    expect(t.states.get(t.chat.id)?.state).toBe('pr_lista');
+  });
+
+  it('stops with kyro_bloqueado when the init session leaves no scope, without opening another one', async () => {
+    const t = await setup({ seedPath: '.agents/kyro/plan/idea.md', initFails: true });
+    await t.pilot.drive(t.chat.id);
+    expect(t.runner.calls).toHaveLength(1);
+    expect(t.states.get(t.chat.id)).toMatchObject({
+      state: 'bloqueado',
+      blockedReason: 'kyro_bloqueado',
+    });
+  });
+
+  it('a scope without a seed and without Kyro target stops as before, with no init', async () => {
+    const t = await setup();
+    t.kyro.missing = true;
+    await t.pilot.drive(t.chat.id);
+    expect(t.runner.calls).toHaveLength(0);
+    expect(t.states.get(t.chat.id)).toMatchObject({ blockedReason: 'kyro_bloqueado' });
+  });
+});
+
+describe('QA verdict of the closing session (debt-6)', () => {
+  it.each(['Verdict: APPROVED', 'Verdict: APPROVED WITH NOTES'])(
+    '%s lets the pilot go on',
+    async (report) => {
+      const t = await setup({ total: 1, report });
+      await t.pilot.drive(t.chat.id);
+      expect(t.states.get(t.chat.id)?.state).toBe('pr_lista');
+    },
+  );
+
+  it.each([
+    ['Verdict: CHANGES REQUIRED', 'CHANGES REQUIRED'],
+    ['Verdict: REJECTED', 'REJECTED'],
+    ['verdict: APPROVED', 'sin la línea'],
+    ['Veredicto aprobado', 'sin la línea'],
+    ['Verdict: APPROVED but not really', 'sin la línea'],
+    ['none', 'sin informe'],
+    ['symlink', 'sin informe'],
+  ])('%s blocks with qa_sin_aprobar', async (report, detail) => {
+    const t = await setup({ total: 1, report });
+    await t.pilot.drive(t.chat.id);
+    const state = t.states.get(t.chat.id);
+    expect(state).toMatchObject({ state: 'bloqueado', blockedReason: 'qa_sin_aprobar' });
+    expect(t.states.timeline(t.chat.id).at(-1)?.reason).toContain(detail);
+    expect(t.runs.get(t.chat.id)).toMatchObject({ status: 'stopped' });
+  });
+});
+
+describe('a user message between waitForIdle and start (debt-7)', () => {
+  /** Makes the next `times` calls of manager.start fail as if the user's turn got in first. */
+  function busyStart(
+    t: Awaited<ReturnType<typeof setup>>,
+    times: number,
+  ): { failed: () => number } {
+    const original = t.manager.start.bind(t.manager);
+    let failed = 0;
+    t.manager.start = (...args: Parameters<typeof original>) => {
+      if (failed < times) {
+        failed++;
+        throw new AlreadyRunningError('Chat is already running');
+      }
+      original(...args);
+    };
+    return { failed: () => failed };
+  }
+
+  it('opens the step after the busy turn, with no stop and without counting the failed attempt', async () => {
+    const base = await setup({ total: 1 });
+    await base.pilot.drive(base.chat.id);
+    const t = await setup({ total: 1 });
+    const busy = busyStart(t, 1);
+    await t.pilot.drive(t.chat.id);
+    expect(busy.failed()).toBe(1);
+    expect(t.sessions.listByChat(t.chat.id).map((s) => s.step)).toEqual([
+      'plan',
+      'execute',
+      'close',
+    ]);
+    expect(t.runs.get(t.chat.id)).toMatchObject({
+      status: 'finished',
+      sessionsInSprint: base.runs.get(base.chat.id)?.sessionsInSprint,
+    });
+    expect(t.states.get(t.chat.id)?.state).toBe('pr_lista');
+  });
+
+  it('stops with otro after 3 busy attempts in a row, with a readable reason', async () => {
+    const t = await setup({ total: 1 });
+    busyStart(t, 10);
+    await t.pilot.drive(t.chat.id);
+    expect(t.states.get(t.chat.id)).toMatchObject({ state: 'bloqueado', blockedReason: 'otro' });
+    expect(t.states.timeline(t.chat.id).at(-1)?.reason).toContain('ocupado');
+    expect(t.runner.calls).toHaveLength(0);
+    expect(t.runs.get(t.chat.id)).toMatchObject({ status: 'stopped', sessionsInSprint: 0 });
   });
 });
 
@@ -387,7 +909,7 @@ describe('loop guards, capabilities, queue and usage limit', () => {
     await t.manager.waitForIdle(other.id);
     t.pilot.drainQueue();
     await t.pilot.drive(t.chat.id);
-    expect(t.runs.get(t.chat.id)).toMatchObject({ status: 'stopped' });
+    expect(t.runs.get(t.chat.id)).toMatchObject({ status: 'finished' });
     expect(t.sessions.listByChat(t.chat.id).map((s) => s.step)).toEqual([
       'plan',
       'execute',
@@ -414,7 +936,7 @@ describe('loop guards, capabilities, queue and usage limit', () => {
     limited = false;
     t.scheduled[0]?.fn();
     await t.pilot.drive(t.chat.id);
-    expect(t.runs.get(t.chat.id)).toMatchObject({ status: 'stopped' });
+    expect(t.runs.get(t.chat.id)).toMatchObject({ status: 'finished' });
     expect(t.sessions.listByChat(t.chat.id).map((s) => s.step)).toContain('close');
   });
 
@@ -435,7 +957,7 @@ describe('loop guards, capabilities, queue and usage limit', () => {
 
     t.runs.resume(t.chat.id);
     await t.pilot.drive(t.chat.id);
-    expect(t.runs.get(t.chat.id)?.status).toBe('stopped');
+    expect(t.runs.get(t.chat.id)?.status).toBe('finished');
     expect(t.runner.calls.length).toBeGreaterThan(1);
   });
 
@@ -536,7 +1058,7 @@ describe('resuming after a restart (S16)', () => {
     expect(sessions[1]).toMatchObject({ step: 'execute' });
     // The resumed session counts for the sprint and the route goes on to the closing.
     expect(sessions.map((s) => s.step)).toEqual(['execute', 'execute', 'close']);
-    expect(t.runs.get(t.chat.id)).toMatchObject({ status: 'stopped' });
+    expect(t.runs.get(t.chat.id)).toMatchObject({ status: 'finished' });
   });
 
   it('does not resume a paused or switched-off run', async () => {

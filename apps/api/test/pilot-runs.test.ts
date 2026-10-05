@@ -31,6 +31,8 @@ async function boot(overrides: Record<string, string> = {}) {
     contextPackTask: never,
     workContextPack: never,
     analyze: never,
+    completeScope: never,
+    closeWork: never,
   };
   const made = makeApp(overrides, undefined, { runner, pilotKyro });
   app = made.app;
@@ -88,6 +90,17 @@ describe('AutopilotRunRepository', () => {
     expect(() => runs.turnOff(chat.id)).toThrow(AutopilotTransitionError);
     expect(() => runs.pause(chat.id)).toThrow(AutopilotTransitionError);
     expect(runs.resume(chat.id).status).toBe('active');
+  });
+
+  it('remembers the phase and the PRs of the run, without duplicates', async () => {
+    const { runs, chat } = await repo();
+    expect(runs.create(chat.id)).toMatchObject({ phase: null, prUrls: [], seedPath: null });
+    expect(runs.setPhase(chat.id, 'merge').phase).toBe('merge');
+    expect(
+      runs.setPrUrls(chat.id, ['https://x/pull/1', 'https://x/pull/1', 'https://y/pull/2']).prUrls,
+    ).toEqual(['https://x/pull/1', 'https://y/pull/2']);
+    expect(runs.get(chat.id)).toMatchObject({ phase: 'merge' });
+    expect(runs.setPhase(chat.id, null).phase).toBeNull();
   });
 
   it('a stop needs a reason, keeps it, and resume clears it with the session count', async () => {

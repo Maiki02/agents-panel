@@ -29,6 +29,7 @@ describe('gates policy', () => {
       'accept_open_debt',
       'kyro_sprint_executor',
       'file_deletion',
+      'idea_confirmation',
     ]) {
       expect(Object.keys(KNOWN_GATES)).toContain(name);
     }
@@ -38,6 +39,33 @@ describe('gates policy', () => {
       expect(gate.steps.length, name).toBeGreaterThan(0);
       expect(gate.clause.toLowerCase(), name).toContain(gate.keyword.toLowerCase());
     }
+  });
+
+  it('asks the closing session for the QA report before close-sprint (v2)', () => {
+    expect(POLICY_VERSION).toBe(2);
+    const close = buildPolicy('close');
+    expect(close).toContain('.agents/kyro/qa/<scope>/sprint-<n>.md');
+    expect(close).toContain('"Verdict: <VERDICT>"');
+    expect(close.indexOf('Verdict:')).toBeLessThan(close.indexOf('"kyro close-sprint --yes"'));
+  });
+
+  it('gives the idea session its own block: kyro-idea, no scope and no sprint flow', () => {
+    const idea = buildPolicy('idea');
+    expect(idea).toContain('kyro-idea');
+    expect(idea).toContain('docType');
+    expect(idea).not.toContain('context-pack');
+    expect(idea).not.toContain('close-sprint');
+  });
+
+  it('gives the merge session its block: mechanical conflicts yes, logic is a question, no abort or push', () => {
+    const merge = buildPolicy('merge');
+    expect(merge).toContain('This is a merge session');
+    expect(merge).toContain('git commit --no-edit');
+    expect(merge).toContain('AskUserQuestion');
+    expect(merge).toContain('Never run "git merge --abort"');
+    expect(merge).not.toContain('close-sprint');
+    expect(gateDecision('merge_conflicts')).toBe('ask');
+    expect(gateDecision('merge_forbidden')).toBe('stop');
   });
 
   it('puts the clause of each gate in the text of its steps', () => {
