@@ -503,13 +503,13 @@
     "slug": "orquestador-politica",
     "title": "Orquestador y política de gates",
     "objective": "Un scope o work con piloto activo avanza solo de sesión en sesión (plan con el pensante, ejecución y cierre con el ejecutor) decidiendo cada paso por señales de Kyro y del SDK, con la política de gates inyectada, QA y analyze verificados antes de cerrar, frenos con motivo y retoma tras reinicio, probado con runner y Kyro falsos.",
-    "status": "planned",
+    "status": "executing",
     "phases": [
       {
         "id": "P1",
         "title": "Seguridad antes del piloto (debt-2, debt-3)",
         "objective": "Que la base de Bash no alcance los denegados fijos antes de que un piloto corra sin supervisión, y corregir la etiqueta al retomar tras una interrupción.",
-        "status": "pending",
+        "status": "done",
         "tasks": [
           {
             "id": "T1.1",
@@ -531,9 +531,35 @@
               "S10",
               "S32"
             ],
-            "status": "pending",
-            "evidence": null,
-            "verdict": null
+            "status": "done",
+            "evidence": {
+              "summary": "checkBaseArgs en permissions.ts: reglas por argumento para npm (exec/x/explore/edit/script-shell), git (-c, --config-env, --exec-path, config solo lectura, upload-pack/receive-pack/exec, ext::, rebase --exec, bisect run, submodule foreach, filter-branch) y go (generate, -exec, -toolexec, -vettool, env -w/-u). docs/plan.md actualizado.",
+              "validation": [
+                "vitest test/permissions.test.ts: 164 passed (33 denegados y 29 permitidos nuevos, incluido GIT_SSH_COMMAND=ssh git push)",
+                "tsc --noEmit y eslint sin errores"
+              ],
+              "files_changed": [
+                "apps/api/src/agent/permissions.ts",
+                "apps/api/test/permissions.test.ts",
+                "docs/plan.md"
+              ],
+              "notes": "La suite completa falla por ENOSPC en /tmp (decenas de miles de directorios panel-* viejos), ajeno a este cambio; no se limpió /tmp.",
+              "by": "maker",
+              "recordedAt": "2026-10-05T04:54:01.880Z"
+            },
+            "verdict": {
+              "result": "pass",
+              "checked_criteria": [
+                "npm exec -c tailscale, npm x sudo, npm explore x -- ssh, npm --script-shell=/bin/sh test, git -c core.sshCommand=ssh push, git --config-env=a=b status, git config alias.x '!sudo', git config core.sshCommand ssh, go generate ./... y GIT_SSH_COMMAND=ssh git push se deniegan, cada uno con test.",
+                "npm ci, npm test, npm run build, git status, git commit -m x, git push, git config --get user.name, go test ./..., go run . y kyro status siguen permitidos.",
+                "docs/plan.md describe las reglas por argumento y debt-2 queda resuelta en Kyro."
+              ],
+              "findings": [],
+              "by": "checker",
+              "reviewedAt": "2026-10-05T04:54:04.973Z",
+              "requestDigest": "d02ee46c5d0ee0493cfbf54b0e9ba11fe272ef4ce3b3d99764935b84c740b1e1",
+              "reviewedMaterialDigest": "69b4840d3c7cab0ea20a4020125aed72ce174567f18c0992fca4f8de507aba6e"
+            }
           },
           {
             "id": "T1.2",
@@ -552,9 +578,33 @@
             "scenario_refs": [
               "S29"
             ],
-            "status": "pending",
-            "evidence": null,
-            "verdict": null
+            "status": "done",
+            "evidence": {
+              "summary": "WorktreeStateTracker.resumeState: al retomar desde interrumpido/error con previousState esperando_respuesta o esperando_permiso vuelve al estado previo a la pregunta (según el Timeline) o a planificando; nunca a una espera de pregunta.",
+              "validation": [
+                "vitest suite completa de apps/api con TMPDIR=/dev/shm: 37 archivos, 752 tests pasan (2 tests de regresión nuevos en worktree-state.test.ts)",
+                "tsc --noEmit y eslint sin errores"
+              ],
+              "files_changed": [
+                "apps/api/src/worktrees/state-tracker.ts",
+                "apps/api/test/worktree-state.test.ts"
+              ],
+              "notes": "/tmp de la VM sin inodos (decenas de miles de panel-* viejos): los tests se corrieron con TMPDIR=/dev/shm. No se limpió /tmp.",
+              "by": "maker",
+              "recordedAt": "2026-10-05T04:56:00.993Z"
+            },
+            "verdict": {
+              "result": "pass",
+              "checked_criteria": [
+                "Un trabajo que estaba esperando_respuesta, se interrumpe y se retoma no vuelve a esperando_respuesta; el test lo cubre.",
+                "debt-3 queda resuelta en Kyro."
+              ],
+              "findings": [],
+              "by": "checker",
+              "reviewedAt": "2026-10-05T04:56:01.498Z",
+              "requestDigest": "26454475eb80627ef34dd846eafd35db55e245300d85fd88ffdc9e779c52922b",
+              "reviewedMaterialDigest": "b66c8d86907452e5a85d99cbb98c3946734192226b846d27147d322cafc3eaa5"
+            }
           }
         ]
       },
@@ -562,7 +612,7 @@
         "id": "P2",
         "title": "Política de gates versionada (R16)",
         "objective": "La política que pre-aprueba los gates rutinarios de Kyro vive en un archivo versionado del panel, cubre cada gate conocido y deja en pregunta lo que no cubre.",
-        "status": "pending",
+        "status": "done",
         "tasks": [
           {
             "id": "T2.1",
@@ -583,9 +633,35 @@
             "scenario_refs": [
               "S17"
             ],
-            "status": "pending",
-            "evidence": null,
-            "verdict": null
+            "status": "done",
+            "evidence": {
+              "summary": "apps/api/src/pilot/policy.ts: POLICY_VERSION, KNOWN_GATES (16 gates con cláusula, keyword, decisión y pasos), gateDecision (ask para lo desconocido) y buildPolicy(plan|execute|close) partiendo del texto del spike H2 más review con --by distinto, parada en qa_or_close, QA obligatoria y cierre con APPROVED/analyze limpio, reglas solo del scope, deuda, commit sin push, sin repair apply/scope complete/--accept-open-debt/kyro-sprint-executor, ADR y rutas absolutas. POLICY_VERSION exportado para T3.4.",
+              "validation": [
+                "vitest test/pilot-policy.test.ts: 7 tests pasan (cobertura de gates, gate desconocido=ask, sin kyro-sprint-executor salvo prohibirlo ni bypassPermissions, execute para en qa_or_close, versión en cada paso)",
+                "tsc --noEmit y eslint sin errores"
+              ],
+              "files_changed": [
+                "apps/api/src/pilot/policy.ts",
+                "apps/api/test/pilot-policy.test.ts"
+              ],
+              "notes": "TMPDIR=/dev/shm por /tmp sin inodos.",
+              "by": "maker",
+              "recordedAt": "2026-10-05T04:58:09.621Z"
+            },
+            "verdict": {
+              "result": "pass",
+              "checked_criteria": [
+                "Un test recorre KNOWN_GATES y verifica que cada uno tiene cláusula y decisión, y que el texto del paso correspondiente la menciona.",
+                "gateDecision de un gate no listado devuelve 'ask' (nunca 'proceed').",
+                "El texto de ningún paso menciona kyro-sprint-executor salvo para prohibirlo, ni bypassPermissions, y el de ejecución ordena parar en qa_or_close.",
+                "POLICY_VERSION queda registrado en cada sesión del piloto (lo usa T3.4)."
+              ],
+              "findings": [],
+              "by": "checker",
+              "reviewedAt": "2026-10-05T04:58:09.874Z",
+              "requestDigest": "69a949882ba3375bfb155faf748b23d0b448ff952c26fcd93c82bc78049ee368",
+              "reviewedMaterialDigest": "89310da4ab3fc487a1e6431300cfa4be0ad8ad240937929fbb3420103abc8181"
+            }
           }
         ]
       },
@@ -593,7 +669,7 @@
         "id": "P3",
         "title": "Orquestador (R6, R7, R8, R10, R11, R15, R20)",
         "objective": "El piloto decide el paso por señales, abre una sesión nueva por paso con el modelo del rol, verifica los gates de calidad, frena con motivo y se retoma tras un reinicio.",
-        "status": "pending",
+        "status": "active",
         "tasks": [
           {
             "id": "T3.1",
@@ -622,9 +698,42 @@
             "scenario_refs": [
               "S25"
             ],
-            "status": "pending",
-            "evidence": null,
-            "verdict": null
+            "status": "done",
+            "evidence": {
+              "summary": "Migración 12 (autopilot_runs; agent_sessions suma step y policy_version), AutopilotRunRepository con transiciones explícitas, tipos en shared, rutas GET/POST /api/chats/:id/autopilot (pause|resume|off, 409 si no corresponde, 404 en direct), POST /api/chats con autopilot:true (400 en direct), PILOT_MAX_SESSIONS_PER_SPRINT (6 por defecto) en config y .env.example.",
+              "validation": [
+                "vitest apps/api completo (TMPDIR=/dev/shm): 39 archivos, 774 tests pasan (db migración 12, repo, rutas 401/403/404/409/400, tope de sesiones)",
+                "tsc --noEmit, eslint y typecheck de workspaces sin errores"
+              ],
+              "files_changed": [
+                "apps/api/src/db/migrations.ts",
+                "apps/api/src/pilot/runs-repo.ts",
+                "apps/api/src/pilot/routes.ts",
+                "apps/api/src/chats/service.ts",
+                "apps/api/src/chats/routes.ts",
+                "apps/api/src/app.ts",
+                "packages/shared/src/index.ts",
+                "apps/api/.env.example",
+                "apps/api/test/db.test.ts",
+                "apps/api/test/pilot-runs.test.ts"
+              ],
+              "by": "maker",
+              "recordedAt": "2026-10-05T19:23:33.088Z"
+            },
+            "verdict": {
+              "result": "pass",
+              "checked_criteria": [
+                "La migración 12 crea autopilot_runs y suma step y policy_version a agent_sessions; db.test verifica las columnas y que las filas existentes quedan válidas.",
+                "POST /api/chats con autopilot: true crea la fila active para scope y work y da 400 para un pedido directo.",
+                "pause, resume y off cambian el estado y dan 409 cuando no corresponde; las rutas dan 401 sin sesión y 403 sin CSRF.",
+                "El tope por sprint sale de la configuración con 6 por defecto."
+              ],
+              "findings": [],
+              "by": "checker",
+              "reviewedAt": "2026-10-05T19:23:33.348Z",
+              "requestDigest": "d386f4a82e25f4c4b48f9089ec68282b6122f152482d0c099b566e8e598ed542",
+              "reviewedMaterialDigest": "8706006da1f0c87e28ecbf209b6850ce7853d624f64c83575e87ee323b7de3df"
+            }
           },
           {
             "id": "T3.2",
@@ -834,26 +943,44 @@
       "title": "La base de Bash todavía alcanza los denegados fijos: npm exec -c, git -c core.sshCommand / alias !, go run y python ejecutan cualquier comando; cerrar esos caminos (o un deny por argumento) antes de que el piloto corra solo (R9, R10)",
       "origin": 2,
       "priority": "high",
-      "status": "in_progress",
+      "status": "resolved",
       "targetSprint": 3,
-      "note": "Hallazgo de kyro qa del sprint 2; es previo al sprint (npm y git son base desde el MVP)."
+      "note": "Reglas por argumento de npm, git y go en permissions.ts (T1.1 sprint 3)"
     },
     {
       "id": "debt-3",
       "title": "WorktreeStateTracker.turnStarted: al retomar tras interrumpido puede volver a esperando_respuesta aunque la pregunta ya se canceló (la etiqueta se corrige al terminar el turno)",
       "origin": 2,
       "priority": "low",
-      "status": "in_progress",
+      "status": "resolved",
       "targetSprint": 3,
-      "note": "Hallazgo menor de kyro qa del sprint 2."
+      "note": "resumeState en WorktreeStateTracker (T1.2 sprint 3)"
+    },
+    {
+      "id": "debt-4",
+      "title": "Los tests de apps/api dejan carpetas panel-* en /tmp (mkdtemp sin limpieza): agotaron los inodos de la VM el 05/10/2026. Limpiar lo creado en afterEach o usar un TMPDIR propio por corrida",
+      "origin": 3,
+      "priority": "medium",
+      "status": "open",
+      "targetSprint": 6,
+      "note": "Ver bitácora de docs/vm-setup.md y ~/.agents/scripts/clean-test-tmp.sh (paliativo)"
+    },
+    {
+      "id": "debt-5",
+      "title": "El Bash del piloto no tiene rm: habilitar un rm con ruta validada dentro del worktree (como los comandos de lectura). Mientras tanto la política manda git rm y git clean",
+      "origin": 3,
+      "priority": "low",
+      "status": "open",
+      "targetSprint": 6,
+      "note": "Nunca un rm sin validar: rm -rf ~ pasaría la allowlist"
     }
   ],
   "handoff": {
     "nextAction": "execute_task",
-    "nextTaskId": "T1.1",
+    "nextTaskId": "T3.2",
     "blockers": [],
-    "note": "Sprint 3 planned; ready to execute.",
-    "lastUpdated": "2026-10-05"
+    "note": "Task T3.1 passed checker review.",
+    "lastUpdated": "2026-10-05T19:23:33.348Z"
   },
   "author": {
     "name": "Maiki02",
