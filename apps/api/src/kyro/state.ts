@@ -58,6 +58,8 @@ export interface KyroScopeState {
   pendingReview: number;
   /** Reason of every blocker the CLI reports for the route (empty when none). */
   blockers: string[];
+  /** Tasks Kyro reports as blocked (after three correction rounds); empty when none. */
+  blockedTasks?: string[];
 }
 
 export interface KyroWorkState {
@@ -170,6 +172,21 @@ function blockerReasons(data: Json): string[] {
   });
 }
 
+/** `execution.blockedTasks` of the pack: ids of blocked tasks, `[]` when the field is absent. */
+function blockedTaskIds(pack: Json): string[] {
+  const execution = pack['execution'];
+  if (!isRecord(execution)) return [];
+  const blocked = execution['blockedTasks'];
+  if (!Array.isArray(blocked)) return [];
+  return blocked.map((entry) =>
+    isRecord(entry) && typeof entry['taskId'] === 'string'
+      ? entry['taskId']
+      : typeof entry === 'string'
+        ? entry
+        : 'desconocida',
+  );
+}
+
 /**
  * Scope state from `kyro context-pack --json` (routing) and `kyro status full --json` (progress).
  * Both must agree on nextAction; a mismatch means the state moved between the two reads.
@@ -220,6 +237,7 @@ export function parseScopeState(
     openDebt: int(pack, 'openDebtCount', 'context-pack.data'),
     pendingReview: int(status, 'pendingReviewCount', 'status.data'),
     blockers: blockerReasons(pack),
+    blockedTasks: blockedTaskIds(pack),
   };
 }
 
