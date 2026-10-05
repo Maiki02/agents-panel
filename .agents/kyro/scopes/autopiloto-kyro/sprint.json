@@ -875,9 +875,42 @@
               "S12",
               "S21"
             ],
-            "status": "pending",
-            "evidence": null,
-            "verdict": null
+            "status": "done",
+            "evidence": {
+              "summary": "pilot/autopilot.ts: servicio Autopilot (drive/kick/drainQueue) que lee Kyro, decide con decideNextStep y abre una sesión SDK nueva por paso (AgentManager.start con pilot{step,policyVersion,sprintN} y freshSession); qa_or_close corre kyro analyze (HIGH/CRITICAL → fix, limpio → close); verifica kyro-qa tras el cierre (qa_sin_correr, motivo nuevo); cola con 4 sesiones, sin_cupo_de_uso con reintento a 15 min, pausa y apagado; transiciones con actor pilot. Soporte: AutopilotRunRepository (queue/dequeue/waitForQuota/retryAfterQuota/beginSession/listByStatus), KyroReader.analyze, ChatRepository.lastSeq/allEventsAfter, TurnInfo.pilot y WorktreeStateTracker.pilotMark, cableado en app.ts, ChatService y rutas (onResume/onAutopilotStart). docs/plan.md y docs/estados.md actualizados.",
+              "validation": [
+                "vitest apps/api completo: 42 archivos, 841 tests pasan (16 de pilot-autopilot con runner y Kyro falsos: S7 dos sprints, S9, S11, S12, S21, cola, pausa, apagado, texto del agente)",
+                "tsc --noEmit, eslint y typecheck de workspaces sin errores"
+              ],
+              "files_changed": [
+                "apps/api/src/pilot/autopilot.ts",
+                "apps/api/src/agent/manager.ts",
+                "apps/api/src/chats/sessions-repo.ts",
+                "apps/api/src/worktrees/state-tracker.ts",
+                "apps/api/src/app.ts",
+                "packages/shared/src/index.ts",
+                "apps/api/test/pilot-autopilot.test.ts",
+                "docs/plan.md",
+                "docs/estados.md"
+              ],
+              "by": "maker",
+              "recordedAt": "2026-10-05T19:49:30.961Z"
+            },
+            "verdict": {
+              "result": "pass",
+              "checked_criteria": [
+                "Con runner y Kyro falsos, un scope de 2 sprints recorre plan → ejecución → analyze → cierre por sprint, cada paso en una sesión nueva con el modelo de su rol, y termina frenado en await_scope_completion (S7).",
+                "Con analyze con un HIGH el piloto abre un paso fix y no el cierre; si la sesión de cierre cierra el sprint sin invocar kyro-qa, el trabajo queda bloqueado qa_sin_correr (S9).",
+                "Ninguna sesión del piloto se abre con permissionMode bypassPermissions (test sobre las opciones que recibe el runner) (S11).",
+                "Una sesión sin avance y el tope de sesiones dejan bloqueado con su motivo; con 4 sesiones ocupadas el run queda en_cola y arranca al liberarse una; un rate limit rechazado deja sin_cupo_de_uso y reintenta a los 15 minutos (S12, S21).",
+                "Cada transición del piloto queda en el Timeline con actor pilot, paso, rol, modelo y versión de política."
+              ],
+              "findings": [],
+              "by": "checker",
+              "reviewedAt": "2026-10-05T19:49:31.218Z",
+              "requestDigest": "bf61c0d90f2482f7d21e807ad0ba61f0ac786682c9127e9b7a06a2e26169972d",
+              "reviewedMaterialDigest": "54fdf07e7ca9c219eb64bb4bb9e1c823e1fd57d4d5c299d1cb64e0ae643a823c"
+            }
           },
           {
             "id": "T3.5",
@@ -1031,10 +1064,10 @@
   ],
   "handoff": {
     "nextAction": "execute_task",
-    "nextTaskId": "T3.4",
+    "nextTaskId": "T3.5",
     "blockers": [],
-    "note": "Task T3.3 passed checker review.",
-    "lastUpdated": "2026-10-05T19:41:19.769Z"
+    "note": "Task T3.4 passed checker review.",
+    "lastUpdated": "2026-10-05T19:49:31.218Z"
   },
   "author": {
     "name": "Maiki02",
