@@ -1,0 +1,570 @@
+{
+  "n": 1,
+  "slug": "preguntas-web",
+  "title": "Preguntas desde la web y confirmación de hipótesis",
+  "objective": "El agente de un trabajo puede preguntar y el usuario responde desde la web con botones, y quedan confirmadas las hipótesis H1 (respuesta por updatedInput) y H2 (kyro-forge con política avanza sin preguntar) y los campos reales de Kyro.",
+  "status": "complete",
+  "phases": [
+    {
+      "id": "P1",
+      "title": "Spikes y fixtures (WS1)",
+      "objective": "Confirmar las hipótesis H1 y H2 y fijar los campos reales de Kyro antes de construir encima.",
+      "status": "done",
+      "tasks": [
+        {
+          "id": "T1.1",
+          "title": "Spike H1: respuesta de AskUserQuestion por updatedInput y model por query() en la VM",
+          "description": "Escribir un script de spike reproducible (apps/api/scripts/spike-ask-question.ts, corrido con node en la VM) que abra una sesión real del Agent SDK en un directorio temporal, deje pasar AskUserQuestion desde el hook PreToolUse, espere la respuesta dentro de canUseTool y la devuelva como updatedInput, y compruebe que el agente continúa con esa respuesta. El mismo script acepta --model para confirmar que query() respeta model (sonnet vs opus) leyendo el modelo del mensaje system:init. Si updatedInput no sirve, probar la alternativa: denegar con el mensaje 'el usuario respondió: …'. Registrar el resultado y el método elegido en docs/plan.md (sección de la etapa 4/5) y en el comentario de cabecera del script.",
+          "files_to_touch": [
+            "apps/api/scripts/spike-ask-question.ts",
+            "docs/plan.md"
+          ],
+          "context": "Hipótesis H1 del scope. Hoy AskUserQuestion está denegada: no está en SAFE_TOOLS de permissions.ts y createPreToolUseHook de sdk-runner.ts deniega antes de canUseTool. Tipos del SDK 0.3.289: AskUserQuestionInput/Output en node_modules/@anthropic-ai/claude-agent-sdk/sdk-tools.d.ts, updatedInput en sdk.d.ts (PreToolUseHookSpecificOutput y PermissionResult). El spike usa la suscripción de la VM: una corrida corta y sin tocar el repo (directorio temporal). Sin esta confirmación T2.2 no puede elegir el método. Nunca bypassPermissions (L4).",
+          "acceptance_criteria": [
+            "El script corre en la VM y deja en pantalla la pregunta recibida, la respuesta devuelta y la continuación del agente.",
+            "docs/plan.md dice qué método funciona (updatedInput o denegar con mensaje) y con qué versión del SDK.",
+            "Se confirma si model por query() cambia el modelo de la sesión, con el valor leído de system:init.",
+            "El script no escribe fuera de su directorio temporal ni usa bypassPermissions."
+          ],
+          "depends_on": [],
+          "scenario_refs": [
+            "S1",
+            "S2",
+            "S4"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "Spike en la VM (SDK 0.3.289): AskUserQuestion pasa el hook PreToolUse (devuelve {}), canUseTool espera y responde con updatedInput {...input, answers:{pregunta:respuesta}} y el agente continúa en la misma sesión. El respaldo deny 'el usuario respondió: …' también funciona. model en query() se respeta (system:init: claude-opus-5-5 y claude-sonnet-5-5). Método elegido y versión documentados en docs/plan.md (etapa 4) y en la cabecera del script.",
+            "validation": [
+              "npx tsx apps/api/scripts/spike-ask-question.ts con método updatedInput: pregunta, respuesta y continuación impresas; exit 0",
+              "corrida con modelo claude-opus-5-5: system:init model=claude-opus-5-5; método deny con claude-sonnet-5-5: continúa OK",
+              "tsc strict sobre scripts/: sin errores"
+            ],
+            "files_changed": [
+              "apps/api/scripts/spike-ask-question.ts",
+              "docs/plan.md"
+            ],
+            "notes": "El script usa mkdtemp + rm, settingSources vacío y permissionMode default (nunca bypassPermissions); no está en el include de tsconfig, se tipó con un tsconfig temporal.",
+            "by": "maker",
+            "recordedAt": "2026-10-05T02:16:42.807Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "El script corre en la VM y deja en pantalla la pregunta recibida, la respuesta devuelta y la continuación del agente.",
+              "docs/plan.md dice qué método funciona (updatedInput o denegar con mensaje) y con qué versión del SDK.",
+              "Se confirma si model por query() cambia el modelo de la sesión, con el valor leído de system:init.",
+              "El script no escribe fuera de su directorio temporal ni usa bypassPermissions."
+            ],
+            "findings": [],
+            "by": "checker",
+            "reviewedAt": "2026-10-05T02:16:44.649Z",
+            "requestDigest": "b86162028760f8420ef78c0df0d913952672b45ab0ced340a781f251054da9da",
+            "reviewedMaterialDigest": "f085c71f82c0b416eda57cecefe0a18f0c75a2278bdfb8e493eea3f385d87425"
+          }
+        },
+        {
+          "id": "T1.2",
+          "title": "Fixtures reales de kyro context-pack --json y kyro work status --json con su parser",
+          "description": "Capturar la salida real de kyro context-pack --kyro-scope <scope> --json en cada nextAction alcanzable (plan_sprint, execute_task, review_task, qa_or_close, close_sprint, await_scope_completion, clarify) usando un scope descartable en un repo temporal, y de kyro work status --work <slug> --json y kyro work context-pack --json. Guardarlas en apps/api/test/fixtures/kyro/ y escribir un parser tipado (apps/api/src/kyro/state.ts) que devuelva nextAction, sprint actual, total de sprints, tarea n/m y deuda abierta, con test contra las fixtures. Cerrar el pendiente de docs/plan.md y docs/estados.md sobre los campos exactos.",
+          "files_to_touch": [
+            "apps/api/test/fixtures/kyro/",
+            "apps/api/src/kyro/state.ts",
+            "apps/api/test/kyro-state.test.ts",
+            "docs/plan.md",
+            "docs/estados.md"
+          ],
+          "context": "Los nombres de nextAction salen de ~/.agents/kyro/current/commands/forge.md; los campos reales de context-pack y de kyro work status no están confirmados (pendiente de plan.md y estados.md). El estado fino y el orquestador de los sprints 2 y 3 se apoyan en este parser (R4, R7). Usar execFile con argv, sin shell (R24); el scope descartable vive en un repo temporal, nunca en .agents/kyro/ de este repo. kyro capabilities --json confirma record-evidence, review y work en 6.1.0.",
+          "acceptance_criteria": [
+            "Hay una fixture por cada nextAction y por kyro work status, tomada de la salida real.",
+            "El parser devuelve nextAction, sprint n/m, tarea n/m y deuda para cada fixture y falla con un error claro ante un JSON inesperado.",
+            "Los tests pasan y no tocan .agents/kyro/ de este repo.",
+            "docs/plan.md y docs/estados.md ya no marcan los campos como pendientes de confirmar."
+          ],
+          "depends_on": [],
+          "scenario_refs": [
+            "S5",
+            "S8"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "Capturé la salida real de Kyro 6.1.0 en un repo temporal con un scope y un Work descartables (capture.sh, reproducible): context-pack y status full para plan_sprint, execute_task, review_task, qa_or_close, await_scope_completion, done y clarify (más sprint 2 con 1 cerrado), y work status/context-pack para plan_tasks, execute_task, in_progress, review_task, resolve_blocker, ready_to_close y closed. Parser tipado apps/api/src/kyro/state.ts (nextAction, sprint actual/cerrados/total, tarea n/m, deuda, bloqueos) con KyroStateError ante JSON inesperado o context-pack y status en desacuerdo. Hallazgo: close_sprint está en el esquema pero Kyro 6.1.0 nunca lo emite (tras qa_or_close, close-sprint pasa a plan_sprint o await_scope_completion) e init tampoco se observa; el total de sprints no lo imprime ningún comando y sale de sprint.json (roadmap, ledger). docs/plan.md y docs/estados.md ya no marcan los campos como pendientes.",
+            "validation": [
+              "bash apps/api/test/fixtures/kyro/capture.sh: genera 36 fixtures sin error",
+              "vitest test/kyro-state.test.ts: 26 pasan; suite completa de apps/api: 456 pasan",
+              "tsc strict, eslint y prettier sin errores en src/kyro, test y scripts"
+            ],
+            "files_changed": [
+              "apps/api/src/kyro/state.ts",
+              "apps/api/test/kyro-state.test.ts",
+              "apps/api/test/fixtures/kyro/capture.sh",
+              "docs/plan.md",
+              "docs/estados.md"
+            ],
+            "notes": "Criterio 1 parcial: no hay fixture de close_sprint ni de init porque Kyro 6.1.0 no los emite; no se inventó una. El test lo fija (unreachable = init, close_sprint). Los tests solo leen fixtures y no tocan .agents/kyro/ de este repo.",
+            "by": "maker",
+            "recordedAt": "2026-10-05T02:22:03.390Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "Hay una fixture por cada nextAction y por kyro work status, tomada de la salida real.",
+              "El parser devuelve nextAction, sprint n/m, tarea n/m y deuda para cada fixture y falla con un error claro ante un JSON inesperado.",
+              "Los tests pasan y no tocan .agents/kyro/ de este repo.",
+              "docs/plan.md y docs/estados.md ya no marcan los campos como pendientes de confirmar."
+            ],
+            "findings": [
+              {
+                "severity": "warning",
+                "detail": "Sin fixture de close_sprint ni init: Kyro 6.1.0 no los emite (documentado en estados.md y fijado por test); el criterio 1 se cumple para todo nextAction alcanzable."
+              }
+            ],
+            "by": "checker",
+            "reviewedAt": "2026-10-05T02:22:06.849Z",
+            "requestDigest": "013f1d37c8244e269183a3c5150ca1bbab9c116f8e62cb2d9e5ce2d5a4d3f931",
+            "reviewedMaterialDigest": "a5fe22f89f2a13c00062448a2c681bea9548a20d66f727a568fa4f3f34e3fa0b"
+          }
+        },
+        {
+          "id": "T1.3",
+          "title": "Spike H2: una sesión con kyro-forge y una política mínima avanza sin preguntar",
+          "description": "En un repo temporal con un scope descartable (sprint planificado, una tarea trivial), abrir una sesión real del SDK con el primer prompt que manda leer la skill kyro-forge (como chats/service.ts buildInitialPrompt) más un borrador de política de gates (QA sí, cierre aprobado, reglas solo del scope, deuda corregible se corrige), y comprobar que ejecuta la tarea, registra evidencia y review y llega a qa_or_close o close_sprint sin pedir confirmación. Registrar qué gates preguntaron igual, el texto de la política que funcionó y las salidas de context-pack observadas, para que el sprint 3 parta de ahí.",
+          "files_to_touch": [
+            "apps/api/scripts/spike-forge-policy.ts",
+            "docs/plan.md"
+          ],
+          "context": "Hipótesis H2 del scope (D4, D29). La ejecución entra por kyro-forge siguiendo nextAction, sin kyro-sprint-executor. Los slash commands de Kyro no están registrados en el SDK de la VM: el prompt manda leer la skill (chats/service.ts). QA va por la skill kyro-qa. La política va como texto del prompt; Kyro no se modifica. Usa la suscripción: una sola corrida corta; los permisos son los de la lista actual (git, gh, npm, go, kyro) más lectura. Si un gate no se puede pre-aprobar por prompt, anotarlo: es un hallazgo para R16.",
+          "acceptance_criteria": [
+            "El spike llega a qa_or_close o close_sprint en el scope descartable sin que el agente pida confirmación, o deja registrado exactamente qué gate preguntó y por qué.",
+            "docs/plan.md guarda el texto de política probado y la lista de gates que preguntaron.",
+            "El repo de este proyecto queda sin cambios (todo corre en un repo temporal).",
+            "No se usó kyro-sprint-executor ni bypassPermissions."
+          ],
+          "depends_on": [
+            "T1.1",
+            "T1.2"
+          ],
+          "scenario_refs": [
+            "S7",
+            "S17"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "Spike H2 confirmado: en un repo temporal con un scope descartable, una sesión real del SDK (Sonnet 5.5) con el primer prompt del panel (leer la skill kyro-forge), los permisos reales del panel y la política de gates ejecutó la tarea, registró evidencia y review por CLI y se detuvo en qa_or_close sin ninguna pregunta. Control sin política: tampoco preguntó pero se detuvo en review_task (la política aporta el permiso de hacer el review y la orden de parar en qa_or_close). Documentado en docs/plan.md: política probada, gates que preguntaron (ninguno; QA, cierre, reglas globales y scope completo no se ejercitaron y quedan para el sprint 3), llamadas denegadas (cat con ~, redirecciones, echo), kyro repair prepare espontáneo (la política debe prohibir repair apply) y salidas de context-pack observadas.",
+            "validation": [
+              "npx tsx apps/api/scripts/spike-forge-policy.ts con política: exit 0, 0 preguntas, context-pack final qa_or_close, hola.txt creado",
+              "mismo script con la opción no-policy: 0 preguntas, termina en review_task",
+              "tsc strict sobre scripts/ y prettier: sin errores; git status del repo sin cambios en .agents/kyro más allá de este scope"
+            ],
+            "files_changed": [
+              "apps/api/scripts/spike-forge-policy.ts",
+              "docs/plan.md"
+            ],
+            "notes": "Todo corrió en repos temporales (borrados). Sin kyro-sprint-executor en el spike ni bypassPermissions. Una sola sesión por variante; no se probaron QA ni cierre.",
+            "by": "maker",
+            "recordedAt": "2026-10-05T02:24:09.379Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "El spike llega a qa_or_close o close_sprint en el scope descartable sin que el agente pida confirmación, o deja registrado exactamente qué gate preguntó y por qué.",
+              "docs/plan.md guarda el texto de política probado y la lista de gates que preguntaron.",
+              "El repo de este proyecto queda sin cambios (todo corre en un repo temporal).",
+              "No se usó kyro-sprint-executor ni bypassPermissions."
+            ],
+            "findings": [],
+            "by": "checker",
+            "reviewedAt": "2026-10-05T02:24:12.007Z",
+            "requestDigest": "99693a9cb1e2d99c628c2607c6c2047afe5564e5b5c7c6c3aa3f1ccc1454a208",
+            "reviewedMaterialDigest": "86ac389531590f2fe1b65d72bbb72f66ee48d75db81e0d97ac2a425e5f3d8504"
+          }
+        }
+      ]
+    },
+    {
+      "id": "P2",
+      "title": "Preguntas en la API (WS2)",
+      "objective": "Guardar las preguntas del agente, esperarlas y responderlas por la API sin ampliar lo público.",
+      "status": "done",
+      "tasks": [
+        {
+          "id": "T2.1",
+          "title": "Tabla pending_questions y repositorio de preguntas",
+          "description": "Agregar la migración siguiente (version 7) con la tabla pending_questions (id, chat_id con FK a chats, tool_use_id, questions en JSON, status pending|answered|cancelled, answer en JSON, answered_by con FK a users, created_at, answered_at; único por chat y tool_use_id) y un QuestionRepository en apps/api/src/chats/questions-repo.ts con crear, responder (atómico, una sola vez), listar por chat, obtener y cancelar las pendientes de un chat. Validar que la respuesta corresponde a las opciones de la pregunta o es texto libre.",
+          "files_to_touch": [
+            "apps/api/src/db/migrations.ts",
+            "apps/api/src/chats/questions-repo.ts",
+            "apps/api/test/questions-repo.test.ts",
+            "apps/api/test/db.test.ts"
+          ],
+          "context": "Las migraciones son numeradas en código (migrations.ts, tabla schema_migrations; la última es la 6) y node:sqlite con WAL y foreign_keys ON. La forma de AskUserQuestionInput/Output está en sdk-tools.d.ts (1-4 preguntas, 2-4 opciones, multiSelect, 'Other' lo pone la UI). L5: sin timeout; responder dos veces debe fallar. Tipos compartidos en packages/shared/src/index.ts (agregar PendingQuestion y QuestionAnswer).",
+          "acceptance_criteria": [
+            "La migración 7 aplica sobre una base con las migraciones 1 a 6 y deja foreign_key_check vacío.",
+            "Responder una pregunta ya respondida o cancelada falla; responder guarda answered_by y answered_at.",
+            "Una respuesta que no coincide con las opciones ni es texto libre válido se rechaza.",
+            "npm test -w @agents-panel/api pasa para questions-repo y db."
+          ],
+          "depends_on": [],
+          "scenario_refs": [
+            "S3"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "Migración 7 (pending_questions) con FK a chats (ON DELETE CASCADE) y a users, único por chat y tool_use_id, status pending|answered|cancelled y CHECKs que impiden una respuesta sin answered_by ni answered_at. QuestionRepository (apps/api/src/chats/questions-repo.ts): create, get, listByChat, answer (UPDATE atómico solo sobre filas pending; la segunda respuesta lanza QuestionNotPendingError) y cancelPending, más parseAskedQuestions (1-4 preguntas, 2-4 opciones), validateAnswer (opciones existentes, máximo una salvo multiSelect, texto libre recortado hasta 2000) y toSdkAnswers (formato answers del spike H1). Tipos AskedQuestion, QuestionAnswer, PendingQuestion en packages/shared. Sin timeout: la pregunta sigue pending con el paso del tiempo.",
+            "validation": [
+              "npm test -w @agents-panel/api -- questions-repo db: 42 pasan (migración 7 sobre 1-6, foreign_key_check vacío, doble respuesta rechazada, respuesta inválida rechazada y no guardada)",
+              "npm test -w @agents-panel/api: 482 pasan (29 archivos)",
+              "tsc strict de api y web, eslint y prettier sin errores"
+            ],
+            "files_changed": [
+              "apps/api/src/db/migrations.ts",
+              "apps/api/src/chats/questions-repo.ts",
+              "apps/api/test/questions-repo.test.ts",
+              "apps/api/test/db.test.ts",
+              "packages/shared/src/index.ts"
+            ],
+            "notes": "Hubo que reconstruir packages/shared/dist (ignorado por git) para que api vea los tipos nuevos. Las expectativas de db.test.ts de las migraciones 5-6 pasaron a incluir la 7. La API HTTP para responder es T2.2.",
+            "by": "maker",
+            "recordedAt": "2026-10-05T02:27:05.321Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "La migración 7 aplica sobre una base con las migraciones 1 a 6 y deja foreign_key_check vacío.",
+              "Responder una pregunta ya respondida o cancelada falla; responder guarda answered_by y answered_at.",
+              "Una respuesta que no coincide con las opciones ni es texto libre válido se rechaza.",
+              "npm test -w @agents-panel/api pasa para questions-repo y db."
+            ],
+            "findings": [],
+            "by": "checker",
+            "reviewedAt": "2026-10-05T02:27:08.118Z",
+            "requestDigest": "47e9763548c587aa0ed313d643626e148dfaca50f0d67836db33f21a5263cec7",
+            "reviewedMaterialDigest": "24501f6922407f55121381deec06b89865ac64bbe76ade76a030e69a10e81584"
+          }
+        },
+        {
+          "id": "T2.2",
+          "title": "AskUserQuestion pasa por el hook y canUseTool espera la respuesta del usuario",
+          "description": "Hacer asíncronos canUseTool (RunParams) y el hook PreToolUse, agregar updatedInput (o el método que confirme T1.1) a PermissionDecision, dejar pasar AskUserQuestion en el hook y resolverla en AgentManager: guardar la pregunta con QuestionRepository, registrar y publicar el evento question_asked, esperar la respuesta y devolverla al runner, y registrar question_answered. Cancelar el trabajo o abortar la señal cancela la pregunta pendiente. Actualizar FakeRunner para simular una pregunta.",
+          "files_to_touch": [
+            "apps/api/src/agent/runner.ts",
+            "apps/api/src/agent/sdk-runner.ts",
+            "apps/api/src/agent/manager.ts",
+            "apps/api/src/agent/permissions.ts",
+            "apps/api/test/fake-runner.ts",
+            "apps/api/test/agent.test.ts"
+          ],
+          "context": "Hoy decide() devuelve deny para AskUserQuestion y createPreToolUseHook deniega antes de canUseTool, así que la herramienta no llega a ejecutarse (hallazgo 01). El método de respuesta lo fija T1.1 (H1). Mientras espera, el chat sigue 'running' (el estado fino 'esperando respuesta' llega en el sprint 2). Nunca bypassPermissions (L4); el resto de permisos no cambia; el allowlist de Bash no cambia (L3). Sin timeout (L5).",
+          "acceptance_criteria": [
+            "Con el runner falso, una pregunta deja un registro pending y un evento question_asked y el turno no termina hasta que se responde.",
+            "Al responder, el runner recibe la respuesta, el turno continúa y queda question_answered.",
+            "Cancelar el trabajo mientras espera marca la pregunta cancelled y termina el turno como cancelado.",
+            "Las demás herramientas conservan su comportamiento actual (los tests existentes de permisos siguen pasando)."
+          ],
+          "depends_on": [
+            "T1.1",
+            "T2.1"
+          ],
+          "scenario_refs": [
+            "S1",
+            "S2",
+            "S3",
+            "S11"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "canUseTool de RunParams ahora es async y PermissionDecision admite updatedInput (método confirmado por el spike H1). El hook PreToolUse deja pasar AskUserQuestion sin decidir (para no preguntar dos veces) y AgentManager la resuelve: guarda la pregunta con QuestionRepository, registra y publica question_asked, espera sin timeout y devuelve la respuesta como updatedInput {...input, answers}; answerQuestion(questionId, answer, userId) valida, guarda quién respondió, registra question_answered y despierta el turno. Cancelar el trabajo o abortar la señal cancela la pregunta (question_cancelled) y el turno termina cancelled; una pregunta sin turno vivo (reinicio) se cancela en vez de responderse, y al arrancar el panel se cancelan todas las pendientes. Sin QuestionRepository la herramienta sigue denegada. FakeRunner admite scripts async.",
+            "validation": [
+              "npm test -w @agents-panel/api: 491 pasan (29 archivos), incluidos 9 tests nuevos de AskUserQuestion y los de permisos existentes",
+              "tsc strict, eslint y prettier sin errores en api",
+              "corrida real con SdkRunner + AgentManager + settingSources project/user: pregunta pendiente, respuesta Azul, eventos question_asked y question_answered, el agente continuó con la respuesta (script temporal, borrado)"
+            ],
+            "files_changed": [
+              "apps/api/src/agent/runner.ts",
+              "apps/api/src/agent/sdk-runner.ts",
+              "apps/api/src/agent/manager.ts",
+              "apps/api/src/chats/questions-repo.ts",
+              "apps/api/src/app.ts",
+              "apps/api/test/fake-runner.ts",
+              "apps/api/test/agent.test.ts"
+            ],
+            "notes": "permissions.ts no cambia: decide() sigue denegando AskUserQuestion y solo el manager la intercepta antes. Tres llamadas de tests existentes pasaron a await por el canUseTool async. La ruta HTTP para responder es de T2.3.",
+            "by": "maker",
+            "recordedAt": "2026-10-05T02:30:15.459Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "Con el runner falso, una pregunta deja un registro pending y un evento question_asked y el turno no termina hasta que se responde.",
+              "Al responder, el runner recibe la respuesta, el turno continúa y queda question_answered.",
+              "Cancelar el trabajo mientras espera marca la pregunta cancelled y termina el turno como cancelado.",
+              "Las demás herramientas conservan su comportamiento actual (los tests existentes de permisos siguen pasando)."
+            ],
+            "findings": [],
+            "by": "checker",
+            "reviewedAt": "2026-10-05T02:30:18.093Z",
+            "requestDigest": "09bc65092c6bef8ac796dca4fd71b11665942577c9f8bb655b371f9d0439093b",
+            "reviewedMaterialDigest": "c0ace90cfb69a60cb229f6431a7360bf4117597fb4e66ca330dd22d8d7f78454"
+          }
+        },
+        {
+          "id": "T2.3",
+          "title": "Rutas de preguntas, retoma tras reinicio y guard",
+          "description": "Agregar GET /api/chats/:id/questions (pendientes y respondidas) y POST /api/chats/:id/questions/:qid/answer con esquema validado (respuesta por pregunta: opciones elegidas y/o texto), 404 si no existe, 409 si ya fue respondida o cancelada, answered_by del usuario de la sesión, sin ampliar la allowlist pública. Al arrancar el panel, las preguntas pendientes de chats que quedan interrupted pasan a cancelled (el agente vuelve a preguntar al reanudar). Incluir las rutas nuevas en guard.test.ts.",
+          "files_to_touch": [
+            "apps/api/src/chats/routes.ts",
+            "apps/api/src/chats/service.ts",
+            "apps/api/src/app.ts",
+            "apps/api/src/chats/repo.ts",
+            "apps/api/test/questions-routes.test.ts",
+            "apps/api/test/guard.test.ts"
+          ],
+          "context": "Las rutas usan onlyKeys para rechazar campos desconocidos (http/only-keys.ts) y el guard deny-by-default (auth/guard.ts); guard.test.ts recorre las rutas registradas y atrapa rutas públicas nuevas (R24). CSRF ya lo exige el middleware para POST. app.ts:131 marca interrupted los chats que estaban running al arrancar (chats/repo.ts). Hipótesis: si el panel se reinicia con una pregunta pendiente, el resume vuelve a preguntar (R1 rationale).",
+          "acceptance_criteria": [
+            "Sin sesión las dos rutas responden 401 y el POST sin CSRF responde 403.",
+            "Responder dos veces da 409; una pregunta de otro chat da 404.",
+            "Un reinicio con una pregunta pendiente la deja cancelled y el chat interrupted.",
+            "guard.test.ts pasa y la lista pública de rutas no cambia."
+          ],
+          "depends_on": [
+            "T2.1",
+            "T2.2"
+          ],
+          "scenario_refs": [
+            "S2",
+            "S3",
+            "S25"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "Rutas GET /api/chats/:id/questions (todas las preguntas del chat, pendientes y respondidas) y POST /api/chats/:id/questions/:qid/answer (cuerpo { answer } validado por esquema y por las opciones de la pregunta, onlyKeys para rechazar campos desconocidos). ChatService.answerQuestion: 404 si el chat o la pregunta no existen o la pregunta es de otro chat, 409 si ya fue respondida o cancelada, 400 si la respuesta no corresponde a las opciones; answered_by es el usuario de la sesión. Rutas no públicas (el guard las cubre y la allowlist pública no cambia). Al arrancar el panel (app.ts) los chats running pasan a interrupted y todas las preguntas pendientes a cancelled; una pregunta sin turno vivo responde 409. scripts/ entra en tsconfig de api para que typecheck y lint cubran los spikes.",
+            "validation": [
+              "npm test -w @agents-panel/api: 505 pasan (30 archivos), con 14 tests nuevos de rutas: 401 sin sesión, 403 sin CSRF, doble respuesta 409, otro chat 404, 400 por respuestas inválidas, reinicio con pregunta pendiente (cancelled + interrupted)",
+              "guard.test.ts: rutas nuevas no públicas y lista pública sin cambios; cli.test.ts: allowlist de rutas mutantes actualizada con la nueva",
+              "npx eslint . , npm run typecheck (shared, api, web) y prettier: sin errores"
+            ],
+            "files_changed": [
+              "apps/api/src/chats/routes.ts",
+              "apps/api/src/chats/service.ts",
+              "apps/api/src/app.ts",
+              "apps/api/test/questions-routes.test.ts",
+              "apps/api/test/guard.test.ts",
+              "apps/api/test/cli.test.ts",
+              "apps/api/test/chats.test.ts",
+              "apps/api/tsconfig.json"
+            ],
+            "notes": "chats/repo.ts no cambió: el pase a interrupted ya existía y las preguntas se cancelan desde QuestionRepository.cancelAllPending (T2.2). La UI con botones es del sprint web (T4.x).",
+            "by": "maker",
+            "recordedAt": "2026-10-05T02:34:14.155Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "Sin sesión las dos rutas responden 401 y el POST sin CSRF responde 403.",
+              "Responder dos veces da 409; una pregunta de otro chat da 404.",
+              "Un reinicio con una pregunta pendiente la deja cancelled y el chat interrupted.",
+              "guard.test.ts pasa y la lista pública de rutas no cambia."
+            ],
+            "findings": [],
+            "by": "checker",
+            "reviewedAt": "2026-10-05T02:34:17.093Z",
+            "requestDigest": "f9839cbafe066d5ea9753254b669dc748f4d2b7299a3671f430b9e42f5f2ae28",
+            "reviewedMaterialDigest": "1931ef030e934c87bc407e9638d9f41d07eab3c84f35753eb4f38176026d5dcb"
+          }
+        }
+      ]
+    },
+    {
+      "id": "P3",
+      "title": "Preguntas en la web (WS2)",
+      "objective": "Mostrar y responder las preguntas desde el chat.",
+      "status": "done",
+      "tasks": [
+        {
+          "id": "T3.1",
+          "title": "La web muestra y responde las preguntas del agente",
+          "description": "En el chat, mostrar la pregunta pendiente como una tarjeta con un botón por opción (selección simple o múltiple), campo de texto libre 'Otra respuesta' y botón Enviar; al enviar, deshabilitarla y mostrar la respuesta en el historial. Agregar a event-view los eventos question_asked y question_answered, un badge ámbar 'Esperando tu respuesta' en el encabezado del chat mientras haya una pendiente y los métodos del servicio de chats. Seguir docs/identidad-visual.md (tokens, Badge, Button, acciones deshabilitadas con motivo, celular).",
+          "files_to_touch": [
+            "apps/web/src/app/chats/question-card.ts",
+            "apps/web/src/app/chats/chat.page.ts",
+            "apps/web/src/app/chats/chats.service.ts",
+            "apps/web/src/app/chats/event-view.ts",
+            "apps/web/src/app/chats/event-view.spec.ts",
+            "apps/web/src/app/chats/question-card.spec.ts",
+            "packages/shared/src/index.ts"
+          ],
+          "context": "La web es Angular standalone + signals. El stream de eventos ya llega por SSE (chat-stream.service.ts) y toViewItems(event) arma el historial; la lógica pura va en funciones con spec (como last-chat.ts y status.ts). Componentes compartidos en apps/web/src/app/ui (Badge, Button, Modal, Icon). Sin colores literales fuera de tokens.css. El estado fino del trabajo y la sidebar son del sprint 2 y 5: acá solo el chat.",
+          "acceptance_criteria": [
+            "Una pregunta pendiente aparece con sus opciones y se envía con una opción, varias o texto libre.",
+            "Después de enviar la tarjeta queda deshabilitada y el historial muestra la pregunta y la respuesta.",
+            "Los specs de la lógica pura (validar selección, armar el cuerpo del POST, vista de eventos) pasan.",
+            "No quedan colores hex fuera de tokens.css (grep)."
+          ],
+          "depends_on": [
+            "T2.3"
+          ],
+          "scenario_refs": [
+            "S1",
+            "S2",
+            "S26"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "El chat muestra la pregunta pendiente como tarjeta (QuestionCard): un botón por opción (selección simple o múltiple con aria-pressed), campo 'Otra respuesta' y Enviar, deshabilitado con el motivo visible mientras falta responder. Al enviar queda en 'Enviando…' hasta que llega question_answered por SSE; entonces la tarjeta pasa al historial como pregunta + respuesta (burbuja del usuario) y question_cancelled se ve como aviso. event-view mapea question_asked, question_answered y question_cancelled, oculta la llamada cruda a AskUserQuestion y expone pendingQuestionIds; el encabezado del chat muestra un único badge ámbar 'Esperando tu respuesta' (chatBadge) mientras haya una pendiente. ChatsService.answerQuestion hace el POST. La lógica pura (toggle, texto libre, validación con motivo, cuerpo del POST, formato) está en question-logic.ts con spec. Estilos solo con tokens (.question* en components.css).",
+            "validation": [
+              "npm test -w @agents-panel/web: 136 pasan (18 archivos), con specs nuevos de question-logic, event-view (preguntas) y chatBadge",
+              "ng build de apps/web: compila los templates sin errores (encontró y se corrigió un acceso a null en la plantilla)",
+              "grep de hex, rgb y hsl fuera de tokens.css: sin resultados; eslint, prettier y tsc de web sin errores"
+            ],
+            "files_changed": [
+              "apps/web/src/app/chats/question-card.ts",
+              "apps/web/src/app/chats/question-logic.ts",
+              "apps/web/src/app/chats/question-logic.spec.ts",
+              "apps/web/src/app/chats/chat.page.ts",
+              "apps/web/src/app/chats/chats.service.ts",
+              "apps/web/src/app/chats/event-view.ts",
+              "apps/web/src/app/chats/event-view.spec.ts",
+              "apps/web/src/app/chats/status.ts",
+              "apps/web/src/app/chats/status.spec.ts",
+              "apps/web/src/styles/components.css"
+            ],
+            "notes": "No se probó en un navegador (no hay specs de componente en el repo; la lógica visible es pura y está testeada). La lógica pura quedó en question-logic.ts en vez de question-card.ts para no importar Angular desde event-view; el spec es question-logic.spec.ts. No se agregó ChatsService.questions(): el estado pendiente sale del replay de eventos.",
+            "by": "maker",
+            "recordedAt": "2026-10-05T02:36:47.123Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "Una pregunta pendiente aparece con sus opciones y se envía con una opción, varias o texto libre.",
+              "Después de enviar la tarjeta queda deshabilitada y el historial muestra la pregunta y la respuesta.",
+              "Los specs de la lógica pura (validar selección, armar el cuerpo del POST, vista de eventos) pasan.",
+              "No quedan colores hex fuera de tokens.css (grep)."
+            ],
+            "findings": [],
+            "by": "checker",
+            "reviewedAt": "2026-10-05T02:36:50.128Z",
+            "requestDigest": "e60ff16d83594c966c0b7677469bbbf69b30c86980c90e2a4e01b923a43c2108",
+            "reviewedMaterialDigest": "5afea50436ed02452b43b5cce21a41a07ef9933b96cdb6e3a9adac36e061a8d1"
+          }
+        }
+      ]
+    },
+    {
+      "id": "P4",
+      "title": "Docs y verificación",
+      "objective": "Dejar docs al día y verificar todo el sprint.",
+      "status": "done",
+      "tasks": [
+        {
+          "id": "T4.1",
+          "title": "Docs del sprint: estados, plan y panel-desarrollo",
+          "description": "Actualizar docs/estados.md (la pregunta pendiente como señal verificable del estado esperando_respuesta, su fuente en pending_questions y el estado de sesión mientras espera), docs/plan.md (preguntas desde la web, método confirmado en T1.1, allowlist pública sin cambios, referencia a los spikes) y docs/panel-desarrollo.md (cómo probar una pregunta de punta a punta).",
+          "files_to_touch": [
+            "docs/estados.md",
+            "docs/plan.md",
+            "docs/panel-desarrollo.md"
+          ],
+          "context": "CLAUDE.md: si una decisión cambia, se actualiza el doc en el mismo cambio, y si cambia un estado, se actualiza estados.md. Los docs en español. Los spikes dejan notas en plan.md (T1.1, T1.2, T1.3): consolidarlas sin duplicar.",
+          "acceptance_criteria": [
+            "estados.md describe cómo se detecta esperando_respuesta con la tabla pending_questions.",
+            "plan.md dice el método de respuesta confirmado y enlaza el plan autopiloto-kyro.",
+            "panel-desarrollo.md tiene los pasos para probar una pregunta.",
+            "No quedan contradicciones con T1.1 a T1.3."
+          ],
+          "depends_on": [
+            "T1.1",
+            "T1.2",
+            "T1.3",
+            "T3.1"
+          ],
+          "scenario_refs": [],
+          "status": "done",
+          "evidence": {
+            "summary": "docs/estados.md: la fila esperando_respuesta se detecta por pending_questions con status pending, y una sección nueva describe la tabla (migración 7), cuándo nace, qué muestra la web, cómo sale (POST de respuesta, 409), la cancelación y el reinicio, y la diferencia con esperando_permiso; el mapeo de sesión aclara que sigue running mientras espera y se corrigió el nombre viejo esperando_usuario. docs/plan.md: Permisos y preguntas actualizado y un bloque nuevo en la etapa 4 con el método confirmado (updatedInput), las rutas, la allowlist pública sin cambios, el enlace al plan autopiloto-kyro y la referencia a los spikes H1/H2 y a las fixtures. docs/panel-desarrollo.md: sección 'Probar una pregunta del agente' con pasos de punta a punta, referencia de la API y cómo repetir los spikes.",
+            "validation": [
+              "grep esperando_usuario en docs: sin resultados; prettier --check docs sin errores",
+              "Lectura cruzada con T1.1-T1.3: método updatedInput, versión 0.3.289, política probada, gates sin ejercitar, close_sprint no emitido por Kyro 6.1.0 y rutas coinciden entre los tres docs"
+            ],
+            "files_changed": [
+              "docs/estados.md",
+              "docs/plan.md",
+              "docs/panel-desarrollo.md"
+            ],
+            "notes": "Sin cambios en la VM: no corresponde bitácora de vm-setup.md. Los pasos de panel-desarrollo.md para probar una pregunta no se ejecutaron en un navegador.",
+            "by": "maker",
+            "recordedAt": "2026-10-05T02:37:31.642Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "estados.md describe cómo se detecta esperando_respuesta con la tabla pending_questions.",
+              "plan.md dice el método de respuesta confirmado y enlaza el plan autopiloto-kyro.",
+              "panel-desarrollo.md tiene los pasos para probar una pregunta.",
+              "No quedan contradicciones con T1.1 a T1.3."
+            ],
+            "findings": [],
+            "by": "checker",
+            "reviewedAt": "2026-10-05T02:37:35.995Z",
+            "requestDigest": "13c9820161dd2a53f6d080b187679f735f71cabaf6d6b31704428c4502925459",
+            "reviewedMaterialDigest": "1cc71c65e47be639701932bafbe0b4aabf673128db76336c4dca2ea8f4953962"
+          }
+        },
+        {
+          "id": "T4.2",
+          "title": "Verificación automática del sprint",
+          "description": "Correr typecheck, lint, format:check, tests y build de todo el repo; comprobar con grep que no hay colores hex fuera de tokens.css, que no hay rutas públicas nuevas y que ningún comando de la API usa shell. Dejar registrado el recorrido manual de punta a punta (chat real que pregunta, respuesta desde la web, el agente sigue) como pendiente del usuario si no se hace en el sprint.",
+          "files_to_touch": [],
+          "context": "Gates del repo: npm run typecheck, npm run lint, npm run format:check, npm test, npm run build. El recorrido manual necesita la web por el túnel SSH (docs/panel-desarrollo.md) y una sesión real de la suscripción; si el usuario no lo hace, queda como deuda diferida hacia el sprint 2 con su motivo (como el sprint 4 de proyectos-y-versiones).",
+          "acceptance_criteria": [
+            "typecheck, lint, format:check, tests y build pasan.",
+            "grep: sin hex fuera de tokens.css, sin rutas públicas nuevas y sin shell en comandos externos.",
+            "El recorrido manual queda hecho o registrado como deuda diferida con su motivo."
+          ],
+          "depends_on": [
+            "T3.1",
+            "T4.1"
+          ],
+          "scenario_refs": [
+            "S25",
+            "S26"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "Todos los gates del repo pasan: typecheck (shared, api con scripts, web), eslint, prettier, tests (api 505, web 136) y build (shared, api, web). Greps: sin hex/rgb/hsl fuera de tokens.css; las únicas rutas públicas siguen siendo health, login y totp (guard.test.ts y cli.test.ts lo fijan); todo comando externo usa execFile/execFileSync con argv, sin shell (los .exec que aparecen son db.exec de SQLite y RegExp.exec). Las rutas nuevas responden 401 sin sesión y 403 sin CSRF (questions-routes.test.ts). El recorrido manual en navegador no se hizo: queda como deuda debt-1 diferida al sprint 2 con su motivo.",
+            "validation": [
+              "npm run typecheck, npm run lint, npm run format:check: exit 0",
+              "npm test: api 505 y web 136 pasan; npm run build: exit 0",
+              "grep hex fuera de tokens.css, public: true (3 rutas), child_process solo execFile: sin hallazgos",
+              "kyro debt add + defer: debt-1 registrada para el recorrido manual con su motivo"
+            ],
+            "files_changed": [],
+            "notes": "Criterio 3 cumplido por la vía de deuda diferida (el recorrido necesita navegador y el túnel del usuario).",
+            "by": "maker",
+            "recordedAt": "2026-10-05T02:39:29.540Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "typecheck, lint, format:check, tests y build pasan.",
+              "grep: sin hex fuera de tokens.css, sin rutas públicas nuevas y sin shell en comandos externos.",
+              "El recorrido manual queda hecho o registrado como deuda diferida con su motivo."
+            ],
+            "findings": [],
+            "by": "checker",
+            "reviewedAt": "2026-10-05T02:39:32.496Z",
+            "requestDigest": "7d333644b06be78c06042db7a5e188bb36ea5fcb1b68c960a2b626f3d1bd5abd",
+            "reviewedMaterialDigest": "fce8b3727866971dd431c00d0afbdac59a45ba5dbac653ce0cb32a70abd6409c"
+          }
+        }
+      ]
+    }
+  ],
+  "emergentTasks": [],
+  "definitionOfDone": [
+    "Todas las tareas están done con evidencia y veredicto pass.",
+    "H1 y H2 están confirmadas o descartadas con su alternativa, documentadas en docs/plan.md.",
+    "Una pregunta del agente se guarda, se responde desde la web y el agente continúa, con runner falso en tests.",
+    "typecheck, lint, format:check, tests y build pasan; ninguna ruta pública nueva.",
+    "El recorrido manual con una sesión real está hecho o registrado como deuda diferida."
+  ]
+}
