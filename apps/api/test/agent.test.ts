@@ -5,6 +5,7 @@ import { AgentManager, AlreadyRunningError, SessionLimitError } from '../src/age
 import { createPreToolUseHook } from '../src/agent/sdk-runner.js';
 import { ALLOWED_TOOLS, decide } from '../src/agent/permissions.js';
 import { ChatEventBus } from '../src/chats/events.js';
+import { QuestionNotPendingError, QuestionRepository } from '../src/chats/questions-repo.js';
 import { ChatRepository } from '../src/chats/repo.js';
 import { openDatabase } from '../src/db/index.js';
 import { ProjectRepository } from '../src/projects/repo.js';
@@ -21,7 +22,13 @@ async function setup(max?: number) {
   const chats = new ChatRepository(db);
   const runner = new FakeRunner();
   const bus = new ChatEventBus();
-  const manager = new AgentManager(chats, runner, bus, max);
+  const questions = new QuestionRepository(db);
+  const manager = new AgentManager(chats, runner, bus, max, questions);
+  const userId = Number(
+    db
+      .prepare("INSERT INTO users (username, password_hash, created_at) VALUES ('ana', 'x', 1)")
+      .run().lastInsertRowid,
+  );
   const newChat = (slug: string) =>
     chats.create({
       projectId: project.id,
@@ -32,7 +39,7 @@ async function setup(max?: number) {
       branch: `feature/${slug}`,
       status: 'idle',
     });
-  return { chats, runner, bus, manager, newChat };
+  return { chats, runner, bus, manager, newChat, questions, userId };
 }
 
 describe('AgentManager', () => {
@@ -126,9 +133,9 @@ describe('AgentManager', () => {
   it('denies a tool outside the allowlist and stores a permission_denied event', async () => {
     const { chats, runner, manager, newChat } = await setup();
     const decisions: string[] = [];
-    runner.script = (params) => {
-      decisions.push(params.canUseTool('Bash', { command: 'rm -rf /' }).behavior);
-      decisions.push(params.canUseTool('Bash', { command: 'git status' }).behavior);
+    runner.script = async (params) => {
+      decisions.push((await params.canUseTool('Bash', { command: 'rm -rf /' })).behavior);
+      decisions.push((await params.canUseTool('Bash', { command: 'git status' })).behavior);
       return [{ type: 'result:success', payload: {} }];
     };
     const chat = newChat('a');
@@ -138,6 +145,198 @@ describe('AgentManager', () => {
     const denied = chats.eventsAfter(chat.id).filter((e) => e.type === 'permission_denied');
     expect(denied).toHaveLength(1);
     expect(denied[0]?.payload).toMatchObject({ tool: 'Bash', input: { command: 'rm -rf /' } });
+  });
+});
+
+const ASK_INPUT = {
+  questions: [
+    {
+      question: '¿Cuál es tu color favorito?',
+      header: 'Color',
+      options: [
+        { label: 'Rojo', description: 'Rojo' },
+        { label: 'Azul', description: 'Azul' },
+      ],
+      multiSelect: false,
+    },
+  ],
+};
+const Q = ASK_INPUT.questions[0]?.question ?? '';
+
+/** Lets the manager and the fake runner run until the question is stored. */
+async function untilPending(questions: QuestionRepository, chatId: number) {
+  for (let i = 0; i < 200; i++) {
+    const [pending] = questions.listByChat(chatId, 'pending');
+    if (pending) return pending;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  throw new Error('The question never became pending');
+}
+
+describe('AskUserQuestion', () => {
+  function asking() {
+    return setup().then((ctx) => {
+      const seen: unknown[] = [];
+      ctx.runner.script = async (params) => {
+        const decision = await params.canUseTool('AskUserQuestion', ASK_INPUT, {
+          toolUseId: 'toolu_1',
+        });
+        seen.push(decision);
+        return [{ type: 'result:success', payload: {} }];
+      };
+      return { ...ctx, seen };
+    });
+  }
+
+  it('stores the question, publishes question_asked and keeps the turn open', async () => {
+    const { chats, bus, manager, newChat, questions, seen } = await asking();
+    const published: string[] = [];
+    const chat = newChat('a');
+    bus.subscribe(chat.id, (event) => published.push(event.type));
+    manager.start(chat.id, 'go');
+    const pending = await untilPending(questions, chat.id);
+    expect(pending).toMatchObject({ toolUseId: 'toolu_1', status: 'pending', answer: null });
+    expect(pending.questions[0]?.options.map((o) => o.label)).toEqual(['Rojo', 'Azul']);
+    expect(published).toContain('question_asked');
+    expect(
+      chats.eventsAfter(chat.id).find((e) => e.type === 'question_asked')?.payload,
+    ).toMatchObject({
+      questionId: pending.id,
+      toolUseId: 'toolu_1',
+    });
+    // The turn does not end by itself: no timeout, no auto-answer.
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    expect(manager.isRunning(chat.id)).toBe(true);
+    expect(chats.findById(chat.id)?.status).toBe('running');
+    expect(seen).toEqual([]);
+    expect(questions.get(pending.id)?.status).toBe('pending');
+    manager.cancel(chat.id);
+    await manager.waitForIdle(chat.id);
+  });
+
+  it('returns the answer to the same turn as updatedInput and records question_answered', async () => {
+    const { chats, manager, newChat, questions, userId, seen } = await asking();
+    const chat = newChat('a');
+    manager.start(chat.id, 'go');
+    const pending = await untilPending(questions, chat.id);
+    const answered = manager.answerQuestion(pending.id, { [Q]: { selected: ['Azul'] } }, userId);
+    expect(answered).toMatchObject({ status: 'answered', answeredBy: userId });
+    await manager.waitForIdle(chat.id);
+    expect(seen).toEqual([
+      { behavior: 'allow', updatedInput: { ...ASK_INPUT, answers: { [Q]: 'Azul' } } },
+    ]);
+    expect(chats.findById(chat.id)?.status).toBe('idle');
+    expect(chats.eventsAfter(chat.id).find((e) => e.type === 'question_answered')?.payload).toEqual(
+      {
+        questionId: pending.id,
+        answer: { [Q]: { selected: ['Azul'], text: null } },
+        answeredBy: userId,
+      },
+    );
+  });
+
+  it('accepts free text and rejects a second answer', async () => {
+    const { manager, newChat, questions, userId, seen } = await asking();
+    const chat = newChat('a');
+    manager.start(chat.id, 'go');
+    const pending = await untilPending(questions, chat.id);
+    manager.answerQuestion(pending.id, { [Q]: { text: 'Verde' } }, userId);
+    expect(() =>
+      manager.answerQuestion(pending.id, { [Q]: { selected: ['Rojo'] } }, userId),
+    ).toThrow(QuestionNotPendingError);
+    await manager.waitForIdle(chat.id);
+    expect(seen).toMatchObject([{ updatedInput: { answers: { [Q]: 'Verde' } } }]);
+  });
+
+  it('does not answer when the answer is invalid: the question stays pending', async () => {
+    const { manager, newChat, questions, userId } = await asking();
+    const chat = newChat('a');
+    manager.start(chat.id, 'go');
+    const pending = await untilPending(questions, chat.id);
+    expect(() =>
+      manager.answerQuestion(pending.id, { [Q]: { selected: ['Verde'] } }, userId),
+    ).toThrow(/no es una opción/);
+    expect(questions.get(pending.id)?.status).toBe('pending');
+    manager.cancel(chat.id);
+    await manager.waitForIdle(chat.id);
+  });
+
+  it('cancelling the chat while it waits cancels the question and ends the turn as cancelled', async () => {
+    const { chats, manager, newChat, questions, seen } = await asking();
+    const chat = newChat('a');
+    manager.start(chat.id, 'go');
+    const pending = await untilPending(questions, chat.id);
+    expect(manager.cancel(chat.id)).toBe(true);
+    await manager.waitForIdle(chat.id);
+    expect(questions.get(pending.id)?.status).toBe('cancelled');
+    expect(chats.findById(chat.id)?.status).toBe('cancelled');
+    expect(seen).toMatchObject([{ behavior: 'deny' }]);
+    expect(chats.eventsAfter(chat.id).map((e) => e.type)).toContain('question_cancelled');
+  });
+
+  it('cancels a question that no live turn is waiting on instead of answering it', async () => {
+    const { chats, manager, newChat, questions, userId } = await asking();
+    const chat = newChat('a');
+    // Left over from before a restart: pending in the database, no waiter in memory.
+    const stale = questions.create(chat.id, 'old', [
+      {
+        question: Q,
+        header: 'Color',
+        options: ASK_INPUT.questions[0]?.options ?? [],
+        multiSelect: false,
+      },
+    ]);
+    expect(() => manager.answerQuestion(stale.id, { [Q]: { selected: ['Rojo'] } }, userId)).toThrow(
+      /ya está cancelled/,
+    );
+    expect(questions.get(stale.id)?.status).toBe('cancelled');
+    expect(chats.eventsAfter(chat.id).map((e) => e.type)).toContain('question_cancelled');
+  });
+
+  it('denies an invalid AskUserQuestion input without storing anything', async () => {
+    const { runner, manager, newChat, questions } = await setup();
+    const seen: unknown[] = [];
+    runner.script = async (params) => {
+      seen.push(await params.canUseTool('AskUserQuestion', { questions: [] }, { toolUseId: 't' }));
+      return [];
+    };
+    const chat = newChat('a');
+    manager.start(chat.id, 'go');
+    await manager.waitForIdle(chat.id);
+    expect(seen).toMatchObject([{ behavior: 'deny', message: /between 1 and 4/ }]);
+    expect(questions.listByChat(chat.id)).toEqual([]);
+  });
+
+  it('keeps denying AskUserQuestion when the manager has no question repository', async () => {
+    const { chats, runner, newChat } = await setup();
+    const manager = new AgentManager(chats, runner, new ChatEventBus());
+    const seen: unknown[] = [];
+    runner.script = async (params) => {
+      seen.push(await params.canUseTool('AskUserQuestion', ASK_INPUT, { toolUseId: 't' }));
+      return [];
+    };
+    const chat = newChat('b');
+    manager.start(chat.id, 'go');
+    await manager.waitForIdle(chat.id);
+    expect(seen).toMatchObject([{ behavior: 'deny' }]);
+  });
+
+  it('lets the SDK hook pass AskUserQuestion so canUseTool can wait for the answer', async () => {
+    const hook = createPreToolUseHook(() => Promise.reject(new Error('must not decide here')));
+    const out = await hook(
+      {
+        hook_event_name: 'PreToolUse',
+        tool_name: 'AskUserQuestion',
+        tool_input: ASK_INPUT,
+        tool_use_id: 't1',
+        session_id: 's',
+        transcript_path: '',
+        cwd: '/tmp/wt/a',
+      },
+      't1',
+      { signal: new AbortController().signal },
+    );
+    expect(out).toEqual({});
   });
 });
 
@@ -240,7 +439,7 @@ const FORBIDDEN = new RegExp(
 
 describe('PreToolUse hook', () => {
   const policy = { cwd: '/tmp/wt/a', extraReadRoots: [] };
-  const hook = createPreToolUseHook((tool, input) => decide(policy, tool, input));
+  const hook = createPreToolUseHook((tool, input) => Promise.resolve(decide(policy, tool, input)));
   const call = (tool_name: string, tool_input: unknown) =>
     hook(
       {

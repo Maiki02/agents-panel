@@ -29,6 +29,33 @@ const messageBody = {
   properties: { text: { type: 'string', minLength: 1, maxLength: 20000 } },
 } as const;
 
+const answerParams = {
+  type: 'object',
+  required: ['id', 'qid'],
+  properties: { id: { type: 'integer', minimum: 1 }, qid: { type: 'integer', minimum: 1 } },
+} as const;
+
+/** One entry per question text: chosen option labels and/or free text (validated against the options). */
+const answerBody = {
+  type: 'object',
+  required: ['answer'],
+  additionalProperties: false,
+  properties: {
+    answer: {
+      type: 'object',
+      minProperties: 1,
+      maxProperties: 4,
+      additionalProperties: {
+        type: 'object',
+        properties: {
+          selected: { type: 'array', maxItems: 4, items: { type: 'string', maxLength: 500 } },
+          text: { type: ['string', 'null'], maxLength: 2000 },
+        },
+      },
+    },
+  },
+} as const;
+
 export function registerChatRoutes(
   app: FastifyInstance,
   deps: { chats: ChatRepository; service: ChatService },
@@ -107,6 +134,31 @@ export function registerChatRoutes(
     (request, reply) => {
       service.sendMessage(request.params.id, request.body.text);
       return reply.code(202).send({ ok: true });
+    },
+  );
+
+  app.get<{ Params: { id: number } }>(
+    '/api/chats/:id/questions',
+    { schema: { params: idParams } },
+    (request) => service.listQuestions(request.params.id),
+  );
+
+  app.post<{ Params: { id: number; qid: number }; Body: { answer: unknown } }>(
+    '/api/chats/:id/questions/:qid/answer',
+    {
+      schema: { params: answerParams, body: answerBody },
+      preValidation: onlyKeys(Object.keys(answerBody.properties)),
+    },
+    (request) => {
+      // The guard guarantees a session; answered_by is always the user of that session.
+      const userId = request.session?.userId;
+      if (userId === undefined) throw new ChatError('Unauthorized', 404);
+      return service.answerQuestion(
+        request.params.id,
+        request.params.qid,
+        request.body.answer,
+        userId,
+      );
     },
   );
 

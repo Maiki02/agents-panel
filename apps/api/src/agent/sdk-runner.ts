@@ -1,6 +1,6 @@
 import { query, type HookCallback, type SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import { ALLOWED_TOOLS } from './permissions.js';
-import type { AgentEvent, AgentRunner, RunParams } from './runner.js';
+import { ASK_USER_QUESTION, type AgentEvent, type AgentRunner, type RunParams } from './runner.js';
 
 /**
  * Applies the panel's policy to every tool call before permission rules run. Without this, allow
@@ -8,21 +8,24 @@ import type { AgentEvent, AgentRunner, RunParams } from './runner.js';
  * canUseTool would never see them.
  */
 export function createPreToolUseHook(decide: RunParams['canUseTool']): HookCallback {
-  return (input) => {
-    if (input.hook_event_name !== 'PreToolUse') return Promise.resolve({});
+  return async (input) => {
+    if (input.hook_event_name !== 'PreToolUse') return {};
+    // AskUserQuestion goes on to canUseTool, which waits for the user's answer and returns it as
+    // updatedInput. Deciding here too would ask the user twice.
+    if (input.tool_name === ASK_USER_QUESTION) return {};
     const toolInput =
       typeof input.tool_input === 'object' && input.tool_input !== null
         ? (input.tool_input as Record<string, unknown>)
         : {};
-    const decision = decide(input.tool_name, toolInput);
-    if (decision.behavior === 'allow') return Promise.resolve({});
-    return Promise.resolve({
+    const decision = await decide(input.tool_name, toolInput, { toolUseId: input.tool_use_id });
+    if (decision.behavior === 'allow') return {};
+    return {
       hookSpecificOutput: {
         hookEventName: 'PreToolUse',
         permissionDecision: 'deny',
         permissionDecisionReason: decision.message,
       },
-    });
+    };
   };
 }
 
@@ -63,7 +66,8 @@ export class SdkRunner implements AgentRunner {
           abortController,
           ...(params.resumeSessionId ? { resume: params.resumeSessionId } : {}),
           hooks: { PreToolUse: [{ hooks: [createPreToolUseHook(params.canUseTool)] }] },
-          canUseTool: (toolName, input) => Promise.resolve(params.canUseTool(toolName, input)),
+          canUseTool: (toolName, input, { toolUseID }) =>
+            params.canUseTool(toolName, input, { toolUseId: toolUseID }),
         },
       });
       for await (const message of stream) yield toEvent(message);

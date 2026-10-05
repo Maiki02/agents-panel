@@ -52,6 +52,21 @@ describe('deny-by-default guard', () => {
     expect(routes.every((r) => !r.public)).toBe(true);
   });
 
+  it('registers the chat question routes and keeps them non-public', async () => {
+    app = makeApp().app;
+    await app.ready();
+    const seen = app.registeredRoutes
+      .filter((r) => r.url.includes('/questions'))
+      .map((r) => ({ route: `${r.method} ${r.url}`, public: r.public }));
+    expect(seen).toEqual(
+      expect.arrayContaining([
+        { route: 'GET /api/chats/:id/questions', public: false },
+        { route: 'POST /api/chats/:id/questions/:qid/answer', public: false },
+      ]),
+    );
+    expect(seen.every((r) => !r.public)).toBe(true);
+  });
+
   it('only health is public for now, and unknown paths are rejected too', async () => {
     app = makeApp().app;
     await app.ready();

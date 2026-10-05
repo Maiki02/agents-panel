@@ -81,6 +81,40 @@ export interface ChatEvent {
   createdAt: number;
 }
 
+/** One question of an AskUserQuestion call, as the agent asked it. "Other" is added by the UI. */
+export interface AskedQuestion {
+  question: string;
+  /** Very short chip label (max 12 characters). */
+  header: string;
+  options: { label: string; description: string; preview?: string }[];
+  multiSelect: boolean;
+}
+
+/** The user's answer to one question: chosen option labels and/or free text. */
+export interface QuestionAnswerItem {
+  selected: string[];
+  text: string | null;
+}
+
+/** Answers keyed by the exact question text. */
+export type QuestionAnswer = Record<string, QuestionAnswerItem>;
+
+export type PendingQuestionStatus = 'pending' | 'answered' | 'cancelled';
+
+/** A question the agent of a chat is waiting on. It never expires and is never auto-answered. */
+export interface PendingQuestion {
+  id: number;
+  chatId: number;
+  toolUseId: string;
+  questions: AskedQuestion[];
+  status: PendingQuestionStatus;
+  answer: QuestionAnswer | null;
+  /** User id; always set when status is answered. */
+  answeredBy: number | null;
+  createdAt: number;
+  answeredAt: number | null;
+}
+
 export type MaintenanceStatus = 'running' | 'ok' | 'error';
 
 /** One Kyro update run (see docs/vm-setup.md, step 14). */

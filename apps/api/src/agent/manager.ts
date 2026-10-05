@@ -1,8 +1,15 @@
-import type { ChatStatus } from '@agents-panel/shared';
+import { randomUUID } from 'node:crypto';
+import type { ChatStatus, PendingQuestion } from '@agents-panel/shared';
 import type { ChatEventBus } from '../chats/events.js';
+import {
+  QuestionNotPendingError,
+  parseAskedQuestions,
+  toSdkAnswers,
+  type QuestionRepository,
+} from '../chats/questions-repo.js';
 import type { ChatRepository } from '../chats/repo.js';
 import { decide } from './permissions.js';
-import type { AgentRunner } from './runner.js';
+import { ASK_USER_QUESTION, type AgentRunner, type PermissionDecision } from './runner.js';
 
 export const MAX_CONCURRENT_SESSIONS = 4;
 
@@ -30,16 +37,29 @@ interface ActiveSession {
   done: Promise<void>;
 }
 
+/** A turn blocked inside AskUserQuestion until the user answers. */
+interface QuestionWaiter {
+  chatId: number;
+  input: Record<string, unknown>;
+  resolve: (decision: PermissionDecision) => void;
+}
+
 /** Runs one agent turn per chat in the background, persisting and publishing every event. */
 export class AgentManager {
   private readonly active = new Map<number, ActiveSession>();
+  private readonly waiters = new Map<number, QuestionWaiter>();
   private maintenance = false;
 
+  /**
+   * Without `questions` the agent cannot ask anything: AskUserQuestion is denied like any tool
+   * outside the allowlist.
+   */
   constructor(
     private readonly chats: ChatRepository,
     private readonly runner: AgentRunner,
     private readonly bus: ChatEventBus,
     private readonly maxConcurrent: number = MAX_CONCURRENT_SESSIONS,
+    private readonly questions?: QuestionRepository,
   ) {}
 
   get runningCount(): number {
@@ -114,6 +134,81 @@ export class AgentManager {
     return true;
   }
 
+  /**
+   * Gives the user's answer to the turn that is waiting on it, in the same SDK session. The answer
+   * is only stored when a live turn can receive it: a question left over from before a restart is
+   * cancelled instead (the resumed agent asks again). Throws the repository's QuestionErrors.
+   */
+  answerQuestion(questionId: number, answer: unknown, answeredBy: number): PendingQuestion {
+    const questions = this.questions;
+    if (!questions) throw new Error('Questions are not enabled');
+    const waiter = this.waiters.get(questionId);
+    if (!waiter) {
+      const current = questions.get(questionId);
+      if (current?.status === 'pending') {
+        questions.cancelPending(current.chatId);
+        this.record(current.chatId, 'question_cancelled', { questionId });
+        throw new QuestionNotPendingError(questionId, 'cancelled');
+      }
+    }
+    const answered = questions.answer(questionId, answer, answeredBy);
+    this.record(answered.chatId, 'question_answered', {
+      questionId,
+      answer: answered.answer,
+      answeredBy,
+    });
+    if (waiter && answered.answer) {
+      this.waiters.delete(questionId);
+      waiter.resolve({
+        behavior: 'allow',
+        updatedInput: { ...waiter.input, answers: toSdkAnswers(answered.answer) },
+      });
+    }
+    return answered;
+  }
+
+  /**
+   * AskUserQuestion: stores the question, tells the web and waits with no timeout until the user
+   * answers (answerQuestion) or the turn is aborted. Nothing here ever answers on the user's behalf.
+   */
+  private askUser(
+    chatId: number,
+    input: Record<string, unknown>,
+    toolUseId: string | undefined,
+    signal: AbortSignal,
+  ): Promise<PermissionDecision> {
+    const questions = this.questions;
+    if (!questions) {
+      return Promise.resolve({ behavior: 'deny', message: 'Tool not allowed: AskUserQuestion' });
+    }
+    let pending: PendingQuestion;
+    try {
+      pending = questions.create(chatId, toolUseId ?? randomUUID(), parseAskedQuestions(input));
+    } catch (error) {
+      return Promise.resolve({
+        behavior: 'deny',
+        message: error instanceof Error ? error.message : 'Invalid question',
+      });
+    }
+    this.record(chatId, 'question_asked', {
+      questionId: pending.id,
+      toolUseId: pending.toolUseId,
+      questions: pending.questions,
+    });
+    return new Promise<PermissionDecision>((resolve) => {
+      const cancel = () => {
+        if (this.waiters.delete(pending.id)) {
+          questions.cancelPending(chatId);
+          this.record(chatId, 'question_cancelled', { questionId: pending.id });
+          resolve({ behavior: 'deny', message: 'The question was cancelled' });
+        }
+      };
+      this.waiters.set(pending.id, { chatId, input, resolve });
+      if (signal.aborted) cancel();
+      else signal.addEventListener('abort', cancel, { once: true });
+    });
+  }
+
   private record(chatId: number, type: string, payload: unknown): void {
     this.bus.publish(this.chats.appendEvent(chatId, type, payload));
   }
@@ -132,7 +227,10 @@ export class AgentManager {
         prompt,
         ...(resumeSessionId ? { resumeSessionId } : {}),
         signal: controller.signal,
-        canUseTool: (toolName, input) => {
+        canUseTool: (toolName, input, context) => {
+          if (toolName === ASK_USER_QUESTION && this.questions) {
+            return this.askUser(chatId, input, context?.toolUseId, controller.signal);
+          }
           const decision = decide({ cwd }, toolName, input);
           if (decision.behavior === 'deny') {
             this.record(chatId, 'permission_denied', {
@@ -141,7 +239,7 @@ export class AgentManager {
               reason: decision.message,
             });
           }
-          return decision;
+          return Promise.resolve(decision);
         },
       });
       for await (const event of events) {
@@ -160,6 +258,8 @@ export class AgentManager {
         });
       }
     }
+    // A turn that ends cannot receive an answer anymore.
+    this.questions?.cancelPending(chatId);
     this.chats.setStatus(chatId, final);
   }
 }

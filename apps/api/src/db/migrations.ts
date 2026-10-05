@@ -185,6 +185,29 @@ export const migrations: readonly Migration[] = [
       ALTER TABLE chats_new RENAME TO chats;
     `,
   },
+  {
+    version: 7,
+    name: 'pending_questions',
+    // An answer can never exist without who gave it and when (R2): the CHECKs make that structural.
+    sql: `
+      CREATE TABLE pending_questions (
+        id INTEGER PRIMARY KEY,
+        chat_id INTEGER NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
+        tool_use_id TEXT NOT NULL,
+        questions TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'answered', 'cancelled')),
+        answer TEXT,
+        answered_by INTEGER REFERENCES users(id),
+        created_at INTEGER NOT NULL,
+        answered_at INTEGER,
+        UNIQUE (chat_id, tool_use_id),
+        CHECK ((status = 'answered') = (answer IS NOT NULL)),
+        CHECK ((status = 'answered') = (answered_by IS NOT NULL)),
+        CHECK ((status = 'answered') = (answered_at IS NOT NULL))
+      );
+      CREATE INDEX pending_questions_chat ON pending_questions(chat_id, status);
+    `,
+  },
 ];
 
 /** Applies pending migrations in order, each in its own transaction. Safe to run repeatedly. */

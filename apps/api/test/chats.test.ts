@@ -11,6 +11,7 @@ import type { Chat, ChatEvent } from '@agents-panel/shared';
 import { SESSION_COOKIE, SessionService } from '../src/auth/sessions.js';
 import { UserRepository } from '../src/auth/users.js';
 import { buildInitialPrompt } from '../src/chats/service.js';
+import { QuestionRepository } from '../src/chats/questions-repo.js';
 import { ChatRepository } from '../src/chats/repo.js';
 import { openDatabase, type Db } from '../src/db/index.js';
 import { EnvFileRepository } from '../src/env-files/repo.js';
@@ -428,6 +429,7 @@ describe('create rollback', () => {
       chats,
       projects,
       manager: racing,
+      questions: new QuestionRepository(db),
       worktreesDir,
       envFiles: new EnvFileRepository(db, SECRET),
     });
@@ -468,7 +470,14 @@ describe('create with .env files', () => {
     const worktreesDir = mkdtempSync(join(tmpdir(), 'panel-env-wt-'));
     const envFiles = new EnvFileRepository(db, SECRET);
     const manager = new AgentManager(chats, new FakeRunner(), new ChatEventBus());
-    const service = new ChatService({ chats, projects, manager, worktreesDir, envFiles });
+    const service = new ChatService({
+      chats,
+      projects,
+      manager,
+      questions: new QuestionRepository(db),
+      worktreesDir,
+      envFiles,
+    });
     const create = (slug: string) =>
       service.create({ projectId: project.id, kind: 'work', slug, prompt: 'x' });
     const branches = (slug: string) =>

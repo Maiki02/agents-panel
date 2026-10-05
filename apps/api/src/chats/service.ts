@@ -1,6 +1,6 @@
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import type { Chat, ChatKind } from '@agents-panel/shared';
+import type { Chat, ChatKind, PendingQuestion } from '@agents-panel/shared';
 import {
   AgentManager,
   AlreadyRunningError,
@@ -17,6 +17,12 @@ import {
   removeWorktree,
   validateSlug,
 } from '../worktrees/create.js';
+import {
+  QuestionAnswerError,
+  QuestionNotFoundError,
+  QuestionNotPendingError,
+  type QuestionRepository,
+} from './questions-repo.js';
 import type { ChatRepository } from './repo.js';
 
 export class ChatError extends Error {
@@ -62,6 +68,7 @@ export interface ChatServiceDeps {
   chats: ChatRepository;
   projects: ProjectRepository;
   manager: AgentManager;
+  questions: QuestionRepository;
   worktreesDir: string;
   /** The project's development .env files, written into every new worktree after setup. */
   envFiles: EnvFileRepository;
@@ -171,6 +178,36 @@ export class ChatService {
   cancel(chatId: number): void {
     this.requireChat(chatId);
     if (!this.deps.manager.cancel(chatId)) throw new ChatError('Chat is not running', 409);
+  }
+
+  /** Every question the agent of this chat asked, oldest first, answered or not. */
+  listQuestions(chatId: number): PendingQuestion[] {
+    this.requireChat(chatId);
+    return this.deps.questions.listByChat(chatId);
+  }
+
+  /**
+   * Gives the user's answer to a question of this chat. 404 when the question does not exist or
+   * belongs to another chat, 409 when it is already answered or cancelled, 400 when the answer does
+   * not match the options.
+   */
+  answerQuestion(
+    chatId: number,
+    questionId: number,
+    answer: unknown,
+    answeredBy: number,
+  ): PendingQuestion {
+    this.requireChat(chatId);
+    const question = this.deps.questions.get(questionId);
+    if (question?.chatId !== chatId) throw new ChatError('Question not found', 404);
+    try {
+      return this.deps.manager.answerQuestion(questionId, answer, answeredBy);
+    } catch (error) {
+      if (error instanceof QuestionNotFoundError) throw new ChatError('Question not found', 404);
+      if (error instanceof QuestionNotPendingError) throw new ChatError(error.message, 409);
+      if (error instanceof QuestionAnswerError) throw new ChatError(error.message, 400);
+      throw error;
+    }
   }
 
   requireChat(chatId: number): Chat {

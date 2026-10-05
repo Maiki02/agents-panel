@@ -13,6 +13,7 @@ import { KyroVersions } from './maintenance/versions.js';
 import type { AgentRunner } from './agent/runner.js';
 import { SdkRunner } from './agent/sdk-runner.js';
 import { ChatEventBus } from './chats/events.js';
+import { QuestionRepository } from './chats/questions-repo.js';
 import { ChatRepository } from './chats/repo.js';
 import { registerChatRoutes } from './chats/routes.js';
 import { registerStreamRoute } from './chats/stream.js';
@@ -127,14 +128,20 @@ export function buildApp(deps: AppDeps, options: FastifyServerOptions = {}): Fas
   const projects = new ProjectRepository(deps.db, now);
   const chats = new ChatRepository(deps.db, now);
   const bus = deps.bus ?? new ChatEventBus();
-  const manager = deps.manager ?? new AgentManager(chats, deps.runner ?? new SdkRunner(), bus);
-  // Nothing survives a restart: sessions that were running when the server stopped are interrupted.
+  const questions = new QuestionRepository(deps.db, now);
+  const manager =
+    deps.manager ??
+    new AgentManager(chats, deps.runner ?? new SdkRunner(), bus, undefined, questions);
+  // Nothing survives a restart: sessions that were running when the server stopped are interrupted
+  // and the questions they were waiting on are cancelled (the resumed agent asks again).
   chats.markRunningAsInterrupted();
+  questions.cancelAllPending();
   const envFiles = new EnvFileRepository(deps.db, deps.config.secretKey, now);
   const chatService = new ChatService({
     chats,
     projects,
     manager,
+    questions,
     worktreesDir: deps.config.worktreesDir,
     envFiles,
   });
