@@ -193,3 +193,9 @@
 {"v":1,"ts":"2026-10-05T20:02:35.173Z","scope":"autopiloto-kyro","type":"tool_command_run","surface":"cli","command":"record-evidence","args":{"task":"E2","status":"done"}}
 {"v":1,"ts":"2026-10-05T20:02:35.510Z","scope":"autopiloto-kyro","type":"tool_command_run","surface":"cli","command":"review","args":{"task":"E2","verdict":"pass","requestDigest":"634c1257cfbe942631d294384e6a0eb9d85bbf0b42f8150e439c5e14053660b0"}}
 {"v":1,"ts":"2026-10-05T20:02:35.517Z","scope":"autopiloto-kyro","type":"gate_approved","gate":"checker","taskId":"E2"}
+{"v":1,"ts":"2026-10-05T20:02:37.377Z","scope":"autopiloto-kyro","type":"route_selected","nextAction":"qa_or_close","packMode":"scope","budgetClass":"close","reasoningTier":"deep"}
+{"v":1,"ts":"2026-10-05T20:02:43.004Z","scope":"autopiloto-kyro","type":"validation_result","source":"analyze","blocking":false,"findingCount":11,"codes":["A001","A002","A003","A004","A005","A006","A007","A008","A009","A010","A011"]}
+{"v":1,"ts":"2026-10-05T20:02:44.016Z","scope":"autopiloto-kyro","type":"validation_result","source":"doctor","blocking":false,"findingCount":0,"codes":[]}
+{"v":1,"ts":"2026-10-05T20:05:16.064Z","scope":"autopiloto-kyro","type":"tool_command_run","surface":"cli","command":"close-sprint","args":{"outcome":"shipped"}}
+{"v":1,"ts":"2026-10-05T20:05:16.065Z","scope":"autopiloto-kyro","type":"gate_approved","gate":"close_sprint"}
+{"v":1,"ts":"2026-10-05T20:05:16.264Z","scope":"autopiloto-kyro","type":"close_snapshot","sprintN":3,"snapshotId":"sprint-003-orquestador-politica.json","outcome":"shipped"}

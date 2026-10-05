@@ -1,0 +1,686 @@
+{
+  "n": 3,
+  "slug": "orquestador-politica",
+  "title": "Orquestador y política de gates",
+  "objective": "Un scope o work con piloto activo avanza solo de sesión en sesión (plan con el pensante, ejecución y cierre con el ejecutor) decidiendo cada paso por señales de Kyro y del SDK, con la política de gates inyectada, QA y analyze verificados antes de cerrar, frenos con motivo y retoma tras reinicio, probado con runner y Kyro falsos.",
+  "status": "complete",
+  "phases": [
+    {
+      "id": "P1",
+      "title": "Seguridad antes del piloto (debt-2, debt-3)",
+      "objective": "Que la base de Bash no alcance los denegados fijos antes de que un piloto corra sin supervisión, y corregir la etiqueta al retomar tras una interrupción.",
+      "status": "done",
+      "tasks": [
+        {
+          "id": "T1.1",
+          "title": "Cerrar los caminos de la base hacia los denegados fijos (debt-2)",
+          "description": "En apps/api/src/agent/permissions.ts, sumar reglas por argumento para los comandos de la base que ejecutan otros comandos: npm deniega los subcomandos exec, x, explore, edit y el flag --script-shell (y npm config set de script-shell); git deniega la opción global -c y --config-env, --exec-path, git config que escriba (set, --add, --replace-all, alias.*, core.sshCommand, core.pager, core.hooksPath, core.editor) y la invocación de alias definidos con ! que no se puedan resolver (o, más simple, git config solo con --get/--list/-l); go deniega generate y la variable GOFLAGS con -toolexec (go run y go test siguen, el plan los acepta como código del repo). Una asignación de variable al principio (GIT_SSH_COMMAND=… git push) ya se deniega por primera palabra: cubrirla con test. Mensaje de denegación claro para que el agente se adapte. Actualizar docs/plan.md (el párrafo de la base deja de decir que los caminos quedan como deuda) y resolver debt-2 con kyro debt resolve.",
+          "files_to_touch": [
+            "apps/api/src/agent/permissions.ts",
+            "apps/api/test/permissions.test.ts",
+            "docs/plan.md"
+          ],
+          "context": "debt-2 (high) y la primera recomendación del sprint 2: el piloto corre sin supervisión y R9 depende de que npm exec -c, git -c core.sshCommand y alias ! no lleguen a los denegados. Regla sec-1: toda allowlist por primera palabra se prueba con un intento de bypass. La lista no es un sandbox (npm test corre scripts del repo): el objetivo es que no haya un camino directo de una línea a oci, tailscale, sudo, ssh, etc. No romper lo que el agente usa a diario: npm ci/install/test/run, git status/diff/log/add/commit/push/pull/fetch/checkout/switch/branch/worktree, go build/test/vet/run, gh y kyro.",
+          "acceptance_criteria": [
+            "npm exec -c tailscale, npm x sudo, npm explore x -- ssh, npm --script-shell=/bin/sh test, git -c core.sshCommand=ssh push, git --config-env=a=b status, git config alias.x '!sudo', git config core.sshCommand ssh, go generate ./... y GIT_SSH_COMMAND=ssh git push se deniegan, cada uno con test.",
+            "npm ci, npm test, npm run build, git status, git commit -m x, git push, git config --get user.name, go test ./..., go run . y kyro status siguen permitidos.",
+            "docs/plan.md describe las reglas por argumento y debt-2 queda resuelta en Kyro."
+          ],
+          "depends_on": [],
+          "scenario_refs": [
+            "S10",
+            "S32"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "checkBaseArgs en permissions.ts: reglas por argumento para npm (exec/x/explore/edit/script-shell), git (-c, --config-env, --exec-path, config solo lectura, upload-pack/receive-pack/exec, ext::, rebase --exec, bisect run, submodule foreach, filter-branch) y go (generate, -exec, -toolexec, -vettool, env -w/-u). docs/plan.md actualizado.",
+            "validation": [
+              "vitest test/permissions.test.ts: 164 passed (33 denegados y 29 permitidos nuevos, incluido GIT_SSH_COMMAND=ssh git push)",
+              "tsc --noEmit y eslint sin errores"
+            ],
+            "files_changed": [
+              "apps/api/src/agent/permissions.ts",
+              "apps/api/test/permissions.test.ts",
+              "docs/plan.md"
+            ],
+            "notes": "La suite completa falla por ENOSPC en /tmp (decenas de miles de directorios panel-* viejos), ajeno a este cambio; no se limpió /tmp.",
+            "by": "maker",
+            "recordedAt": "2026-10-05T04:54:01.880Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "npm exec -c tailscale, npm x sudo, npm explore x -- ssh, npm --script-shell=/bin/sh test, git -c core.sshCommand=ssh push, git --config-env=a=b status, git config alias.x '!sudo', git config core.sshCommand ssh, go generate ./... y GIT_SSH_COMMAND=ssh git push se deniegan, cada uno con test.",
+              "npm ci, npm test, npm run build, git status, git commit -m x, git push, git config --get user.name, go test ./..., go run . y kyro status siguen permitidos.",
+              "docs/plan.md describe las reglas por argumento y debt-2 queda resuelta en Kyro."
+            ],
+            "findings": [],
+            "by": "checker",
+            "reviewedAt": "2026-10-05T04:54:04.973Z",
+            "requestDigest": "d02ee46c5d0ee0493cfbf54b0e9ba11fe272ef4ce3b3d99764935b84c740b1e1",
+            "reviewedMaterialDigest": "69b4840d3c7cab0ea20a4020125aed72ce174567f18c0992fca4f8de507aba6e"
+          }
+        },
+        {
+          "id": "T1.2",
+          "title": "Retomar tras interrumpido sin volver a esperando_respuesta (debt-3)",
+          "description": "En WorktreeStateTracker.turnStarted, cuando el estado actual es interrumpido o error y previousState es esperando_respuesta (o esperando_permiso), volver al estado anterior a la pregunta si se conoce o a planificando, nunca a un estado de espera de pregunta: la pregunta ya fue cancelada al reiniciar. Test de regresión. Resolver debt-3.",
+          "files_to_touch": [
+            "apps/api/src/worktrees/state-tracker.ts",
+            "apps/api/test/worktree-state.test.ts"
+          ],
+          "context": "debt-3 (low), hallazgo menor de la QA del sprint 2. La etiqueta se corregía sola al terminar el turno, pero con el piloto el Timeline debe ser fiel desde el arranque.",
+          "acceptance_criteria": [
+            "Un trabajo que estaba esperando_respuesta, se interrumpe y se retoma no vuelve a esperando_respuesta; el test lo cubre.",
+            "debt-3 queda resuelta en Kyro."
+          ],
+          "depends_on": [],
+          "scenario_refs": [
+            "S29"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "WorktreeStateTracker.resumeState: al retomar desde interrumpido/error con previousState esperando_respuesta o esperando_permiso vuelve al estado previo a la pregunta (según el Timeline) o a planificando; nunca a una espera de pregunta.",
+            "validation": [
+              "vitest suite completa de apps/api con TMPDIR=/dev/shm: 37 archivos, 752 tests pasan (2 tests de regresión nuevos en worktree-state.test.ts)",
+              "tsc --noEmit y eslint sin errores"
+            ],
+            "files_changed": [
+              "apps/api/src/worktrees/state-tracker.ts",
+              "apps/api/test/worktree-state.test.ts"
+            ],
+            "notes": "/tmp de la VM sin inodos (decenas de miles de panel-* viejos): los tests se corrieron con TMPDIR=/dev/shm. No se limpió /tmp.",
+            "by": "maker",
+            "recordedAt": "2026-10-05T04:56:00.993Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "Un trabajo que estaba esperando_respuesta, se interrumpe y se retoma no vuelve a esperando_respuesta; el test lo cubre.",
+              "debt-3 queda resuelta en Kyro."
+            ],
+            "findings": [],
+            "by": "checker",
+            "reviewedAt": "2026-10-05T04:56:01.498Z",
+            "requestDigest": "26454475eb80627ef34dd846eafd35db55e245300d85fd88ffdc9e779c52922b",
+            "reviewedMaterialDigest": "b66c8d86907452e5a85d99cbb98c3946734192226b846d27147d322cafc3eaa5"
+          }
+        }
+      ]
+    },
+    {
+      "id": "P2",
+      "title": "Política de gates versionada (R16)",
+      "objective": "La política que pre-aprueba los gates rutinarios de Kyro vive en un archivo versionado del panel, cubre cada gate conocido y deja en pregunta lo que no cubre.",
+      "status": "done",
+      "tasks": [
+        {
+          "id": "T2.1",
+          "title": "Archivo de política con versión, bloques por paso y test de cobertura de gates",
+          "description": "apps/api/src/pilot/policy.ts: POLICY_VERSION, KNOWN_GATES (execute_task, review_task, qa_or_close, close_sprint, await_scope_completion, clarify, plan_sprint, regla nueva global, deuda corregible y no corregible, commit de cierre, repair, scope complete, accept-open-debt, kyro-sprint-executor) con la cláusula de política que lo cubre y su decisión (proceder, parar, preguntar). buildPolicy(step) devuelve el bloque de texto para el paso (plan, ejecución, cierre) partiendo del texto probado en el spike H2 (docs/plan.md) más lo que pidieron los sprints 1 y 2: quién hace el review (maker y checker con --by distintos), parar en qa_or_close en la sesión de ejecución, en la sesión de cierre correr la skill kyro-qa siempre y cerrar solo con APPROVED o APPROVED WITH NOTES y analyze sin CRITICAL/HIGH, reglas nuevas solo del scope (candidatas a globales listadas al final), deuda corregible sin decisión nueva se corrige y el resto kyro debt defer con motivo, commit al cerrar el sprint (Conventional Commits, sin push: el push y el merge son del sprint 4), nunca kyro repair apply, nunca kyro scope complete ni --accept-open-debt, nunca kyro-sprint-executor, ADR con kyro adr por cada decisión tomada sin preguntar, preguntar con AskUserQuestion solo por decisión material, costo o clarify, rutas absolutas y sin echo ni redirecciones (llamadas denegadas en el spike). gateDecision(gate) devuelve 'ask' para un gate desconocido.",
+          "files_to_touch": [
+            "apps/api/src/pilot/policy.ts",
+            "apps/api/test/pilot-policy.test.ts"
+          ],
+          "context": "R16, D4–D8 y D29. Kyro no se modifica: la política va por prompt. Recomendación del sprint 1: decir quién hace el review y prohibir repair apply. Decisión del usuario (05/10/2026): la sesión de ejecución para en qa_or_close y el cierre (QA, deuda, commit, close-sprint) es otra sesión del ejecutor. El texto para el agente puede ir en inglés como el borrador probado; los mensajes al usuario en español.",
+          "acceptance_criteria": [
+            "Un test recorre KNOWN_GATES y verifica que cada uno tiene cláusula y decisión, y que el texto del paso correspondiente la menciona.",
+            "gateDecision de un gate no listado devuelve 'ask' (nunca 'proceed').",
+            "El texto de ningún paso menciona kyro-sprint-executor salvo para prohibirlo, ni bypassPermissions, y el de ejecución ordena parar en qa_or_close.",
+            "POLICY_VERSION queda registrado en cada sesión del piloto (lo usa T3.4)."
+          ],
+          "depends_on": [],
+          "scenario_refs": [
+            "S17"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "apps/api/src/pilot/policy.ts: POLICY_VERSION, KNOWN_GATES (16 gates con cláusula, keyword, decisión y pasos), gateDecision (ask para lo desconocido) y buildPolicy(plan|execute|close) partiendo del texto del spike H2 más review con --by distinto, parada en qa_or_close, QA obligatoria y cierre con APPROVED/analyze limpio, reglas solo del scope, deuda, commit sin push, sin repair apply/scope complete/--accept-open-debt/kyro-sprint-executor, ADR y rutas absolutas. POLICY_VERSION exportado para T3.4.",
+            "validation": [
+              "vitest test/pilot-policy.test.ts: 7 tests pasan (cobertura de gates, gate desconocido=ask, sin kyro-sprint-executor salvo prohibirlo ni bypassPermissions, execute para en qa_or_close, versión en cada paso)",
+              "tsc --noEmit y eslint sin errores"
+            ],
+            "files_changed": [
+              "apps/api/src/pilot/policy.ts",
+              "apps/api/test/pilot-policy.test.ts"
+            ],
+            "notes": "TMPDIR=/dev/shm por /tmp sin inodos.",
+            "by": "maker",
+            "recordedAt": "2026-10-05T04:58:09.621Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "Un test recorre KNOWN_GATES y verifica que cada uno tiene cláusula y decisión, y que el texto del paso correspondiente la menciona.",
+              "gateDecision de un gate no listado devuelve 'ask' (nunca 'proceed').",
+              "El texto de ningún paso menciona kyro-sprint-executor salvo para prohibirlo, ni bypassPermissions, y el de ejecución ordena parar en qa_or_close.",
+              "POLICY_VERSION queda registrado en cada sesión del piloto (lo usa T3.4)."
+            ],
+            "findings": [],
+            "by": "checker",
+            "reviewedAt": "2026-10-05T04:58:09.874Z",
+            "requestDigest": "69a949882ba3375bfb155faf748b23d0b448ff952c26fcd93c82bc78049ee368",
+            "reviewedMaterialDigest": "89310da4ab3fc487a1e6431300cfa4be0ad8ad240937929fbb3420103abc8181"
+          }
+        }
+      ]
+    },
+    {
+      "id": "P3",
+      "title": "Orquestador (R6, R7, R8, R10, R11, R15, R20)",
+      "objective": "El piloto decide el paso por señales, abre una sesión nueva por paso con el modelo del rol, verifica los gates de calidad, frena con motivo y se retoma tras un reinicio.",
+      "status": "done",
+      "tasks": [
+        {
+          "id": "T3.1",
+          "title": "Tabla autopilot_runs, repositorio y activación del piloto por la API",
+          "description": "Migración 12: autopilot_runs (chat_id PK con CASCADE, status: active | paused | off | stopped | waiting_quota | queued | finished, step actual, sprint_n, sessions_in_sprint, last_fingerprint JSON, stop_reason, retry_at, policy_version, created_at, updated_at) y agent_sessions suma step (plan | execute | fix | close | manual) y policy_version. AutopilotRunRepository con transiciones explícitas. Tipos en packages/shared (AutopilotStatus, AutopilotStep, AutopilotRun). API con sesión y CSRF: POST /api/chats con autopilot: true opcional (solo scope y work; 400 en direct), GET /api/chats/:id/autopilot y POST /api/chats/:id/autopilot { action: 'pause' | 'resume' | 'off' } con 409 si la acción no corresponde al estado. El tope de sesiones por sprint es configurable (variable de entorno del panel PILOT_MAX_SESSIONS_PER_SPRINT, por defecto 6, en .env.example).",
+          "files_to_touch": [
+            "apps/api/src/db/migrations.ts",
+            "apps/api/src/pilot/runs-repo.ts",
+            "apps/api/src/pilot/routes.ts",
+            "apps/api/src/chats/routes.ts",
+            "apps/api/src/chats/service.ts",
+            "apps/api/src/app.ts",
+            "packages/shared/src/index.ts",
+            "apps/api/.env.example",
+            "apps/api/test/db.test.ts",
+            "apps/api/test/pilot-runs.test.ts"
+          ],
+          "context": "Hallazgo 04 (tabla autopilot_runs). R24: toda ruta nueva exige sesión y CSRF y la allowlist pública no cambia. La web del piloto (interruptor, pausar) es del sprint 5; acá solo API. Pausar no corta un turno en curso: el piloto no abre el paso siguiente.",
+          "acceptance_criteria": [
+            "La migración 12 crea autopilot_runs y suma step y policy_version a agent_sessions; db.test verifica las columnas y que las filas existentes quedan válidas.",
+            "POST /api/chats con autopilot: true crea la fila active para scope y work y da 400 para un pedido directo.",
+            "pause, resume y off cambian el estado y dan 409 cuando no corresponde; las rutas dan 401 sin sesión y 403 sin CSRF.",
+            "El tope por sprint sale de la configuración con 6 por defecto."
+          ],
+          "depends_on": [],
+          "scenario_refs": [
+            "S25"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "Migración 12 (autopilot_runs; agent_sessions suma step y policy_version), AutopilotRunRepository con transiciones explícitas, tipos en shared, rutas GET/POST /api/chats/:id/autopilot (pause|resume|off, 409 si no corresponde, 404 en direct), POST /api/chats con autopilot:true (400 en direct), PILOT_MAX_SESSIONS_PER_SPRINT (6 por defecto) en config y .env.example.",
+            "validation": [
+              "vitest apps/api completo (TMPDIR=/dev/shm): 39 archivos, 774 tests pasan (db migración 12, repo, rutas 401/403/404/409/400, tope de sesiones)",
+              "tsc --noEmit, eslint y typecheck de workspaces sin errores"
+            ],
+            "files_changed": [
+              "apps/api/src/db/migrations.ts",
+              "apps/api/src/pilot/runs-repo.ts",
+              "apps/api/src/pilot/routes.ts",
+              "apps/api/src/chats/service.ts",
+              "apps/api/src/chats/routes.ts",
+              "apps/api/src/app.ts",
+              "packages/shared/src/index.ts",
+              "apps/api/.env.example",
+              "apps/api/test/db.test.ts",
+              "apps/api/test/pilot-runs.test.ts"
+            ],
+            "by": "maker",
+            "recordedAt": "2026-10-05T19:23:33.088Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "La migración 12 crea autopilot_runs y suma step y policy_version a agent_sessions; db.test verifica las columnas y que las filas existentes quedan válidas.",
+              "POST /api/chats con autopilot: true crea la fila active para scope y work y da 400 para un pedido directo.",
+              "pause, resume y off cambian el estado y dan 409 cuando no corresponde; las rutas dan 401 sin sesión y 403 sin CSRF.",
+              "El tope por sprint sale de la configuración con 6 por defecto."
+            ],
+            "findings": [],
+            "by": "checker",
+            "reviewedAt": "2026-10-05T19:23:33.348Z",
+            "requestDigest": "d386f4a82e25f4c4b48f9089ec68282b6122f152482d0c099b566e8e598ed542",
+            "reviewedMaterialDigest": "8706006da1f0c87e28ecbf209b6850ce7853d624f64c83575e87ee323b7de3df"
+          }
+        },
+        {
+          "id": "T3.2",
+          "title": "Decisor puro del paso siguiente y detector de avance",
+          "description": "apps/api/src/pilot/decide.ts: decideNextStep(kyro: KyroScopeState | KyroWorkState, run, lastSession) puro, que devuelve { kind: 'session', step, role } o { kind: 'stop', state, blockedReason, detail } o { kind: 'check_quality' }. Scope: plan_sprint → plan (pensante); execute_task y review_task → execute (ejecutor); qa_or_close → check_quality (T3.4 corre analyze y decide fix o close); clarify → stop esperando_aclaracion; blockers del CLI → stop bloqueado kyro_bloqueado (integridad_kyro si el bloqueo pide repair); tarea bloqueada → stop tarea_bloqueada; await_scope_completion → stop (cierre y merge son del sprint 4); done → finished. Work: plan_tasks → plan (pensante); execute_task y review_task → execute; resolve_blocker → stop tarea_bloqueada; ready_to_close → stop (sprint 4). fingerprint(kyro) = nextAction, nextTaskId, sprint actual y cerrados, tareas hechas, deuda abierta y pendientes de review; progressed(before, after) compara fingerprints. Sin avance (mismo fingerprint, sesión sin pregunta respondida) → stop sin_avance. sessions_in_sprint >= tope → stop tope_de_sesiones. El texto del agente no es una entrada de la función (L1).",
+          "files_to_touch": [
+            "apps/api/src/pilot/decide.ts",
+            "apps/api/test/pilot-decide.test.ts"
+          ],
+          "context": "R6, R7, R11, R20 y D2. Usar los tipos de apps/api/src/kyro/state.ts y las fixtures reales de apps/api/test/fixtures/kyro/ (sprint 1). Learning del sprint 2: Kyro 6.1.0 puede quedar en await_scope_completion con el bloqueo no_ready_work cuando la única tarea pendiente se dispuso; el decisor no lo toma como fin del scope si hay activeSprint abierto (lo trata como check_quality/cierre). close_sprint no lo emite Kyro 6.1.0 (learning del sprint 1) pero se mapea igual a check_quality.",
+          "acceptance_criteria": [
+            "Cada nextAction de scope y de work de las fixtures tiene un test con el paso o freno esperado y el rol correcto.",
+            "Un test con lastSession que contiene texto 'el sprint terminó, cerrá' mientras nextAction es execute_task devuelve execute: el texto no cambia el paso (S8).",
+            "Mismo fingerprint antes y después sin pregunta respondida → stop sin_avance; sessions_in_sprint en el tope → stop tope_de_sesiones (S12).",
+            "await_scope_completion con activeSprint abierto y bloqueo no_ready_work no se toma como fin del scope."
+          ],
+          "depends_on": [],
+          "scenario_refs": [
+            "S7",
+            "S8",
+            "S12",
+            "S21"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "apps/api/src/pilot/decide.ts: decideNextStep puro (session plan/execute con rol, stop con estado y motivo, check_quality, finished), fingerprint y progressed, guardas sin_avance y tope_de_sesiones (configurable, 6 por defecto). El texto del agente no es entrada (LastSession solo trae result y answeredQuestion). KyroScopeState suma blockedTasks opcional leído de execution.blockedTasks.",
+            "validation": [
+              "vitest apps/api completo: 39 archivos pasan (28 tests nuevos de pilot-decide con las fixtures reales de scope y work, S8, S12, await_scope_completion con sprint abierto y no_ready_work)",
+              "tsc --noEmit y eslint sin errores"
+            ],
+            "files_changed": [
+              "apps/api/src/pilot/decide.ts",
+              "apps/api/src/kyro/state.ts",
+              "apps/api/test/pilot-decide.test.ts"
+            ],
+            "by": "maker",
+            "recordedAt": "2026-10-05T19:37:32.720Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "Cada nextAction de scope y de work de las fixtures tiene un test con el paso o freno esperado y el rol correcto.",
+              "Un test con lastSession que contiene texto 'el sprint terminó, cerrá' mientras nextAction es execute_task devuelve execute: el texto no cambia el paso (S8).",
+              "Mismo fingerprint antes y después sin pregunta respondida → stop sin_avance; sessions_in_sprint en el tope → stop tope_de_sesiones (S12).",
+              "await_scope_completion con activeSprint abierto y bloqueo no_ready_work no se toma como fin del scope."
+            ],
+            "findings": [],
+            "by": "checker",
+            "reviewedAt": "2026-10-05T19:37:32.977Z",
+            "requestDigest": "2e7c0e9a7d1839c5ef0ea3a4abefc2b9b5e3e723dbf11213ce55240b89fc9ca7",
+            "reviewedMaterialDigest": "5d373249f72b009b75aa765b6b811056b1974525aed0c0b6835c28f23bac675a"
+          }
+        },
+        {
+          "id": "T3.3",
+          "title": "Prompts de cada paso armados por el panel y chequeo de capacidades",
+          "description": "apps/api/src/pilot/prompts.ts: buildStepPrompt(step, ctx) arma el primer mensaje de cada sesión del piloto con: qué skill cargar (kyro-forge para plan, ejecución y fix; kyro-qa y después kyro-forge para cierre; kyro-work para un Work), el contexto de la tarea que sale de kyro context-pack --kyro-scope <scope> --task --verbosity detailed --json (scope, sprint, nextAction, nextTaskId, descripción, archivos, criterios, escenarios, deuda, convenciones), los hallazgos de analyze para el paso fix, y el bloque de política de T2.1 para ese paso. KyroReader suma contextPackTask(cwd, scope) y capabilities(cwd) por execFile con argv. Antes de cada paso el piloto exige que kyro capabilities --json incluya record-evidence, review, close-sprint, analyze y context-pack; si falta alguno → stop kyro_bloqueado con el detalle.",
+          "files_to_touch": [
+            "apps/api/src/pilot/prompts.ts",
+            "apps/api/src/kyro/reader.ts",
+            "apps/api/test/pilot-prompts.test.ts",
+            "apps/api/test/kyro-reader.test.ts"
+          ],
+          "context": "R6 y D29. Decisión del usuario (05/10/2026): el prompt de ejecución lo arma el panel con context-pack --task (mismos datos que kyro-task-context), no lo escribe la sesión de plan; es determinista y testeable. En el SDK no hay slash commands: se pide leer la skill (como buildInitialPrompt de chats/service.ts).",
+          "acceptance_criteria": [
+            "Los prompts de plan, ejecución, fix y cierre incluyen la skill correcta, el contexto de la tarea y el bloque de política de su paso; tests con fixtures.",
+            "Ningún prompt invoca kyro-sprint-executor (test).",
+            "Si capabilities no trae record-evidence o review, el piloto frena con kyro_bloqueado y el detalle (test con lector falso)."
+          ],
+          "depends_on": [
+            "T2.1"
+          ],
+          "scenario_refs": [
+            "S7"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "pilot/prompts.ts: buildStepPrompt(plan|execute|fix|close) con la skill correcta (kyro-forge; kyro-qa y luego kyro-forge en el cierre; kyro-work para un Work), contexto de la tarea, hallazgos de analyze en fix y el bloque de política de su paso; checkCapabilities frena con kyro_bloqueado si falta record-evidence, review, close-sprint, analyze o context-pack. KyroReader suma contextPackTask, workContextPack y capabilities (execFile con argv); state.ts suma parseScopeTaskContext, parseWorkTaskContext y parseCapabilities. Fixtures reales nuevas (capabilities.json, context-pack-task.execute_task.json) y capture.sh actualizado.",
+            "validation": [
+              "vitest apps/api completo: 41 archivos, 825 tests pasan (19 de pilot-prompts con fixtures y 4 nuevos de kyro-reader)",
+              "tsc --noEmit y eslint sin errores"
+            ],
+            "files_changed": [
+              "apps/api/src/pilot/prompts.ts",
+              "apps/api/src/kyro/reader.ts",
+              "apps/api/src/kyro/state.ts",
+              "apps/api/test/pilot-prompts.test.ts",
+              "apps/api/test/kyro-reader.test.ts",
+              "apps/api/test/fixtures/kyro/capture.sh"
+            ],
+            "by": "maker",
+            "recordedAt": "2026-10-05T19:41:19.505Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "Los prompts de plan, ejecución, fix y cierre incluyen la skill correcta, el contexto de la tarea y el bloque de política de su paso; tests con fixtures.",
+              "Ningún prompt invoca kyro-sprint-executor (test).",
+              "Si capabilities no trae record-evidence o review, el piloto frena con kyro_bloqueado y el detalle (test con lector falso)."
+            ],
+            "findings": [],
+            "by": "checker",
+            "reviewedAt": "2026-10-05T19:41:19.769Z",
+            "requestDigest": "d6b2f9e276671dd7eda462ccfda640c4f00ce4dd2aba26990dd8912121e10d1b",
+            "reviewedMaterialDigest": "169898954d438bfb62f0f48389ddbf7953c1f51cf00d3e4f32ebba2899d94ea6"
+          }
+        },
+        {
+          "id": "T3.4",
+          "title": "Bucle del piloto: una sesión nueva por paso, gate de calidad y frenos",
+          "description": "apps/api/src/pilot/autopilot.ts: servicio Autopilot que, para cada run active, lee Kyro, llama a decideNextStep y abre una sesión SDK nueva (AgentManager.start con { role, step, freshSession: true } que no reanuda chat.sdkSessionId) con el prompt de T3.3; espera el fin del turno, vuelve a leer Kyro, compara fingerprints y repite o frena. qa_or_close: el piloto corre kyro analyze --kyro-scope <scope> --json; con CRITICAL o HIGH abre un paso fix (ejecutor) con los hallazgos; limpio, abre el paso close. Tras el close verifica que la sesión invocó la skill kyro-qa (evento tool_use de Skill con kyro-qa) y que el ledger creció; si cerró sin QA → stop bloqueado con motivo nuevo qa_sin_correr (sumarlo a BLOCKED_REASONS). Cada transición del piloto usa actor 'pilot' y registra paso, rol, modelo y versión de política. Pregunta pendiente: el piloto no hace nada hasta que el turno termina (la respuesta vuelve a la misma sesión). Tope de 4 sesiones lleno → run queued y estado en_cola; se reintenta al liberarse una sesión. rate_limit_event con status rejected o resultado por límite de uso → waiting_quota, estado sin_cupo_de_uso y reintento cada 15 minutos (reloj inyectable). Pausa → no abre el paso siguiente; off → el chat vuelve al modo manual. El piloto nunca toca permissionMode ni bypassPermissions (usa buildQueryOptions).",
+          "files_to_touch": [
+            "apps/api/src/pilot/autopilot.ts",
+            "apps/api/src/agent/manager.ts",
+            "apps/api/src/agent/runner.ts",
+            "apps/api/src/chats/sessions-repo.ts",
+            "apps/api/src/worktrees/state-tracker.ts",
+            "apps/api/src/app.ts",
+            "packages/shared/src/index.ts",
+            "apps/api/test/pilot-autopilot.test.ts"
+          ],
+          "context": "R6, R8, R10, R11, R20 y la decisión del usuario (05/10/2026) de separar la sesión de cierre: plan (pensante) → ejecución hasta qa_or_close (ejecutor) → analyze por el panel → fix si hace falta → cierre (ejecutor: kyro-qa, deuda, commit, close-sprint). Segunda recomendación del sprint 2: construirlo con runner y Kyro falsos (fixtures del sprint 1). El tracker de estado sigue siendo quien escribe worktree_state; el piloto le pasa actor y motivo. Commit sí (lo hace el agente al cerrar por política); push, pull y PR son del sprint 4. Los frenos por merge (conflicto, build roto, secretos) también son del sprint 4.",
+          "acceptance_criteria": [
+            "Con runner y Kyro falsos, un scope de 2 sprints recorre plan → ejecución → analyze → cierre por sprint, cada paso en una sesión nueva con el modelo de su rol, y termina frenado en await_scope_completion (S7).",
+            "Con analyze con un HIGH el piloto abre un paso fix y no el cierre; si la sesión de cierre cierra el sprint sin invocar kyro-qa, el trabajo queda bloqueado qa_sin_correr (S9).",
+            "Ninguna sesión del piloto se abre con permissionMode bypassPermissions (test sobre las opciones que recibe el runner) (S11).",
+            "Una sesión sin avance y el tope de sesiones dejan bloqueado con su motivo; con 4 sesiones ocupadas el run queda en_cola y arranca al liberarse una; un rate limit rechazado deja sin_cupo_de_uso y reintenta a los 15 minutos (S12, S21).",
+            "Cada transición del piloto queda en el Timeline con actor pilot, paso, rol, modelo y versión de política."
+          ],
+          "depends_on": [
+            "T3.1",
+            "T3.2",
+            "T3.3"
+          ],
+          "scenario_refs": [
+            "S7",
+            "S9",
+            "S11",
+            "S12",
+            "S21"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "pilot/autopilot.ts: servicio Autopilot (drive/kick/drainQueue) que lee Kyro, decide con decideNextStep y abre una sesión SDK nueva por paso (AgentManager.start con pilot{step,policyVersion,sprintN} y freshSession); qa_or_close corre kyro analyze (HIGH/CRITICAL → fix, limpio → close); verifica kyro-qa tras el cierre (qa_sin_correr, motivo nuevo); cola con 4 sesiones, sin_cupo_de_uso con reintento a 15 min, pausa y apagado; transiciones con actor pilot. Soporte: AutopilotRunRepository (queue/dequeue/waitForQuota/retryAfterQuota/beginSession/listByStatus), KyroReader.analyze, ChatRepository.lastSeq/allEventsAfter, TurnInfo.pilot y WorktreeStateTracker.pilotMark, cableado en app.ts, ChatService y rutas (onResume/onAutopilotStart). docs/plan.md y docs/estados.md actualizados.",
+            "validation": [
+              "vitest apps/api completo: 42 archivos, 841 tests pasan (16 de pilot-autopilot con runner y Kyro falsos: S7 dos sprints, S9, S11, S12, S21, cola, pausa, apagado, texto del agente)",
+              "tsc --noEmit, eslint y typecheck de workspaces sin errores"
+            ],
+            "files_changed": [
+              "apps/api/src/pilot/autopilot.ts",
+              "apps/api/src/agent/manager.ts",
+              "apps/api/src/chats/sessions-repo.ts",
+              "apps/api/src/worktrees/state-tracker.ts",
+              "apps/api/src/app.ts",
+              "packages/shared/src/index.ts",
+              "apps/api/test/pilot-autopilot.test.ts",
+              "docs/plan.md",
+              "docs/estados.md"
+            ],
+            "by": "maker",
+            "recordedAt": "2026-10-05T19:49:30.961Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "Con runner y Kyro falsos, un scope de 2 sprints recorre plan → ejecución → analyze → cierre por sprint, cada paso en una sesión nueva con el modelo de su rol, y termina frenado en await_scope_completion (S7).",
+              "Con analyze con un HIGH el piloto abre un paso fix y no el cierre; si la sesión de cierre cierra el sprint sin invocar kyro-qa, el trabajo queda bloqueado qa_sin_correr (S9).",
+              "Ninguna sesión del piloto se abre con permissionMode bypassPermissions (test sobre las opciones que recibe el runner) (S11).",
+              "Una sesión sin avance y el tope de sesiones dejan bloqueado con su motivo; con 4 sesiones ocupadas el run queda en_cola y arranca al liberarse una; un rate limit rechazado deja sin_cupo_de_uso y reintenta a los 15 minutos (S12, S21).",
+              "Cada transición del piloto queda en el Timeline con actor pilot, paso, rol, modelo y versión de política."
+            ],
+            "findings": [],
+            "by": "checker",
+            "reviewedAt": "2026-10-05T19:49:31.218Z",
+            "requestDigest": "bf61c0d90f2482f7d21e807ad0ba61f0ac786682c9127e9b7a06a2e26169972d",
+            "reviewedMaterialDigest": "54fdf07e7ca9c219eb64bb4bb9e1c823e1fd57d4d5c299d1cb64e0ae643a823c"
+          }
+        },
+        {
+          "id": "T3.5",
+          "title": "Retoma de los pilotos activos al arrancar el panel",
+          "description": "Al arrancar (app.ts), después de marcar interrumpidos los chats que estaban corriendo, el Autopilot retoma cada run active o waiting_quota o queued sin mensaje del usuario: si el paso en curso tenía una sesión SDK, la reanuda con resume y un prompt corto de continuación del mismo paso (cuenta como sesión del sprint); si no, vuelve a decidir desde Kyro. Un run paused u off no se retoma. El tope de sesiones por sprint corta reintentos en bucle tras reinicios repetidos.",
+          "files_to_touch": [
+            "apps/api/src/pilot/autopilot.ts",
+            "apps/api/src/app.ts",
+            "apps/api/test/pilot-autopilot.test.ts"
+          ],
+          "context": "R15, L10 y D16. Hoy chats/repo.ts deja los running como interrupted y esperan un mensaje (hallazgo 04). Hasta tener systemd (etapa 6) cerrar la terminal corta el panel; documentarlo en T4.1.",
+          "acceptance_criteria": [
+            "Con un run active a mitad de un paso y un reinicio simulado, el piloto reanuda el mismo paso con resume del sdk_session_id sin mensaje del usuario (S16).",
+            "Un run pausado o apagado no se retoma; uno en waiting_quota respeta su retry_at.",
+            "Reinicios repetidos sin avance terminan en tope_de_sesiones, no en bucle."
+          ],
+          "depends_on": [
+            "T3.4"
+          ],
+          "scenario_refs": [
+            "S16"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "Autopilot.resumeAll (llamado en onReady de app.ts tras marcar interrumpidos): un run active con sesión SDK abierta retoma el mismo paso con resume del sdk_session_id y un prompt corto de continuación (cuenta como sesión del sprint); sin sesión abierta vuelve a decidir desde Kyro; paused y off no se retoman; waiting_quota respeta retry_at; en el tope de sesiones frena con tope_de_sesiones. Soporte: AgentSessionRepository.lastOpen/closeOpen, AutopilotRunRepository.countSession y settle() extraído del bucle.",
+            "validation": [
+              "vitest apps/api completo: 42 archivos, 846 tests pasan (5 nuevos de reinicio: S16, pausado/apagado, retry_at, tope, entre pasos)",
+              "tsc --noEmit y eslint sin errores"
+            ],
+            "files_changed": [
+              "apps/api/src/pilot/autopilot.ts",
+              "apps/api/src/app.ts",
+              "apps/api/src/chats/sessions-repo.ts",
+              "apps/api/src/pilot/runs-repo.ts",
+              "apps/api/test/pilot-autopilot.test.ts"
+            ],
+            "by": "maker",
+            "recordedAt": "2026-10-05T19:53:30.547Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "Con un run active a mitad de un paso y un reinicio simulado, el piloto reanuda el mismo paso con resume del sdk_session_id sin mensaje del usuario (S16).",
+              "Un run pausado o apagado no se retoma; uno en waiting_quota respeta su retry_at.",
+              "Reinicios repetidos sin avance terminan en tope_de_sesiones, no en bucle."
+            ],
+            "findings": [],
+            "by": "checker",
+            "reviewedAt": "2026-10-05T19:53:35.087Z",
+            "requestDigest": "0d53d6321371bd4333f71e126fee7bece9efe9bfda03c3c081dc5d2dde5e6eda",
+            "reviewedMaterialDigest": "0345185fca86abf81d41fea05d109aa45436506edca87e8742b3b51918920622"
+          }
+        }
+      ]
+    },
+    {
+      "id": "P4",
+      "title": "Docs y verificación",
+      "objective": "Los docs describen el piloto real y el sprint pasa todos los gates automáticos.",
+      "status": "done",
+      "tasks": [
+        {
+          "id": "T4.1",
+          "title": "docs: piloto, política, estados y cómo probarlo",
+          "description": "docs/plan.md: el orquestador (pasos, roles, sesión de cierre separada, prompt armado por el panel, gate de analyze y verificación de QA, frenos, cola, sin cupo, retoma, versión de política) y la actualización de D3 con la decisión del 05/10/2026. docs/estados.md: estados y motivos que ahora usa el piloto (en_cola, sin_cupo_de_uso, pausado, bloqueado con qa_sin_correr, sin_avance, tope_de_sesiones), actor pilot y la tabla autopilot_runs. docs/panel-desarrollo.md: cómo activar, pausar y apagar el piloto por la API y una prueba sugerida con un work de prueba (D31), y la nota de que cerrar la terminal corta el panel hasta tener systemd (usar tmux). apps/api/.env.example con la variable del tope.",
+          "files_to_touch": [
+            "docs/plan.md",
+            "docs/estados.md",
+            "docs/panel-desarrollo.md",
+            "apps/api/.env.example"
+          ],
+          "context": "R26 y CLAUDE.md: si una decisión cambia, el doc se actualiza en el mismo cambio. La regla de commits y push de CLAUDE.md y la doc del merge son del sprint 4 y 6. Si se agrega algo en la VM (no debería), va a vm-setup.md con su bitácora.",
+          "acceptance_criteria": [
+            "plan.md describe el piloto como quedó implementado y registra el cambio de D3.",
+            "estados.md lista cada estado y motivo que escribe el piloto con su señal y el actor pilot.",
+            "panel-desarrollo.md tiene los pasos para activar y probar el piloto por la API."
+          ],
+          "depends_on": [
+            "T3.4",
+            "T3.5"
+          ],
+          "scenario_refs": [
+            "S27"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "docs: plan.md registra la D3 actualizada (sesión de cierre separada, analyze del panel, prompt armado por el panel), la retoma tras reinicio y lo que falta; estados.md lista cada estado y motivo que escribe el piloto con su señal y actor pilot, la tabla autopilot_runs y actualiza los motivos y los estados todavía no detectados; panel-desarrollo.md suma «Probar el piloto automático (por la API)» con la nota de tmux hasta tener systemd. .env.example ya traía PILOT_MAX_SESSIONS_PER_SPRINT (T3.1).",
+            "validation": [
+              "revisión de los tres docs contra el código: estados, motivos, rutas y variables coinciden con apps/api/src/pilot y packages/shared",
+              "git diff --stat: solo docs"
+            ],
+            "files_changed": [
+              "docs/plan.md",
+              "docs/estados.md",
+              "docs/panel-desarrollo.md",
+              "apps/api/.env.example"
+            ],
+            "by": "maker",
+            "recordedAt": "2026-10-05T19:54:20.632Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "plan.md describe el piloto como quedó implementado y registra el cambio de D3.",
+              "estados.md lista cada estado y motivo que escribe el piloto con su señal y el actor pilot.",
+              "panel-desarrollo.md tiene los pasos para activar y probar el piloto por la API."
+            ],
+            "findings": [],
+            "by": "checker",
+            "reviewedAt": "2026-10-05T19:54:20.886Z",
+            "requestDigest": "3814e96511a20c27c1e888f05b1c00776f0cc3e4b9693529f2cfa4f60bb8b083",
+            "reviewedMaterialDigest": "4743ace3c18de24f0df1b3272b04bbc267e2899af19b728a30e402932e653ff6"
+          }
+        },
+        {
+          "id": "T4.2",
+          "title": "Verificación automática del sprint",
+          "description": "Correr typecheck, lint, format:check, tests y build del repo. Greps: ningún bypassPermissions ni allowDangerouslySkipPermissions en el código, ningún kyro-sprint-executor en prompts del piloto salvo la prohibición, todo comando externo nuevo por execFile con argv, ninguna ruta pública nueva (allowlist del guard sin cambios). kyro analyze sin CRITICAL ni HIGH.",
+          "files_to_touch": [],
+          "context": "Mismo formato que T4.2 del sprint 2. Si algo falla, se corrige en la tarea dueña o como emergente.",
+          "acceptance_criteria": [
+            "typecheck, lint, format:check, test y build salen con 0 y se registra el número de tests.",
+            "Los greps no encuentran bypass, kyro-sprint-executor fuera de la prohibición, shell ni rutas públicas nuevas.",
+            "kyro analyze no tiene CRITICAL ni HIGH."
+          ],
+          "depends_on": [
+            "T1.1",
+            "T1.2",
+            "T2.1",
+            "T3.1",
+            "T3.2",
+            "T3.3",
+            "T3.4",
+            "T3.5",
+            "T4.1"
+          ],
+          "scenario_refs": [
+            "S11",
+            "S25"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "Verificación automática del sprint 3: typecheck, lint, format:check, test y build salen con 0; 1012 tests (846 api + 166 web). Greps: sin bypassPermissions ni allowDangerouslySkipPermissions en apps/api, apps/web ni packages/shared; kyro-sprint-executor solo en policy.ts como cláusula que lo prohíbe; los únicos exec( son db.exec de SQLite (ningún comando externo nuevo sin execFile); apps/api/src/http y auth sin cambios (allowlist pública intacta, las rutas nuevas /api/chats/:id/autopilot exigen sesión y CSRF con test 401/403). kyro analyze: 9 MEDIUM, 0 CRITICAL ni HIGH.",
+            "validation": [
+              "npm run typecheck, lint, format:check, test, build: todos exit 0; 42 archivos y 846 tests en api, 19 archivos y 166 en web",
+              "grep bypassPermissions|allowDangerouslySkipPermissions, kyro-sprint-executor, exec(, git diff de http/auth: sin hallazgos",
+              "kyro analyze --kyro-scope autopiloto-kyro: MEDIUM 9, sin CRITICAL ni HIGH"
+            ],
+            "files_changed": [],
+            "by": "maker",
+            "recordedAt": "2026-10-05T19:56:37.691Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "typecheck, lint, format:check, test y build salen con 0 y se registra el número de tests.",
+              "Los greps no encuentran bypass, kyro-sprint-executor fuera de la prohibición, shell ni rutas públicas nuevas.",
+              "kyro analyze no tiene CRITICAL ni HIGH."
+            ],
+            "findings": [],
+            "by": "checker",
+            "reviewedAt": "2026-10-05T19:56:37.953Z",
+            "requestDigest": "634f6e403e690fad79eb395fd7c5ed67c510a285785c3ea9c97d6c5784302f80",
+            "reviewedMaterialDigest": "33e6d75df2f0cfa96ec585cdbc8463714cb6296cf3f4f8d0d8d05d9266cbc810"
+          }
+        }
+      ]
+    }
+  ],
+  "emergentTasks": [
+    {
+      "id": "E1",
+      "title": "El primer turno de un chat con piloto lleva la política de gates (R16)",
+      "description": "En ChatService.create, cuando autopilot es true, el primer prompt (buildInitialPrompt) se arma con el bloque buildPolicy('plan') al final y el turno se abre como turno del piloto (paso plan, versión de política), para que el agente no pregunte en gates de rutina desde la primera sesión. Hoy el primer turno no lleva política.",
+      "files_to_touch": [
+        "apps/api/src/chats/service.ts",
+        "apps/api/test/pilot-runs.test.ts"
+      ],
+      "context": "Required by kyro qa (B1)",
+      "acceptance_criteria": [
+        "Con autopilot: true el prompt del primer turno contiene el bloque de política del paso plan y la sesión queda registrada con step plan y policy_version.",
+        "Sin autopilot el primer prompt no cambia.",
+        "Test en chats o pilot-runs que lo verifica con el runner falso."
+      ],
+      "depends_on": [],
+      "scenario_refs": [],
+      "status": "done",
+      "evidence": {
+        "summary": "ChatService.create con autopilot:true arma el primer prompt con buildPolicy('plan') y abre el turno como sesión del piloto (paso plan, POLICY_VERSION, rol pensante); sin autopilot el prompt y la sesión (manual) no cambian. pilotKyro inyectable en makeApp y stub en pilot-runs.test para que el bucle no corra el CLI real durante los tests de rutas.",
+        "validation": [
+          "vitest chats + pilot-runs: 39 pasan (2 tests nuevos: con autopilot lleva la política y step plan; sin autopilot no)",
+          "tsc --noEmit y eslint sin errores"
+        ],
+        "files_changed": [
+          "apps/api/src/chats/service.ts",
+          "apps/api/test/pilot-runs.test.ts",
+          "apps/api/test/helpers.ts"
+        ],
+        "by": "maker",
+        "recordedAt": "2026-10-05T20:00:05.792Z"
+      },
+      "verdict": {
+        "result": "pass",
+        "checked_criteria": [
+          "Con autopilot: true el prompt del primer turno contiene el bloque de política del paso plan y la sesión queda registrada con step plan y policy_version.",
+          "Sin autopilot el primer prompt no cambia.",
+          "Test en chats o pilot-runs que lo verifica con el runner falso."
+        ],
+        "findings": [],
+        "by": "checker",
+        "reviewedAt": "2026-10-05T20:00:06.044Z",
+        "requestDigest": "25a660ef1cf52d2e66489255b93913c55e18974808bd71b3f7b66973feed5258",
+        "reviewedMaterialDigest": "d1d8dc64da5e2c9bc07d364603a635a5e5cad7033a01dbe428086a1b921036c8"
+      }
+    },
+    {
+      "id": "E2",
+      "title": "El tope de sesiones se cuenta por sprint y no se arrastra al siguiente (R11)",
+      "description": "En decideNextStep, cuando el scope no tiene sprint activo (planificación del siguiente sprint) el contador de sesiones del sprint vale 0, y AutopilotRunRepository.beginSession reinicia el contador al abrir un paso de plan. Hoy un sprint que consume el tope y cierra bien frena el trabajo antes de planificar el siguiente.",
+      "files_to_touch": [
+        "apps/api/src/pilot/decide.ts",
+        "apps/api/src/pilot/runs-repo.ts",
+        "apps/api/test/pilot-decide.test.ts",
+        "apps/api/test/pilot-autopilot.test.ts"
+      ],
+      "context": "Required by kyro qa (B2)",
+      "acceptance_criteria": [
+        "Con el tope alcanzado en el sprint 1 y el sprint cerrado, el piloto planifica el sprint 2 en vez de frenar con tope_de_sesiones.",
+        "Dentro de un mismo sprint el tope sigue frenando (fix en bucle) y los tests existentes de tope se ajustan a eso.",
+        "Test en pilot-decide y pilot-autopilot."
+      ],
+      "depends_on": [],
+      "scenario_refs": [],
+      "status": "done",
+      "evidence": {
+        "summary": "decideNextStep cuenta 0 sesiones cuando el scope no tiene sprint activo (planificación del siguiente) y AutopilotRunRepository.beginSession reinicia el contador al abrir un paso plan: el tope es por sprint. Un sprint que usó todo el tope y cerró no frena la planificación del siguiente; dentro del sprint el tope sigue frenando (fix en bucle).",
+        "validation": [
+          "vitest apps/api completo (TMPDIR propio por globalSetup): sin fallas; tests nuevos en pilot-decide y pilot-autopilot (tope por sprint, cierre con el tope usado, tope en bucle de fix)",
+          "tsc --noEmit, eslint y format:check sin errores"
+        ],
+        "files_changed": [
+          "apps/api/src/pilot/decide.ts",
+          "apps/api/src/pilot/runs-repo.ts",
+          "apps/api/test/pilot-decide.test.ts",
+          "apps/api/test/pilot-autopilot.test.ts"
+        ],
+        "by": "maker",
+        "recordedAt": "2026-10-05T20:02:35.169Z"
+      },
+      "verdict": {
+        "result": "pass",
+        "checked_criteria": [
+          "Con el tope alcanzado en el sprint 1 y el sprint cerrado, el piloto planifica el sprint 2 en vez de frenar con tope_de_sesiones.",
+          "Dentro de un mismo sprint el tope sigue frenando (fix en bucle) y los tests existentes de tope se ajustan a eso.",
+          "Test en pilot-decide y pilot-autopilot."
+        ],
+        "findings": [],
+        "by": "checker",
+        "reviewedAt": "2026-10-05T20:02:35.426Z",
+        "requestDigest": "634c1257cfbe942631d294384e6a0eb9d85bbf0b42f8150e439c5e14053660b0",
+        "reviewedMaterialDigest": "5e2aff91a034bb1d5436b5d26b1f652549145575880a3f9f54ee949af16ea5fe"
+      }
+    }
+  ],
+  "definitionOfDone": [
+    "Todas las tareas done con evidencia y review pass.",
+    "Un scope de 2 sprints con runner y Kyro falsos llega solo a await_scope_completion con una sesión por paso y el modelo de su rol.",
+    "Ningún cierre de sprint sin QA corrida ni con analyze CRITICAL/HIGH; cada freno deja el motivo en el Timeline con actor pilot.",
+    "debt-2 y debt-3 resueltas; debt-1 sigue diferida al sprint 6.",
+    "typecheck, lint, format:check, test y build en verde y kyro analyze sin CRITICAL/HIGH.",
+    "QA de Kyro (kyro-qa) APPROVED o APPROVED WITH NOTES antes de cerrar."
+  ]
+}
