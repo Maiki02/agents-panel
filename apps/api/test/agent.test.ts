@@ -7,6 +7,7 @@ import { ALLOWED_TOOLS, decide } from '../src/agent/permissions.js';
 import { ChatEventBus } from '../src/chats/events.js';
 import { QuestionNotPendingError, QuestionRepository } from '../src/chats/questions-repo.js';
 import { ChatRepository } from '../src/chats/repo.js';
+import { AgentSessionRepository } from '../src/chats/sessions-repo.js';
 import { openDatabase } from '../src/db/index.js';
 import { ProjectRepository } from '../src/projects/repo.js';
 import { FakeRunner } from './fake-runner.js';
@@ -23,7 +24,8 @@ async function setup(max?: number) {
   const runner = new FakeRunner();
   const bus = new ChatEventBus();
   const questions = new QuestionRepository(db);
-  const manager = new AgentManager(chats, runner, bus, max, questions);
+  const sessions = new AgentSessionRepository(db);
+  const manager = new AgentManager(chats, runner, bus, max, questions, sessions);
   const userId = Number(
     db
       .prepare("INSERT INTO users (username, password_hash, created_at) VALUES ('ana', 'x', 1)")
@@ -39,7 +41,7 @@ async function setup(max?: number) {
       branch: `feature/${slug}`,
       status: 'idle',
     });
-  return { chats, runner, bus, manager, newChat, questions, userId };
+  return { chats, runner, bus, manager, newChat, questions, userId, sessions };
 }
 
 describe('AgentManager', () => {
@@ -50,11 +52,104 @@ describe('AgentManager', () => {
     await manager.waitForIdle(chat.id);
     expect(chats.eventsAfter(chat.id).map((e) => [e.seq, e.type])).toEqual([
       [1, 'user_prompt'],
-      [2, 'system:init'],
-      [3, 'assistant'],
-      [4, 'result:success'],
+      [2, 'session_started'],
+      [3, 'system:init'],
+      [4, 'assistant'],
+      [5, 'result:success'],
     ]);
     expect(chats.findById(chat.id)).toMatchObject({ sdkSessionId: 'sess-1', status: 'idle' });
+  });
+
+  it('runs each turn with the chat model of its role and records the session', async () => {
+    const { chats, runner, manager, newChat, sessions } = await setup();
+    const chat = newChat('a');
+    manager.start(chat.id, 'plan', { role: 'thinker' });
+    await manager.waitForIdle(chat.id);
+    manager.start(chat.id, 'build');
+    await manager.waitForIdle(chat.id);
+    expect(runner.calls.map((c) => [c.role, c.model])).toEqual([
+      ['thinker', 'claude-opus-5-5'],
+      ['executor', 'claude-sonnet-5-5'],
+    ]);
+    expect(
+      chats
+        .eventsAfter(chat.id)
+        .filter((e) => e.type === 'session_started')
+        .map((e) => e.payload),
+    ).toEqual([
+      { role: 'thinker', provider: 'claude', model: 'claude-opus-5-5' },
+      { role: 'executor', provider: 'claude', model: 'claude-sonnet-5-5' },
+    ]);
+    expect(sessions.listByChat(chat.id)).toMatchObject([
+      { role: 'thinker', model: 'claude-opus-5-5', sdkSessionId: 'sess-1', result: 'idle' },
+      { role: 'executor', model: 'claude-sonnet-5-5', sdkSessionId: 'sess-1', result: 'idle' },
+    ]);
+    expect(sessions.listByChat(chat.id).every((r) => r.endedAt !== null)).toBe(true);
+  });
+
+  it("loads the project's Bash policy on every turn and records the denial otherwise", async () => {
+    let extras = { commands: [] as string[], hosts: [] as string[] };
+    const { chats, runner, newChat, bus, sessions, questions } = await setup();
+    const manager = new AgentManager(
+      chats,
+      runner,
+      bus,
+      undefined,
+      questions,
+      sessions,
+      undefined,
+      () => extras,
+    );
+    const chat = newChat('a');
+    const verdicts: string[] = [];
+    runner.script = async (params) => {
+      const result = await params.canUseTool('Bash', { command: 'uv run pytest' });
+      verdicts.push(result.behavior);
+      return [{ type: 'result:success', payload: {} }];
+    };
+    manager.start(chat.id, 'one');
+    await manager.waitForIdle(chat.id);
+    extras = { commands: ['uv'], hosts: [] };
+    manager.start(chat.id, 'two');
+    await manager.waitForIdle(chat.id);
+    expect(verdicts).toEqual(['deny', 'allow']);
+    expect(chats.eventsAfter(chat.id).filter((e) => e.type === 'permission_denied')).toHaveLength(
+      1,
+    );
+  });
+
+  it('records model_mismatch when system:init reports another model', async () => {
+    const { chats, runner, manager, newChat } = await setup();
+    const chat = newChat('a');
+    runner.script = () => [
+      {
+        type: 'system:init',
+        payload: { session_id: 's', model: 'claude-haiku-4-5-20251001' },
+        sessionId: 's',
+      },
+      { type: 'result:success', payload: {} },
+    ];
+    manager.start(chat.id, 'x');
+    await manager.waitForIdle(chat.id);
+    const mismatch = chats.eventsAfter(chat.id).filter((e) => e.type === 'model_mismatch');
+    expect(mismatch.map((e) => e.payload)).toEqual([
+      { requested: 'claude-sonnet-5-5', reported: 'claude-haiku-4-5-20251001' },
+    ]);
+  });
+
+  it('records no model_mismatch when the reported model matches', async () => {
+    const { chats, runner, manager, newChat } = await setup();
+    const chat = newChat('a');
+    runner.script = () => [
+      {
+        type: 'system:init',
+        payload: { session_id: 's', model: 'claude-sonnet-5-5' },
+        sessionId: 's',
+      },
+    ];
+    manager.start(chat.id, 'x');
+    await manager.waitForIdle(chat.id);
+    expect(chats.eventsAfter(chat.id).some((e) => e.type === 'model_mismatch')).toBe(false);
   });
 
   it('resumes with the stored session id on the next turn', async () => {
@@ -75,7 +170,7 @@ describe('AgentManager', () => {
     bus.subscribe(chat.id, (e) => seen.push(e.seq));
     manager.start(chat.id, 'go');
     await manager.waitForIdle(chat.id);
-    expect(seen).toEqual([1, 2, 3, 4]);
+    expect(seen).toEqual([1, 2, 3, 4, 5]);
   });
 
   it('rejects a second turn on a running chat and the fifth concurrent session', async () => {
@@ -172,6 +267,62 @@ async function untilPending(questions: QuestionRepository, chatId: number) {
   }
   throw new Error('The question never became pending');
 }
+
+describe('a turn that ends with a question still pending', () => {
+  /** The script leaves the question unanswered and ends the turn, like an agent that gives up. */
+  async function endedWithPending(
+    finish: 'success' | 'error' | 'cancel' = 'success',
+  ): Promise<Awaited<ReturnType<typeof setup>> & { decision: Promise<unknown>; chatId: number }> {
+    const ctx = await setup();
+    const chat = ctx.newChat('a');
+    let decision: Promise<unknown> = Promise.resolve();
+    ctx.runner.script = async (params) => {
+      decision = params.canUseTool('AskUserQuestion', ASK_INPUT, { toolUseId: 'toolu_1' });
+      if (finish === 'error') throw new Error('runner crashed');
+      if (finish === 'cancel') {
+        await new Promise((resolve) => {
+          params.signal.addEventListener('abort', resolve);
+        });
+      }
+      return [{ type: 'result:success', payload: {} }];
+    };
+    ctx.manager.start(chat.id, 'go');
+    if (finish === 'cancel') {
+      await untilPending(ctx.questions, chat.id);
+      ctx.manager.cancel(chat.id);
+    }
+    await ctx.manager.waitForIdle(chat.id);
+    return { ...ctx, decision, chatId: chat.id };
+  }
+
+  const waiterCount = (manager: unknown) =>
+    (manager as { waiters: Map<number, unknown> }).waiters.size;
+
+  it.each(['success', 'error', 'cancel'] as const)(
+    'leaves no waiter and cancels the question with its event (%s)',
+    async (finish) => {
+      const { chats, manager, questions, decision, chatId } = await endedWithPending(finish);
+      expect(waiterCount(manager)).toBe(0);
+      const [stored] = questions.listByChat(chatId);
+      expect(stored).toMatchObject({ status: 'cancelled', answer: null, answeredBy: null });
+      const cancelled = chats.eventsAfter(chatId).filter((e) => e.type === 'question_cancelled');
+      expect(cancelled.map((e) => e.payload)).toEqual([{ questionId: stored?.id }]);
+      // The suspended call is released with a deny, not left hanging.
+      await expect(decision).resolves.toMatchObject({ behavior: 'deny' });
+    },
+  );
+
+  it('refuses a late answer with a conflict and changes nothing', async () => {
+    const { chats, manager, questions, userId, chatId } = await endedWithPending();
+    const [stored] = questions.listByChat(chatId);
+    const before = chats.eventsAfter(chatId).length;
+    expect(() =>
+      manager.answerQuestion(stored?.id ?? 0, { [Q]: { selected: ['Rojo'], text: null } }, userId),
+    ).toThrow(QuestionNotPendingError);
+    expect(questions.get(stored?.id ?? 0)).toMatchObject({ status: 'cancelled', answer: null });
+    expect(chats.eventsAfter(chatId)).toHaveLength(before);
+  });
+});
 
 describe('AskUserQuestion', () => {
   function asking() {

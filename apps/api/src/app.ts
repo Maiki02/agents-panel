@@ -12,13 +12,18 @@ import { KyroUpdater, type ScriptRunner } from './maintenance/updater.js';
 import { KyroVersions } from './maintenance/versions.js';
 import type { AgentRunner } from './agent/runner.js';
 import { SdkRunner } from './agent/sdk-runner.js';
+import { AgentSessionRepository } from './chats/sessions-repo.js';
 import { ChatEventBus } from './chats/events.js';
 import { QuestionRepository } from './chats/questions-repo.js';
 import { ChatRepository } from './chats/repo.js';
+import { KyroReader } from './kyro/reader.js';
+import { WorktreeStateRepository } from './worktrees/state-repo.js';
+import { WorktreeStateTracker, type KyroStateReader } from './worktrees/state-tracker.js';
 import { registerChatRoutes } from './chats/routes.js';
 import { registerStreamRoute } from './chats/stream.js';
 import { ChatService } from './chats/service.js';
 import { registerGuard } from './auth/guard.js';
+import { registerPermissionRoutes } from './projects/permissions-routes.js';
 import { ReauthVerifier } from './auth/reauth.js';
 import { registerAuthRoutes } from './auth/routes.js';
 import { SessionService } from './auth/sessions.js';
@@ -78,6 +83,8 @@ export interface AppDeps {
   kyroInstaller?: KyroInitializer;
   /** Clones and registers projects; tests inject one with a fake cloner and wait on whenIdle(). */
   projectService?: ProjectService;
+  /** Reads Kyro state after each turn; tests inject one backed by fixtures. */
+  kyroReader?: KyroStateReader;
 }
 
 export function buildApp(deps: AppDeps, options: FastifyServerOptions = {}): FastifyInstance {
@@ -129,12 +136,25 @@ export function buildApp(deps: AppDeps, options: FastifyServerOptions = {}): Fas
   const chats = new ChatRepository(deps.db, now);
   const bus = deps.bus ?? new ChatEventBus();
   const questions = new QuestionRepository(deps.db, now);
+  const worktreeState = new WorktreeStateRepository(deps.db, chats, bus, now);
+  const tracker = new WorktreeStateTracker(worktreeState, deps.kyroReader ?? new KyroReader());
   const manager =
     deps.manager ??
-    new AgentManager(chats, deps.runner ?? new SdkRunner(), bus, undefined, questions);
+    new AgentManager(
+      chats,
+      deps.runner ?? new SdkRunner(),
+      bus,
+      undefined,
+      questions,
+      new AgentSessionRepository(deps.db, now),
+      tracker,
+      (projectId) => projects.getBashExtras(projectId),
+    );
   // Nothing survives a restart: sessions that were running when the server stopped are interrupted
   // and the questions they were waiting on are cancelled (the resumed agent asks again).
+  const interrupted = chats.listRunning();
   chats.markRunningAsInterrupted();
+  tracker.markInterrupted(interrupted);
   questions.cancelAllPending();
   const envFiles = new EnvFileRepository(deps.db, deps.config.secretKey, now);
   const chatService = new ChatService({
@@ -144,6 +164,7 @@ export function buildApp(deps: AppDeps, options: FastifyServerOptions = {}): Fas
     questions,
     worktreesDir: deps.config.worktreesDir,
     envFiles,
+    tracker,
   });
 
   const runs = new MaintenanceRunRepository(deps.db, now);
@@ -187,6 +208,7 @@ export function buildApp(deps: AppDeps, options: FastifyServerOptions = {}): Fas
   });
   void app.register((instance) => {
     registerEnvFileRoutes(instance, { projects, envFiles, reauth, chats });
+    registerPermissionRoutes(instance, { projects, reauth });
   });
   void app.register((instance) => {
     registerMaintenanceRoutes(instance, {
@@ -197,7 +219,11 @@ export function buildApp(deps: AppDeps, options: FastifyServerOptions = {}): Fas
       isUpdating: () => manager.inMaintenance,
     });
   });
-  registerChatRoutes(app, { chats, service: chatService });
+  registerChatRoutes(app, {
+    chats,
+    service: chatService,
+    worktreeState,
+  });
   registerStreamRoute(app, {
     chats,
     bus,

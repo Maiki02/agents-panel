@@ -208,6 +208,88 @@ export const migrations: readonly Migration[] = [
       CREATE INDEX pending_questions_chat ON pending_questions(chat_id, status);
     `,
   },
+  {
+    version: 8,
+    name: 'models',
+    // Project columns are NULL until configured (NULL = global default); chats always store the
+    // resolved models, and existing rows get the defaults from the column DEFAULT.
+    sql: `
+      ALTER TABLE projects ADD COLUMN provider TEXT;
+      ALTER TABLE projects ADD COLUMN thinker_model TEXT;
+      ALTER TABLE projects ADD COLUMN executor_model TEXT;
+      ALTER TABLE chats ADD COLUMN provider TEXT NOT NULL DEFAULT 'claude';
+      ALTER TABLE chats ADD COLUMN thinker_model TEXT NOT NULL DEFAULT 'claude-opus-5-5';
+      ALTER TABLE chats ADD COLUMN executor_model TEXT NOT NULL DEFAULT 'claude-sonnet-5-5';
+    `,
+  },
+  {
+    version: 9,
+    name: 'agent_sessions',
+    // One row per SDK session the panel opens; the pilot counts them per sprint (sprint_n).
+    sql: `
+      CREATE TABLE agent_sessions (
+        id INTEGER PRIMARY KEY,
+        chat_id INTEGER NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
+        role TEXT NOT NULL CHECK (role IN ('thinker', 'executor')),
+        provider TEXT NOT NULL,
+        model TEXT NOT NULL,
+        sdk_session_id TEXT,
+        sprint_n INTEGER,
+        started_at INTEGER NOT NULL,
+        ended_at INTEGER,
+        result TEXT
+      );
+      CREATE INDEX agent_sessions_chat ON agent_sessions(chat_id, started_at);
+    `,
+  },
+  {
+    version: 10,
+    name: 'worktree_state',
+    // State ids are validated by the repository against the shared catalog; the actor is
+    // structural (R4: every transition says who did it).
+    sql: `
+      CREATE TABLE worktree_state (
+        chat_id INTEGER PRIMARY KEY REFERENCES chats(id) ON DELETE CASCADE,
+        state TEXT NOT NULL,
+        detail TEXT,
+        phase TEXT,
+        sprint_current INTEGER,
+        sprint_closed INTEGER,
+        sprint_total INTEGER,
+        task_done INTEGER,
+        task_total INTEGER,
+        open_debt INTEGER,
+        blocked_reason TEXT,
+        actor TEXT NOT NULL CHECK (actor IN ('user', 'pilot', 'agent', 'system')),
+        role TEXT CHECK (role IN ('thinker', 'executor')),
+        model TEXT,
+        since INTEGER NOT NULL,
+        previous_state TEXT
+      );
+      CREATE TABLE worktree_transitions (
+        id INTEGER PRIMARY KEY,
+        chat_id INTEGER NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
+        from_state TEXT,
+        to_state TEXT NOT NULL,
+        reason TEXT,
+        actor TEXT NOT NULL CHECK (actor IN ('user', 'pilot', 'agent', 'system')),
+        role TEXT CHECK (role IN ('thinker', 'executor')),
+        model TEXT,
+        data TEXT,
+        created_at INTEGER NOT NULL
+      );
+      CREATE INDEX worktree_transitions_chat ON worktree_transitions(chat_id, id);
+    `,
+  },
+  {
+    version: 11,
+    name: 'project_permissions',
+    // JSON arrays of names; the API validates them before they are stored.
+    sql: `
+      ALTER TABLE projects ADD COLUMN allowed_commands TEXT NOT NULL DEFAULT '[]';
+      ALTER TABLE projects ADD COLUMN allowed_hosts TEXT NOT NULL DEFAULT '[]';
+    `,
+  },
 ];
 
 /** Applies pending migrations in order, each in its own transaction. Safe to run repeatedly. */

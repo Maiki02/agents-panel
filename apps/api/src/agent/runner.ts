@@ -1,3 +1,5 @@
+import type { ModelRole } from '@agents-panel/shared';
+
 /** One thing the agent did or said, already reduced to what the panel persists. */
 export interface AgentEvent {
   /** SDK message type, with the subtype appended when present (e.g. "system:init", "result:success"). */
@@ -26,6 +28,9 @@ export interface ToolCallContext {
 export interface RunParams {
   cwd: string;
   prompt: string;
+  /** Model the SDK runs this turn with (the one configured for `role`). */
+  model: string;
+  role: ModelRole;
   /** SDK session to continue; absent for the first turn. */
   resumeSessionId?: string;
   signal: AbortSignal;

@@ -88,7 +88,10 @@ describe('chats API', () => {
     const events = (await get(`/api/chats/${String(chat.id)}/events`)).json<ChatEvent[]>();
     expect(events.map((e) => e.type)).toEqual([
       'worktree_output',
+      'state_changed',
+      'state_changed',
       'user_prompt',
+      'session_started',
       'system:init',
       'assistant',
       'result:success',
@@ -97,10 +100,10 @@ describe('chats API', () => {
     expect(runner.calls[0]?.prompt).toContain('Fix the login button');
     expect(runner.calls[0]?.cwd).toBe(chat.worktreePath);
 
-    const after = (await get(`/api/chats/${String(chat.id)}/events?afterSeq=3`)).json<
+    const after = (await get(`/api/chats/${String(chat.id)}/events?afterSeq=5`)).json<
       ChatEvent[]
     >();
-    expect(after.map((e) => e.seq)).toEqual([4, 5]);
+    expect(after.map((e) => e.seq)).toEqual([6, 7, 8]);
 
     expect(
       (await post(`/api/chats/${String(chat.id)}/messages`, { text: 'continue' })).statusCode,
@@ -195,6 +198,25 @@ describe('chats API', () => {
     });
     expect(message.statusCode).toBe(400);
     expect(message.json()).toEqual({ error: 'Unknown field: model' });
+  });
+
+  it('uses the thinker for the first turn of a scope or work and the executor afterwards', async () => {
+    const { runner, project, post, waitIdle } = await boot();
+    const work = (
+      await post('/api/chats', { projectId: project.id, kind: 'work', slug: 'w1', prompt: 'x' })
+    ).json<Chat>();
+    await waitIdle(work.id);
+    await post(`/api/chats/${String(work.id)}/messages`, { text: 'go on' });
+    await waitIdle(work.id);
+    const direct = (
+      await post('/api/chats', { projectId: project.id, kind: 'direct', slug: 'd1', prompt: 'x' })
+    ).json<Chat>();
+    await waitIdle(direct.id);
+    expect(runner.calls.map((c) => [c.role, c.model])).toEqual([
+      ['thinker', 'claude-opus-5-5'],
+      ['executor', 'claude-sonnet-5-5'],
+      ['executor', 'claude-sonnet-5-5'],
+    ]);
   });
 
   it('answers 401 on every chat route without a session', async () => {

@@ -1,6 +1,11 @@
 import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
-import type { KyroBranchResult, Project, PullResult } from '@agents-panel/shared';
+import type {
+  KyroBranchResult,
+  Project,
+  ProjectPermissions,
+  PullResult,
+} from '@agents-panel/shared';
 import { firstValueFrom } from 'rxjs';
 
 export interface AddProjectInput {
@@ -57,6 +62,22 @@ export class ProjectsService {
       this.http.delete<{ cloneRemoved: boolean }>(`/api/projects/${String(id)}`, {
         body: { name, code },
       }),
+    );
+  }
+
+  permissions(id: number): Promise<ProjectPermissions> {
+    return firstValueFrom(
+      this.http.get<ProjectPermissions>(`/api/projects/${String(id)}/permissions`),
+    );
+  }
+
+  /** Widens what the agent may run, so it needs a fresh TOTP code. */
+  savePermissions(
+    id: number,
+    input: { commands: string[]; hosts: string[]; totp: string },
+  ): Promise<ProjectPermissions> {
+    return firstValueFrom(
+      this.http.put<ProjectPermissions>(`/api/projects/${String(id)}/permissions`, input),
     );
   }
 

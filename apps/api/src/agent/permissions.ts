@@ -7,6 +7,34 @@ import type { PermissionDecision } from './runner.js';
 export const ALLOWED_BASH_COMMANDS = ['git', 'gh', 'npm', 'go', 'kyro'] as const;
 
 /**
+ * Commands no project can enable: anything that can change what Oracle charges (oci, tailscale,
+ * terraform), escalate privileges (sudo, su) or move data or open shells to other machines (ssh,
+ * scp, sftp, nc, ncat, socat, wget). The rule of costs in CLAUDE.md depends on this list.
+ */
+export const FIXED_DENIED_COMMANDS = [
+  'oci',
+  'tailscale',
+  'terraform',
+  'sudo',
+  'su',
+  'ssh',
+  'scp',
+  'sftp',
+  'nc',
+  'ncat',
+  'socat',
+  'wget',
+] as const;
+
+/** Per-project additions to the Bash base: extra command names and hosts `curl` may reach. */
+export interface BashExtras {
+  commands: readonly string[];
+  hosts: readonly string[];
+}
+
+export const NO_BASH_EXTRAS: BashExtras = { commands: [], hosts: [] };
+
+/**
  * Auto-approved by the SDK without asking. Bare tool names are left out on purpose: they would
  * shadow canUseTool, which is where file paths and the safe tools (Skill, TodoWrite) are checked.
  */
@@ -45,13 +73,13 @@ function deny(message: string): PermissionDecision {
 }
 
 /** Read-only text filters, allowed only after a pipe (never as the start of a command). */
-const PIPE_FILTERS = ['head', 'tail', 'grep', 'wc', 'sort', 'uniq', 'cut'];
+export const PIPE_FILTERS = ['head', 'tail', 'grep', 'wc', 'sort', 'uniq', 'cut'];
 
 /**
  * Read-only commands allowed as the start of a command, so an agent without Kyro can look around.
  * Every argument that is not a flag must resolve inside the worktree.
  */
-const READ_COMMANDS = ['ls', 'cat', 'head', 'tail', 'wc', 'grep', 'pwd'];
+export const READ_COMMANDS = ['ls', 'cat', 'head', 'tail', 'wc', 'grep', 'pwd'];
 
 function checkReadArgs(stage: string, cwd: string): PermissionDecision {
   if (/[$~*?[{]/.test(stage))
@@ -73,7 +101,137 @@ function checkReadArgs(stage: string, cwd: string): PermissionDecision {
   return { behavior: 'allow' };
 }
 
-export function checkBash(command: string, cwd?: string): PermissionDecision {
+/** Hosts `curl` may always reach, besides the ones the project lists. */
+export const CURL_BASE_HOSTS = ['localhost', '127.0.0.1'];
+
+/** Flags without a value that only read or shape the output. */
+const CURL_FLAGS = new Set([
+  '-s',
+  '-S',
+  '-f',
+  '-v',
+  '-i',
+  '-I',
+  '--silent',
+  '--show-error',
+  '--fail',
+  '--verbose',
+  '--include',
+  '--head',
+  '--compressed',
+]);
+/** Flags that take one numeric value (seconds). */
+const CURL_NUMERIC_FLAGS = new Set(['-m', '--max-time', '--connect-timeout']);
+
+/**
+ * `curl` is a read-only probe: GET or HEAD to localhost or to a host of the project's policy. Only
+ * flags in an allowlist pass, so -L, -d, -F, -T, -X, -o, -O, -K and every unknown flag are denied;
+ * so is anything with `@` (file upload or credentials in the URL).
+ */
+function checkCurl(stage: string, hosts: readonly string[]): PermissionDecision {
+  if (/[$~*?[\]{}\\"'`]/.test(stage)) {
+    return deny('Variables, quotes and globs are not allowed in curl');
+  }
+  const allowedHosts = new Set([...CURL_BASE_HOSTS, ...hosts.map((host) => host.toLowerCase())]);
+  const args = stage.split(/\s+/).slice(1);
+  let urls = 0;
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i] ?? '';
+    if (arg.includes('@')) return deny('curl arguments with @ are not allowed');
+    if (arg.startsWith('-')) {
+      const [flag = '', inlineValue] = arg.startsWith('--') ? arg.split('=', 2) : [arg];
+      if (CURL_NUMERIC_FLAGS.has(flag)) {
+        const value = inlineValue ?? args[++i] ?? '';
+        if (!/^\d+(\.\d+)?$/.test(value)) return deny(`${flag} needs a number`);
+        continue;
+      }
+      if (inlineValue === undefined && CURL_FLAGS.has(flag)) continue;
+      // A cluster such as -sS: every letter must be a plain flag.
+      if (
+        !arg.startsWith('--') &&
+        arg.length > 2 &&
+        Array.from(arg.slice(1)).every((letter) => CURL_FLAGS.has(`-${letter}`))
+      ) {
+        continue;
+      }
+      return deny(`curl option not allowed: ${arg.slice(0, 40)}`);
+    }
+    let url: URL;
+    try {
+      url = new URL(arg);
+    } catch {
+      return deny(`curl needs a full http(s) URL: ${arg.slice(0, 80)}`);
+    }
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+      return deny('curl only reaches http and https URLs');
+    }
+    if (url.username !== '' || url.password !== '') {
+      return deny('curl URLs cannot carry credentials');
+    }
+    if (!allowedHosts.has(url.hostname)) {
+      return deny(`curl host not allowed: ${url.hostname.slice(0, 80)}`);
+    }
+    urls++;
+  }
+  return urls > 0 ? { behavior: 'allow' } : deny('curl needs a URL');
+}
+
+export class PermissionConfigError extends Error {
+  override readonly name = 'PermissionConfigError';
+}
+
+const COMMAND_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._+-]{0,49}$/;
+const HOST_LABEL_RE = /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/;
+export const MAX_EXTRA_COMMANDS = 50;
+export const MAX_EXTRA_HOSTS = 50;
+
+/** Everything a project may not add because the base or the fixed list already decides it. */
+export const NOT_CONFIGURABLE = new Set<string>([
+  ...ALLOWED_BASH_COMMANDS,
+  ...FIXED_DENIED_COMMANDS,
+  ...READ_COMMANDS,
+  ...PIPE_FILTERS,
+  'cd',
+  'curl',
+]);
+
+/**
+ * Validates a project's Bash additions and returns them normalized (deduplicated, hosts in lower
+ * case). Commands are bare names: no paths, spaces or shell metacharacters.
+ */
+export function validateProjectPermissions(input: {
+  commands: readonly string[];
+  hosts: readonly string[];
+}): BashExtras {
+  if (input.commands.length > MAX_EXTRA_COMMANDS || input.hosts.length > MAX_EXTRA_HOSTS) {
+    throw new PermissionConfigError('Demasiados comandos o hosts');
+  }
+  for (const command of input.commands) {
+    if (!COMMAND_NAME_RE.test(command)) {
+      throw new PermissionConfigError(`Nombre de comando inválido: ${command.slice(0, 50)}`);
+    }
+    if ((FIXED_DENIED_COMMANDS as readonly string[]).includes(command)) {
+      throw new PermissionConfigError(`El comando ${command} no se puede habilitar`);
+    }
+    if (NOT_CONFIGURABLE.has(command)) {
+      throw new PermissionConfigError(`El comando ${command} ya forma parte de la base`);
+    }
+  }
+  const hosts = input.hosts.map((host) => host.toLowerCase());
+  for (const host of hosts) {
+    const labels = host.split('.');
+    if (host.length > 253 || labels.some((label) => !HOST_LABEL_RE.test(label))) {
+      throw new PermissionConfigError(`Host inválido: ${host.slice(0, 80)}`);
+    }
+  }
+  return { commands: [...new Set(input.commands)], hosts: [...new Set(hosts)] };
+}
+
+export function checkBash(
+  command: string,
+  cwd?: string,
+  extras: BashExtras = NO_BASH_EXTRAS,
+): PermissionDecision {
   if (/\$\(|`|<\(|>\(/.test(command)) return deny('Command substitution is not allowed');
   const withoutSafeRedirects = command.replace(/\d?>\s*&\d|\d?>\s*\/dev\/null/g, '');
   if (/[<>]/.test(withoutSafeRedirects)) return deny('Redirection is not allowed');
@@ -90,8 +248,18 @@ export function checkBash(command: string, cwd?: string): PermissionDecision {
         if (verdict.behavior === 'deny') return verdict;
         continue;
       }
+      // The fixed list wins over everything, a project's configuration included.
+      if ((FIXED_DENIED_COMMANDS as readonly string[]).includes(first)) {
+        return deny(`Bash command never allowed: ${first}`);
+      }
+      if (first === 'curl') {
+        const verdict = checkCurl(stage, extras.hosts);
+        if (verdict.behavior === 'deny') return verdict;
+        continue;
+      }
       const allowed =
         (ALLOWED_BASH_COMMANDS as readonly string[]).includes(first) ||
+        extras.commands.includes(first) ||
         (index > 0 && PIPE_FILTERS.includes(first));
       if (!allowed) return deny(`Bash command not allowed: ${first.slice(0, 40)}`);
     }
@@ -104,6 +272,8 @@ export interface PermissionPolicy {
   cwd: string;
   /** Extra read-only roots (Kyro runtime and skills live outside the worktree). */
   extraReadRoots?: string[];
+  /** The project's own Bash commands and curl hosts, on top of the base. */
+  bashExtras?: BashExtras;
 }
 
 /** Allowlist policy: the agent never gets more than this, and what is not listed is denied. */
@@ -117,7 +287,7 @@ export function decide(
   if (toolName === 'Bash') {
     const command = input['command'];
     return typeof command === 'string'
-      ? checkBash(command, policy.cwd)
+      ? checkBash(command, policy.cwd, policy.bashExtras)
       : deny('Bash needs a command');
   }
 

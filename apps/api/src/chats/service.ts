@@ -1,6 +1,6 @@
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import type { Chat, ChatKind, PendingQuestion } from '@agents-panel/shared';
+import type { Chat, ChatKind, ModelRole, PendingQuestion } from '@agents-panel/shared';
 import {
   AgentManager,
   AlreadyRunningError,
@@ -10,7 +10,8 @@ import {
 import type { EnvFileRepository } from '../env-files/repo.js';
 import { EnvFileError } from '../env-files/validate.js';
 import { writeEnvFiles } from '../env-files/write.js';
-import type { ProjectRepository } from '../projects/repo.js';
+import type { WorktreeStateTracker } from '../worktrees/state-tracker.js';
+import { InvalidModelError, validateModels, type ProjectRepository } from '../projects/repo.js';
 import {
   WorktreeError,
   createWorktree,
@@ -72,6 +73,8 @@ export interface ChatServiceDeps {
   worktreesDir: string;
   /** The project's development .env files, written into every new worktree after setup. */
   envFiles: EnvFileRepository;
+  /** Fine state of scopes and works; absent in tests that do not track it. */
+  tracker?: WorktreeStateTracker;
 }
 
 export class ChatService {
@@ -82,6 +85,7 @@ export class ChatService {
     kind: ChatKind;
     slug: string;
     prompt: string;
+    models?: { thinker?: string; executor?: string };
   }): Promise<Chat> {
     const { chats, projects, manager, worktreesDir } = this.deps;
     const project = projects.findById(input.projectId);
@@ -104,6 +108,20 @@ export class ChatService {
     }
     if (chats.list().some((c) => c.projectId === project.id && c.slug === input.slug)) {
       throw new ChatError(`A chat with slug "${input.slug}" already exists in this project`, 409);
+    }
+
+    // Override > project > default, resolved now so later project changes do not move this chat.
+    // Validated before any worktree exists, so a bad model creates nothing.
+    let models;
+    try {
+      models = validateModels(
+        project.models.provider,
+        input.models?.thinker ?? project.models.thinker,
+        input.models?.executor ?? project.models.executor,
+      );
+    } catch (error) {
+      if (error instanceof InvalidModelError) throw new ChatError(error.message, 400);
+      throw error;
     }
 
     // Fail before touching git during a Kyro update or when there is no room; startTurn re-checks after the awaits below.
@@ -131,10 +149,21 @@ export class ChatService {
         worktreePath: worktree.path,
         branch: worktree.branch,
         status: 'idle',
+        models,
       });
       try {
         for (const event of buffered) chats.appendEvent(chat.id, event.type, event.payload);
-        this.startTurn(chat.id, buildInitialPrompt(input.kind, input.prompt));
+        this.deps.tracker?.created(
+          chat,
+          buffered.map((event) => event.payload),
+        );
+        // Provisional role rule until the pilot picks one per step: the first turn of a scope or
+        // work (init or plan) thinks, everything else executes.
+        this.startTurn(
+          chat.id,
+          buildInitialPrompt(input.kind, input.prompt),
+          input.kind === 'direct' ? 'executor' : 'thinker',
+        );
       } catch (error) {
         chats.delete(chat.id);
         throw error;
@@ -216,9 +245,9 @@ export class ChatService {
     return chat;
   }
 
-  private startTurn(chatId: number, text: string): void {
+  private startTurn(chatId: number, text: string, role: ModelRole = 'executor'): void {
     try {
-      this.deps.manager.start(chatId, text);
+      this.deps.manager.start(chatId, text, { role });
     } catch (error) {
       if (
         error instanceof AlreadyRunningError ||

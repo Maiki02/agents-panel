@@ -1,4 +1,13 @@
-import type { Chat, ChatEvent, ChatKind, ChatStatus } from '@agents-panel/shared';
+import {
+  DEFAULT_MODELS,
+  DEFAULT_PROVIDER,
+  type Chat,
+  type ChatEvent,
+  type ChatKind,
+  type ChatStatus,
+  type ModelProvider,
+  type ModelSelection,
+} from '@agents-panel/shared';
 import type { Db } from '../db/index.js';
 
 interface ChatRow {
@@ -12,6 +21,9 @@ interface ChatRow {
   branch: string;
   sdk_session_id: string | null;
   status: ChatStatus;
+  provider: ModelProvider;
+  thinker_model: string;
+  executor_model: string;
   created_at: number;
   updated_at: number;
 }
@@ -40,6 +52,7 @@ function toChat(row: ChatRow): Chat {
     branch: row.branch,
     sdkSessionId: row.sdk_session_id,
     status: row.status,
+    models: { provider: row.provider, thinker: row.thinker_model, executor: row.executor_model },
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -64,6 +77,8 @@ export interface NewChat {
   worktreePath: string;
   branch: string;
   status: ChatStatus;
+  /** Already resolved (chat override > project > default); defaults when omitted. */
+  models?: ModelSelection;
 }
 
 export class ChatRepository {
@@ -74,10 +89,11 @@ export class ChatRepository {
 
   create(input: NewChat): Chat {
     const now = this.now();
+    const models = input.models ?? { provider: DEFAULT_PROVIDER, ...DEFAULT_MODELS };
     const result = this.db
       .prepare(
-        `INSERT INTO chats (project_id, kind, slug, title, worktree_path, branch, status, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO chats (project_id, kind, slug, title, worktree_path, branch, status, provider, thinker_model, executor_model, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         input.projectId,
@@ -87,6 +103,9 @@ export class ChatRepository {
         input.worktreePath,
         input.branch,
         input.status,
+        models.provider,
+        models.thinker,
+        models.executor,
         now,
         now,
       );
@@ -124,6 +143,15 @@ export class ChatRepository {
     this.db
       .prepare('UPDATE chats SET sdk_session_id = ?, updated_at = ? WHERE id = ?')
       .run(sessionId, this.now(), id);
+  }
+
+  /** Chats whose turn is marked running (read before `markRunningAsInterrupted` on startup). */
+  listRunning(): Chat[] {
+    return (
+      this.db
+        .prepare(`${SELECT_CHAT} WHERE c.status = 'running' ORDER BY c.id`)
+        .all() as unknown as ChatRow[]
+    ).map(toChat);
   }
 
   /** On startup nothing is really running: chats left as running become interrupted. */

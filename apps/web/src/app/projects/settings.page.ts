@@ -3,6 +3,7 @@ import { Router } from '@angular/router';
 import { Tabs } from '../ui/tabs';
 import { resolveTab } from '../ui/tabs-logic';
 import { EnvFilesSection } from './env-files.section';
+import { PermissionsSection } from './permissions.section';
 import { ProjectContext } from './project-context';
 import { ProjectDangerZone } from './project-danger-zone';
 import { ProjectGeneralSettings } from './project-settings';
@@ -13,7 +14,14 @@ import { SETTINGS_TABS, settingsTabPath } from './settings-tabs';
 @Component({
   selector: 'app-settings-page',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [Tabs, ProjectGeneralSettings, ProjectDangerZone, EnvFilesSection, RepoActionsSection],
+  imports: [
+    Tabs,
+    ProjectGeneralSettings,
+    ProjectDangerZone,
+    EnvFilesSection,
+    RepoActionsSection,
+    PermissionsSection,
+  ],
   template: `
     @if (context.project(); as p) {
       <section class="card">
@@ -30,6 +38,9 @@ import { SETTINGS_TABS, settingsTabPath } from './settings-tabs';
             }
             @case ('repository') {
               <app-repo-actions [project]="p" />
+            }
+            @case ('permissions') {
+              <app-permissions-section [projectId]="p.id" />
             }
           }
         </div>

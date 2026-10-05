@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyReply } from 'fastify';
 import type { Project } from '@agents-panel/shared';
 import { onlyKeys } from '../http/only-keys.js';
 import {
+  validateModels,
   ProjectConflictError,
   ProjectError,
   ProjectNotFoundError,
@@ -37,6 +38,17 @@ const patchBody = {
     displayName: { type: ['string', 'null'], maxLength: 100 },
     baseBranch: { type: 'string', minLength: 1, maxLength: 200 },
     setupCommand: { type: ['string', 'null'], maxLength: 500 },
+  },
+} as const;
+
+const modelsBody = {
+  type: 'object',
+  required: ['provider', 'thinker', 'executor'],
+  additionalProperties: false,
+  properties: {
+    provider: { type: 'string', maxLength: 50 },
+    thinker: { type: 'string', maxLength: 100 },
+    executor: { type: 'string', maxLength: 100 },
   },
 } as const;
 
@@ -115,6 +127,32 @@ export function registerProjectRoutes(
       ),
   );
 
+  app.get<{ Params: { id: number } }>(
+    '/api/projects/:id/models',
+    { schema: { params: idParams } },
+    (request, reply) =>
+      respond(reply, () => Promise.resolve(requireProject(projects, request.params.id).models)),
+  );
+
+  app.put<{
+    Params: { id: number };
+    Body: { provider: string; thinker: string; executor: string };
+  }>(
+    '/api/projects/:id/models',
+    {
+      schema: { params: idParams, body: modelsBody },
+      preValidation: onlyKeys(Object.keys(modelsBody.properties)),
+    },
+    (request, reply) =>
+      respond(reply, () => {
+        requireProject(projects, request.params.id);
+        const { provider, thinker, executor } = request.body;
+        // Validated before anything is written: a bad model leaves the project untouched.
+        projects.setModels(request.params.id, validateModels(provider, thinker, executor));
+        return Promise.resolve(requireProject(projects, request.params.id).models);
+      }),
+  );
+
   app.post<{ Params: { id: number } }>(
     '/api/projects/:id/retry',
     { schema: { params: idParams } },
@@ -125,6 +163,12 @@ export function registerProjectRoutes(
         return project;
       }),
   );
+}
+
+function requireProject(projects: ProjectRepository, id: number): Project {
+  const project = projects.findById(id);
+  if (!project) throw new ProjectNotFoundError(`Project not found: ${String(id)}`);
+  return project;
 }
 
 /** Adds `kyroPendingCommit` to a project that has Kyro (the only ones that can have it). */

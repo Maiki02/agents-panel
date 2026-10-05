@@ -1,4 +1,9 @@
-import { query, type HookCallback, type SDKMessage } from '@anthropic-ai/claude-agent-sdk';
+import {
+  query,
+  type HookCallback,
+  type Options,
+  type SDKMessage,
+} from '@anthropic-ai/claude-agent-sdk';
 import { ALLOWED_TOOLS } from './permissions.js';
 import { ASK_USER_QUESTION, type AgentEvent, type AgentRunner, type RunParams } from './runner.js';
 
@@ -43,6 +48,25 @@ function toEvent(message: SDKMessage): AgentEvent {
 }
 
 /**
+ * SDK options for one turn. Pure so it can be tested: permissions stay on (acceptEdits plus an
+ * allowlist) and no mode that skips permission checks is ever an option.
+ */
+export function buildQueryOptions(params: RunParams, abortController: AbortController): Options {
+  return {
+    cwd: params.cwd,
+    model: params.model,
+    settingSources: ['project', 'user'],
+    permissionMode: 'acceptEdits',
+    allowedTools: ALLOWED_TOOLS,
+    abortController,
+    ...(params.resumeSessionId ? { resume: params.resumeSessionId } : {}),
+    hooks: { PreToolUse: [{ hooks: [createPreToolUseHook(params.canUseTool)] }] },
+    canUseTool: (toolName, input, { toolUseID }) =>
+      params.canUseTool(toolName, input, { toolUseId: toolUseID }),
+  };
+}
+
+/**
  * Runs the Claude Agent SDK with cwd in the chat's worktree. Permissions stay on:
  * acceptEdits plus an allowlist; there is no bypass mode anywhere in this codebase.
  */
@@ -58,17 +82,7 @@ export class SdkRunner implements AgentRunner {
     try {
       const stream = query({
         prompt: params.prompt,
-        options: {
-          cwd: params.cwd,
-          settingSources: ['project', 'user'],
-          permissionMode: 'acceptEdits',
-          allowedTools: ALLOWED_TOOLS,
-          abortController,
-          ...(params.resumeSessionId ? { resume: params.resumeSessionId } : {}),
-          hooks: { PreToolUse: [{ hooks: [createPreToolUseHook(params.canUseTool)] }] },
-          canUseTool: (toolName, input, { toolUseID }) =>
-            params.canUseTool(toolName, input, { toolUseId: toolUseID }),
-        },
+        options: buildQueryOptions(params, abortController),
       });
       for await (const message of stream) yield toEvent(message);
     } finally {

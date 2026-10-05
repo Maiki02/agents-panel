@@ -2,7 +2,16 @@ import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
-import type { Project, ProjectStatus } from '@agents-panel/shared';
+import {
+  DEFAULT_MODELS,
+  DEFAULT_PROVIDER,
+  MODEL_CATALOG,
+  type ModelProvider,
+  type ModelSelection,
+  type Project,
+  type ProjectStatus,
+} from '@agents-panel/shared';
+import type { BashExtras } from '../agent/permissions.js';
 import type { Db } from '../db/index.js';
 
 const execFileAsync = promisify(execFile);
@@ -17,6 +26,9 @@ interface ProjectRow {
   repo_url: string | null;
   status: ProjectStatus;
   status_detail: string | null;
+  provider: ModelProvider | null;
+  thinker_model: string | null;
+  executor_model: string | null;
 }
 
 function toProject(row: ProjectRow): Project {
@@ -33,6 +45,11 @@ function toProject(row: ProjectRow): Project {
     hasKyro: existsSync(join(row.repo_path, '.agents', 'kyro')),
     // A ready project only carries a detail when Kyro setup failed after registering.
     kyroWarning: row.status === 'ready' ? row.status_detail : null,
+    models: {
+      provider: row.provider ?? DEFAULT_PROVIDER,
+      thinker: row.thinker_model ?? DEFAULT_MODELS.thinker,
+      executor: row.executor_model ?? DEFAULT_MODELS.executor,
+    },
   };
 }
 
@@ -51,6 +68,29 @@ export class ProjectNotFoundError extends ProjectError {
 
 /** Internal project names are kebab-case: they end up in paths and worktree branches. */
 export const PROJECT_NAME_RE = /^[a-z0-9][a-z0-9-]{0,49}$/;
+
+/** A model or provider outside the catalog: HTTP 400. */
+export class InvalidModelError extends ProjectError {
+  override readonly name = 'InvalidModelError';
+}
+
+/** Throws unless the provider is known and both models belong to its catalog. */
+export function validateModels(
+  provider: string,
+  thinker: string,
+  executor: string,
+): ModelSelection {
+  if (!Object.hasOwn(MODEL_CATALOG, provider)) {
+    throw new InvalidModelError(`Proveedor desconocido: ${provider}`);
+  }
+  const known = MODEL_CATALOG[provider as ModelProvider];
+  for (const model of [thinker, executor]) {
+    if (!known.includes(model)) {
+      throw new InvalidModelError(`Modelo fuera del catálogo de ${provider}: ${model}`);
+    }
+  }
+  return { provider: provider as ModelProvider, thinker, executor };
+}
 
 export interface GithubProjectInput {
   name: string;
@@ -196,6 +236,38 @@ export class ProjectRepository {
         .prepare('UPDATE projects SET setup_command = ? WHERE id = ?')
         .run(fields.setupCommand, id);
     }
+  }
+
+  setModels(id: number, models: ModelSelection): void {
+    this.db
+      .prepare(
+        'UPDATE projects SET provider = ?, thinker_model = ?, executor_model = ? WHERE id = ?',
+      )
+      .run(models.provider, models.thinker, models.executor, id);
+  }
+
+  /** The project's Bash additions; unreadable stored data counts as none (the safe side). */
+  getBashExtras(id: number): BashExtras {
+    const row = this.db
+      .prepare('SELECT allowed_commands, allowed_hosts FROM projects WHERE id = ?')
+      .get(id) as { allowed_commands: string; allowed_hosts: string } | undefined;
+    const list = (raw: string | undefined): string[] => {
+      try {
+        const parsed: unknown = JSON.parse(raw ?? '[]');
+        return Array.isArray(parsed) && parsed.every((item) => typeof item === 'string')
+          ? parsed
+          : [];
+      } catch {
+        return [];
+      }
+    };
+    return { commands: list(row?.allowed_commands), hosts: list(row?.allowed_hosts) };
+  }
+
+  setBashExtras(id: number, extras: BashExtras): void {
+    this.db
+      .prepare('UPDATE projects SET allowed_commands = ?, allowed_hosts = ? WHERE id = ?')
+      .run(JSON.stringify(extras.commands), JSON.stringify(extras.hosts), id);
   }
 
   /** Registers a project after checking the path is a git repo and the base branch exists. */

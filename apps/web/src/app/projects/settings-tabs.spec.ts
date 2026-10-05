@@ -9,6 +9,7 @@ describe('settings tabs', () => {
     expect(ids[0]).toBe('general');
     expect(ids).toContain('environment');
     expect(ids).toContain('repository');
+    expect(ids).toContain('permissions');
     expect(new Set(ids).size).toBe(ids.length);
   });
 
@@ -16,5 +17,7 @@ describe('settings tabs', () => {
     expect(settingsTabPath(3, 'environment')).toBe('/projects/3/settings/environment');
     expect(resolveTab(ids, 'nope')).toBe('general');
     expect(resolveTab(ids, 'environment')).toBe('environment');
+    expect(settingsTabPath(3, 'permissions')).toBe('/projects/3/settings/permissions');
+    expect(resolveTab(ids, 'permissions')).toBe('permissions');
   });
 });

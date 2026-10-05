@@ -9,6 +9,48 @@ export interface HealthResponse {
 /** Where a project stands: being cloned from GitHub, usable, or failed (see statusDetail). */
 export type ProjectStatus = 'cloning' | 'ready' | 'error';
 
+/** Which model plays which part of a job: the thinker plans, the executor does the rest. */
+export type ModelRole = 'thinker' | 'executor';
+
+/** Only Claude is implemented; the data model keeps the provider to add others later. */
+export type ModelProvider = 'claude';
+
+/** Models each provider offers. A model outside its provider's list is refused. */
+export const MODEL_CATALOG: Record<ModelProvider, readonly string[]> = {
+  claude: ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-fable-5-1', 'claude-haiku-4-5-20251001'],
+};
+
+export const DEFAULT_PROVIDER: ModelProvider = 'claude';
+
+/** Global defaults used when neither the chat nor the project chose a model. */
+export const DEFAULT_MODELS: Record<ModelRole, string> = {
+  thinker: 'claude-opus-5-5',
+  executor: 'claude-sonnet-5-5',
+};
+
+/** The models of a project or a chat, one per role. */
+export interface ModelSelection {
+  provider: ModelProvider;
+  thinker: string;
+  executor: string;
+}
+
+/** One SDK session the panel opened for a chat, with the model that ran it. */
+export interface AgentSession {
+  id: number;
+  chatId: number;
+  role: ModelRole;
+  provider: ModelProvider;
+  model: string;
+  sdkSessionId: string | null;
+  /** Sprint the session worked on; null until the pilot assigns one. */
+  sprintN: number | null;
+  startedAt: number;
+  endedAt: number | null;
+  /** Final chat status of the turn (idle, error, cancelled); null while running. */
+  result: string | null;
+}
+
 /** A registered project (a git repo the panel can open worktrees on). */
 export interface Project {
   id: number;
@@ -29,6 +71,8 @@ export interface Project {
   kyroWarning: string | null;
   /** Kyro's files in the base clone are modified (e.g. after an update): they need a commit. */
   kyroPendingCommit?: boolean;
+  /** Models for new chats; the global defaults when the project has no configuration. */
+  models: ModelSelection;
 }
 
 /** Metadata of a project's development .env; the content never leaves the API. */
@@ -67,6 +111,8 @@ export interface Chat {
   branch: string;
   sdkSessionId: string | null;
   status: ChatStatus;
+  /** Resolved when the chat was created: changing the project later does not touch it. */
+  models: ModelSelection;
   createdAt: number;
   updatedAt: number;
 }
@@ -162,4 +208,124 @@ export interface DeleteBlocker {
   path: string;
   kind: 'uncommitted' | 'unpushed';
   detail: string;
+}
+
+/** Catalog of worktree states (docs/estados.md); the panel stores one per scope or work. */
+export const WORKTREE_STATE_IDS = [
+  'en_cola',
+  'creando_worktree',
+  'instalando_dependencias',
+  'madurando_idea',
+  'planificando',
+  'esperando_aclaracion',
+  'esperando_aprobacion_plan',
+  'escribiendo_codigo',
+  'en_cola_build',
+  'buildeando',
+  'probando',
+  'corrigiendo',
+  'registrando_evidencia',
+  'revisando_tarea',
+  'esperando_permiso',
+  'esperando_respuesta',
+  'qa',
+  'cerrando_sprint',
+  'esperando_aprobacion_cierre',
+  'trayendo_dev',
+  'resolviendo_conflictos',
+  'validando_post_merge',
+  'abriendo_pr',
+  'en_cola_merge_raiz',
+  'mergeando_raiz',
+  'pr_lista',
+  'pr_checks_fallidos',
+  'pr_cambios_pedidos',
+  'mergeada',
+  'limpiando',
+  'archivado',
+  'pausado',
+  'sin_cupo_de_uso',
+  'interrumpido',
+  'bloqueado',
+  'revisar',
+  'error',
+  'cancelado',
+  // Added with the Kyro mapping: the Kyro side of the work is over (see docs/estados.md).
+  'cerrando',
+  'terminado',
+] as const;
+
+export type WorktreeStateId = (typeof WORKTREE_STATE_IDS)[number];
+
+/** Who caused a transition: the user, the pilot (orchestrator), the agent or the panel itself. */
+export const ACTORS = ['user', 'pilot', 'agent', 'system'] as const;
+export type Actor = (typeof ACTORS)[number];
+
+/** Why the pilot stopped; shown next to the `bloqueado` state. */
+export const BLOCKED_REASONS = [
+  'sin_avance',
+  'tope_de_sesiones',
+  'tarea_bloqueada',
+  'kyro_bloqueado',
+  'integridad_kyro',
+  'git',
+  'otro',
+] as const;
+export type BlockedReason = (typeof BLOCKED_REASONS)[number];
+
+/** Current fine-grained state of a scope or work (a direct chat has none). */
+export interface WorktreeState {
+  chatId: number;
+  state: WorktreeStateId;
+  /** Free detail shown next to the state, e.g. what is being tested. */
+  detail: string | null;
+  phase: string | null;
+  sprintCurrent: number | null;
+  sprintClosed: number | null;
+  sprintTotal: number | null;
+  taskDone: number | null;
+  taskTotal: number | null;
+  openDebt: number | null;
+  blockedReason: BlockedReason | null;
+  actor: Actor;
+  role: ModelRole | null;
+  model: string | null;
+  /** When the current state began. */
+  since: number;
+  previousState: WorktreeStateId | null;
+}
+
+/** One entry of a work's Timeline. `fromState` is null for the first one. */
+export interface WorktreeTransition {
+  id: number;
+  chatId: number;
+  fromState: WorktreeStateId | null;
+  toState: WorktreeStateId;
+  reason: string | null;
+  actor: Actor;
+  role: ModelRole | null;
+  model: string | null;
+  data: unknown;
+  createdAt: number;
+}
+
+/** Commands a project's repo suggests, with the file that suggested them. Never applied on their own. */
+export interface PermissionSuggestion {
+  file: string;
+  commands: string[];
+}
+
+/** What the agent may run through Bash in a project (GET /api/projects/:id/permissions). */
+export interface ProjectPermissions {
+  /** Commands every project has; they cannot be removed. */
+  base: string[];
+  /** Hosts curl always reaches. */
+  curlBaseHosts: string[];
+  /** Commands this project added. */
+  commands: string[];
+  /** Hosts this project added for curl. */
+  hosts: string[];
+  /** Commands no project can enable. */
+  fixedDenied: string[];
+  suggestions: PermissionSuggestion[];
 }

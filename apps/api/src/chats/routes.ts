@@ -3,6 +3,7 @@ import type { ChatKind } from '@agents-panel/shared';
 import { onlyKeys } from '../http/only-keys.js';
 import { ChatError, type ChatService } from './service.js';
 import type { ChatRepository } from './repo.js';
+import type { WorktreeStateRepository } from '../worktrees/state-repo.js';
 
 const idParams = {
   type: 'object',
@@ -19,6 +20,14 @@ const createBody = {
     kind: { enum: ['scope', 'work', 'direct'] },
     slug: { type: 'string', minLength: 1, maxLength: 50 },
     prompt: { type: 'string', minLength: 1, maxLength: 20000 },
+    models: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        thinker: { type: 'string', maxLength: 100 },
+        executor: { type: 'string', maxLength: 100 },
+      },
+    },
   },
 } as const;
 
@@ -58,9 +67,9 @@ const answerBody = {
 
 export function registerChatRoutes(
   app: FastifyInstance,
-  deps: { chats: ChatRepository; service: ChatService },
+  deps: { chats: ChatRepository; service: ChatService; worktreeState: WorktreeStateRepository },
 ): void {
-  const { chats, service } = deps;
+  const { chats, service, worktreeState } = deps;
 
   app.setErrorHandler((error, request, reply) => {
     if (error instanceof ChatError) {
@@ -69,7 +78,15 @@ export function registerChatRoutes(
     return reply.send(error);
   });
 
-  app.post<{ Body: { projectId: number; kind: ChatKind; slug: string; prompt: string } }>(
+  app.post<{
+    Body: {
+      projectId: number;
+      kind: ChatKind;
+      slug: string;
+      prompt: string;
+      models?: { thinker?: string; executor?: string };
+    };
+  }>(
     '/api/chats',
     // Unknown fields are refused, not silently dropped by ajv.
     { schema: { body: createBody }, preValidation: onlyKeys(Object.keys(createBody.properties)) },
@@ -106,6 +123,28 @@ export function registerChatRoutes(
     '/api/chats/:id',
     { schema: { params: idParams } },
     (request) => service.requireChat(request.params.id),
+  );
+
+  /**
+   * Fine state of a scope or work: `null` until the first transition. A direct chat has no
+   * fine state (only the session status), so it answers 404.
+   */
+  app.get<{ Params: { id: number } }>(
+    '/api/chats/:id/state',
+    { schema: { params: idParams } },
+    (request) => {
+      requireStateful(service, request.params.id);
+      return worktreeState.get(request.params.id) ?? null;
+    },
+  );
+
+  app.get<{ Params: { id: number } }>(
+    '/api/chats/:id/timeline',
+    { schema: { params: idParams } },
+    (request) => {
+      requireStateful(service, request.params.id);
+      return worktreeState.timeline(request.params.id);
+    },
   );
 
   app.get<{ Params: { id: number }; Querystring: { afterSeq?: number } }>(
@@ -170,4 +209,11 @@ export function registerChatRoutes(
       return { ok: true };
     },
   );
+}
+
+/** 404 for a missing chat and for a direct chat, which has no fine state or Timeline. */
+function requireStateful(service: ChatService, chatId: number): void {
+  if (service.requireChat(chatId).kind === 'direct') {
+    throw new ChatError('Un pedido directo no tiene estado de trabajo', 404);
+  }
 }

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { ChatStatus, PendingQuestion } from '@agents-panel/shared';
+import type { Chat, ChatStatus, ModelRole, PendingQuestion } from '@agents-panel/shared';
 import type { ChatEventBus } from '../chats/events.js';
 import {
   QuestionNotPendingError,
@@ -8,7 +8,9 @@ import {
   type QuestionRepository,
 } from '../chats/questions-repo.js';
 import type { ChatRepository } from '../chats/repo.js';
-import { decide } from './permissions.js';
+import type { AgentSessionRepository } from '../chats/sessions-repo.js';
+import type { TurnObserver } from '../worktrees/state-tracker.js';
+import { NO_BASH_EXTRAS, decide, type BashExtras } from './permissions.js';
 import { ASK_USER_QUESTION, type AgentRunner, type PermissionDecision } from './runner.js';
 
 export const MAX_CONCURRENT_SESSIONS = 4;
@@ -44,6 +46,12 @@ interface QuestionWaiter {
   resolve: (decision: PermissionDecision) => void;
 }
 
+/** Model the SDK reports in its system:init message, if any. */
+function initModel(payload: unknown): string | undefined {
+  if (typeof payload !== 'object' || payload === null || !('model' in payload)) return undefined;
+  return typeof payload.model === 'string' ? payload.model : undefined;
+}
+
 /** Runs one agent turn per chat in the background, persisting and publishing every event. */
 export class AgentManager {
   private readonly active = new Map<number, ActiveSession>();
@@ -60,6 +68,10 @@ export class AgentManager {
     private readonly bus: ChatEventBus,
     private readonly maxConcurrent: number = MAX_CONCURRENT_SESSIONS,
     private readonly questions?: QuestionRepository,
+    private readonly sessions?: AgentSessionRepository,
+    private readonly observer?: TurnObserver,
+    /** The project's extra Bash commands and curl hosts; read at the start of every turn. */
+    private readonly bashExtras?: (projectId: number) => BashExtras,
   ) {}
 
   get runningCount(): number {
@@ -100,9 +112,10 @@ export class AgentManager {
 
   /**
    * Starts a turn for the chat. Continues the stored SDK session when there is one.
+   * The turn runs with the chat's model for `role` (executor by default).
    * Throws AlreadyRunningError / SessionLimitError / MaintenanceError (all map to HTTP 409).
    */
-  start(chatId: number, text: string): void {
+  start(chatId: number, text: string, options: { role?: ModelRole } = {}): void {
     if (this.maintenance) throw new MaintenanceError();
     const chat = this.chats.findById(chatId);
     if (!chat) throw new Error(`Chat not found: ${String(chatId)}`);
@@ -114,14 +127,13 @@ export class AgentManager {
     const controller = new AbortController();
     this.chats.setStatus(chatId, 'running');
     this.record(chatId, 'user_prompt', { text });
+    const role = options.role ?? 'executor';
+    const model = chat.models[role];
+    const sessionRowId = this.sessions?.open(chatId, role, chat.models.provider, model) ?? null;
+    this.record(chatId, 'session_started', { role, provider: chat.models.provider, model });
+    this.observe(() => this.observer?.turnStarted(chat, { role, model }));
 
-    const done = this.consume(
-      chatId,
-      chat.worktreePath,
-      text,
-      chat.sdkSessionId,
-      controller,
-    ).finally(() => {
+    const done = this.consume(chat, text, { role, model, sessionRowId }, controller).finally(() => {
       this.active.delete(chatId);
     });
     this.active.set(chatId, { controller, done });
@@ -152,6 +164,8 @@ export class AgentManager {
       }
     }
     const answered = questions.answer(questionId, answer, answeredBy);
+    const answeredChat = this.chats.findById(answered.chatId);
+    if (answeredChat) this.observe(() => this.observer?.questionAnswered(answeredChat));
     this.record(answered.chatId, 'question_answered', {
       questionId,
       answer: answered.answer,
@@ -195,6 +209,8 @@ export class AgentManager {
       toolUseId: pending.toolUseId,
       questions: pending.questions,
     });
+    const askingChat = this.chats.findById(chatId);
+    if (askingChat) this.observe(() => this.observer?.questionAsked(askingChat));
     return new Promise<PermissionDecision>((resolve) => {
       const cancel = () => {
         if (this.waiters.delete(pending.id)) {
@@ -214,24 +230,29 @@ export class AgentManager {
   }
 
   private async consume(
-    chatId: number,
-    cwd: string,
+    chat: Chat,
     prompt: string,
-    resumeSessionId: string | null,
+    turn: { role: ModelRole; model: string; sessionRowId: number | null },
     controller: AbortController,
   ): Promise<void> {
+    const chatId = chat.id;
+    const cwd = chat.worktreePath;
+    // Loaded per turn so a change in the project's permissions applies to the next turn.
+    const bashExtras = this.bashExtras?.(chat.projectId) ?? NO_BASH_EXTRAS;
     let final: ChatStatus = 'idle';
     try {
       const events = this.runner.run({
         cwd,
         prompt,
-        ...(resumeSessionId ? { resumeSessionId } : {}),
+        model: turn.model,
+        role: turn.role,
+        ...(chat.sdkSessionId ? { resumeSessionId: chat.sdkSessionId } : {}),
         signal: controller.signal,
         canUseTool: (toolName, input, context) => {
           if (toolName === ASK_USER_QUESTION && this.questions) {
             return this.askUser(chatId, input, context?.toolUseId, controller.signal);
           }
-          const decision = decide({ cwd }, toolName, input);
+          const decision = decide({ cwd, bashExtras }, toolName, input);
           if (decision.behavior === 'deny') {
             this.record(chatId, 'permission_denied', {
               tool: toolName,
@@ -243,8 +264,17 @@ export class AgentManager {
         },
       });
       for await (const event of events) {
-        if (event.sessionId) this.chats.setSessionId(chatId, event.sessionId);
+        if (event.sessionId) {
+          this.chats.setSessionId(chatId, event.sessionId);
+          if (turn.sessionRowId !== null) {
+            this.sessions?.setSdkSessionId(turn.sessionRowId, event.sessionId);
+          }
+        }
         this.record(chatId, event.type, event.payload);
+        const reported = event.type === 'system:init' ? initModel(event.payload) : undefined;
+        if (reported !== undefined && reported !== turn.model) {
+          this.record(chatId, 'model_mismatch', { requested: turn.model, reported });
+        }
         if (event.type.startsWith('result:') && event.type !== 'result:success') final = 'error';
       }
       if (controller.signal.aborted) final = 'cancelled';
@@ -258,8 +288,41 @@ export class AgentManager {
         });
       }
     }
-    // A turn that ends cannot receive an answer anymore.
+    // A turn that ends cannot receive an answer anymore: drop its waiters (denying them so nothing
+    // stays suspended) and cancel the stored questions, each one with its event.
     this.questions?.cancelPending(chatId);
+    this.dropWaiters(chatId);
+    if (turn.sessionRowId !== null) this.sessions?.close(turn.sessionRowId, final);
     this.chats.setStatus(chatId, final);
+    const finished = this.chats.findById(chatId);
+    if (finished && this.observer) {
+      try {
+        await this.observer.turnFinished(finished, { role: turn.role, model: turn.model }, final);
+      } catch {
+        // The state is a view of the work: failing to update it must not break the chat.
+      }
+    }
+  }
+
+  /** Resolves with deny and forgets every question this chat's ended turn was still waiting on. */
+  private dropWaiters(chatId: number): void {
+    for (const [questionId, waiter] of [...this.waiters]) {
+      if (waiter.chatId !== chatId) continue;
+      this.waiters.delete(questionId);
+      this.record(chatId, 'question_cancelled', { questionId });
+      waiter.resolve({
+        behavior: 'deny',
+        message: 'The turn ended before the question was answered',
+      });
+    }
+  }
+
+  /** Runs a state-tracking hook; it can never break a turn. */
+  private observe(action: () => void): void {
+    try {
+      action();
+    } catch {
+      // See turnFinished above.
+    }
   }
 }

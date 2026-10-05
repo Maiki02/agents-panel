@@ -22,6 +22,7 @@ function setup(setupCommand: string | null = null) {
     statusDetail: null,
     hasKyro: false,
     kyroWarning: null,
+    models: { provider: 'claude', thinker: 'claude-opus-5-5', executor: 'claude-sonnet-5-5' },
   };
   const git = (...args: string[]) =>
     execFileSync('git', ['-C', repoPath, ...args], { encoding: 'utf8' });
