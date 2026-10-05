@@ -18,6 +18,7 @@ function setup(setupCommand: string | null = null) {
     repoPath,
     baseBranch: 'main',
     setupCommand,
+    validateCommand: null,
     status: 'ready',
     statusDetail: null,
     hasKyro: false,

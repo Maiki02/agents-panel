@@ -7,6 +7,7 @@ import { promisify } from 'node:util';
 import type { Project } from '@agents-panel/shared';
 import type { Config } from '../config.js';
 import { KyroLock } from '../maintenance/lock.js';
+import { splitCommand } from '../worktrees/create.js';
 import { normalizeOrigin, parseGithubRepo, type GithubRepo } from './github.js';
 import {
   PROJECT_NAME_RE,
@@ -90,6 +91,8 @@ export interface UpdateProjectInput {
   baseBranch?: string | undefined;
   /** null or '' clears it. */
   setupCommand?: string | null | undefined;
+  /** null or '' clears it. */
+  validateCommand?: string | null | undefined;
 }
 
 export interface ProjectServiceDeps {
@@ -265,6 +268,14 @@ export class ProjectService {
     const project = this.require(id);
     const displayName = cleanText(input.displayName, 100, 'Display name');
     const setupCommand = cleanText(input.setupCommand, 500, 'Setup command');
+    const validateCommand = cleanText(input.validateCommand, 500, 'Validate command');
+    if (validateCommand) {
+      try {
+        splitCommand(validateCommand);
+      } catch (error) {
+        throw new ProjectError(error instanceof Error ? error.message : 'Invalid validate command');
+      }
+    }
     let baseBranch: string | undefined;
     if (input.baseBranch !== undefined) {
       baseBranch = input.baseBranch.trim();
@@ -276,6 +287,7 @@ export class ProjectService {
     this.repo.updateFields(id, {
       ...(displayName !== undefined ? { displayName } : {}),
       ...(setupCommand !== undefined ? { setupCommand } : {}),
+      ...(validateCommand !== undefined ? { validateCommand } : {}),
       ...(baseBranch !== undefined ? { baseBranch } : {}),
     });
     return this.require(id);

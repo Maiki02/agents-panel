@@ -38,6 +38,7 @@ const patchBody = {
     displayName: { type: ['string', 'null'], maxLength: 100 },
     baseBranch: { type: 'string', minLength: 1, maxLength: 200 },
     setupCommand: { type: ['string', 'null'], maxLength: 500 },
+    validateCommand: { type: ['string', 'null'], maxLength: 500 },
   },
 } as const;
 
@@ -64,6 +65,7 @@ interface PatchBody {
   displayName?: string | null;
   baseBranch?: string;
   setupCommand?: string | null;
+  validateCommand?: string | null;
 }
 
 /** Maps project errors to 400/404/409 for these routes only; anything else stays a 500. */

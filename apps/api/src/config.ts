@@ -19,6 +19,8 @@ export interface Config {
   readonly sessionAbsoluteTtlSeconds: number;
   /** Sessions the pilot may open for one sprint before it stops the work (R11). */
   readonly pilotMaxSessionsPerSprint: number;
+  /** Longest a project's validate_command may run before the pilot stops it. */
+  readonly pilotValidateTimeoutMs: number;
 }
 
 export class ConfigError extends Error {
@@ -97,5 +99,6 @@ export function loadConfig(env: Env = process.env): Config {
     sessionIdleTtlSeconds: positiveInt(env, 'PANEL_SESSION_IDLE_TTL_SECONDS', 30 * 60),
     sessionAbsoluteTtlSeconds: positiveInt(env, 'PANEL_SESSION_ABSOLUTE_TTL_SECONDS', 12 * 60 * 60),
     pilotMaxSessionsPerSprint: positiveInt(env, 'PILOT_MAX_SESSIONS_PER_SPRINT', 6),
+    pilotValidateTimeoutMs: positiveInt(env, 'PILOT_VALIDATE_TIMEOUT_MINUTES', 15) * 60 * 1000,
   };
 }

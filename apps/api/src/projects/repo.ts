@@ -22,6 +22,7 @@ interface ProjectRow {
   repo_path: string;
   base_branch: string;
   setup_command: string | null;
+  validate_command: string | null;
   display_name: string | null;
   repo_url: string | null;
   status: ProjectStatus;
@@ -38,6 +39,7 @@ function toProject(row: ProjectRow): Project {
     repoPath: row.repo_path,
     baseBranch: row.base_branch,
     setupCommand: row.setup_command,
+    validateCommand: row.validate_command,
     displayName: row.display_name,
     repoUrl: row.repo_url,
     status: row.status,
@@ -219,7 +221,12 @@ export class ProjectRepository {
 
   updateFields(
     id: number,
-    fields: { displayName?: string | null; baseBranch?: string; setupCommand?: string | null },
+    fields: {
+      displayName?: string | null;
+      baseBranch?: string;
+      setupCommand?: string | null;
+      validateCommand?: string | null;
+    },
   ): void {
     if (fields.displayName !== undefined) {
       this.db
@@ -235,6 +242,11 @@ export class ProjectRepository {
       this.db
         .prepare('UPDATE projects SET setup_command = ? WHERE id = ?')
         .run(fields.setupCommand, id);
+    }
+    if (fields.validateCommand !== undefined) {
+      this.db
+        .prepare('UPDATE projects SET validate_command = ? WHERE id = ?')
+        .run(fields.validateCommand, id);
     }
   }
 
