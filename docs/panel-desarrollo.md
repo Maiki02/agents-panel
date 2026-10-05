@@ -217,11 +217,30 @@ Recorrido del sprint 3 de `autopiloto-kyro`. La web del piloto (interruptor, pau
 2. **Mirar:** `GET /api/chats/:id/autopilot` trae `{ run, maxSessionsPerSprint }` (`run.status`, `run.step`, `run.sessionsInSprint`, `run.stopReason`); `GET /api/chats/:id/state` y `/timeline` traen el estado fino y las transiciones con actor `pilot`.
 3. **Pausar y seguir:** `POST /api/chats/:id/autopilot` con `{ "action": "pause" }`: el turno en curso termina y el piloto no abre el siguiente (estado `pausado`). `{ "action": "resume" }` lo retoma (también si estaba `stopped`: el tope de sesiones y el motivo se reinician). `{ "action": "off" }` lo apaga y el chat queda en modo manual; vuelve a encenderse con `resume`. Una acción que no corresponde al estado da 409.
 4. **En la base** (`~/.local/share/agents-panel/panel.sqlite`): `SELECT step, role, model, policy_version, result FROM agent_sessions WHERE chat_id = <id> ORDER BY id;` muestra una sesión por paso (plan con Opus, ejecución y cierre con Sonnet) y `SELECT * FROM autopilot_runs WHERE chat_id = <id>;` el estado del piloto.
-5. **Frenos:** un Work termina frenado con el motivo en `run.stopReason` (por ejemplo, listo para cerrar: el cierre y el merge son del sprint 4). Si frena por `sin_avance` o `tope_de_sesiones`, resolvelo y mandá `resume`.
+5. **Frenos:** el piloto se detiene con el motivo en `run.stopReason` (por ejemplo, deuda abierta, un conflicto o un build roto; el cierre y el merge se prueban en la sección siguiente). Si frena por `sin_avance` o `tope_de_sesiones`, resolvelo y mandá `resume`.
 6. **Reinicio:** con el piloto a mitad de un paso, matá la API y levantala de nuevo: retoma solo el mismo paso con `resume` de su sesión (sin mensaje tuyo). Un run pausado o apagado no se retoma.
 7. El tope de sesiones por sprint sale de `PILOT_MAX_SESSIONS_PER_SPRINT` en el `.env` de la API (6 por defecto).
 
 **Importante:** hasta tener el servicio systemd (etapa 6), cerrar la terminal donde corre la API la corta y con ella el piloto. Levantala dentro de `tmux` (`tmux new -s panel`, y desconectate con `Ctrl-b d`) para que sobreviva a cerrar la conexión SSH; si la VM se reinicia, al levantar la API los pilotos activos se retoman solos.
+
+### Probar una Idea, su aprobación y el cierre con merge
+
+Recorrido del sprint 4 de `autopiloto-kyro`. **Usá siempre un repo de prueba** (un clon descartable con Kyro inicializado y un remoto que no sea el real: por ejemplo un repo vacío tuyo en GitHub, o un remoto *bare* local), nunca `ventas` ni este repo. Con `gh` autenticado solo hace falta para abrir la PR; el panel nunca la mergea. Se maneja por la API con la sesión y el token CSRF de la web (sección 4) hasta el sprint 5.
+
+1. **Preparar el repo de prueba:** registralo en **Proyectos → Nuevo proyecto**, con rama base `main`. Opcional: `PATCH /api/projects/:id` con `{ "validateCommand": "npm test" }` (o cualquier comando que termine en 0) para ver la validación; sin él, el Timeline anota que no hubo validación.
+2. **Crear la Idea:** `POST /api/chats` con `"kind": "idea"`, un `slug` y el pedido. No lleva `autopilot` (con `true` da 400: el piloto se prende al aprobar) y un proyecto sin Kyro da 409. El estado queda en `madurando_idea` (`GET /api/chats/:id/state`).
+3. **Esperar el plan:** el agente (modelo pensante, skill `kyro-idea`) escribe **un** documento en `.agents/kyro/<docType>/`. Cuando el turno termina, el estado pasa a `esperando_aprobacion_plan` y `GET /api/chats/:id/idea` trae `{ state, path, documents, content }`. Si escribe dos documentos queda `bloqueado` con la lista; si no escribe ninguno, sigue `madurando_idea`.
+4. **Decidir** con `POST /api/chats/:id/idea`:
+   - `{ "action": "request_changes", "text": "…" }`: el texto vuelve a la misma sesión y el estado a `madurando_idea` (sin texto da 400).
+   - `{ "action": "approve_work" }`: el panel corre `kyro work create --id <slug> --from <ruta> --by <usuario> --json`; el chat pasa a `work` y el piloto arranca con la planificación.
+   - `{ "action": "approve_scope" }`: el chat pasa a `scope` y el piloto abre un paso `init` (kyro-forge en modo INIT sobre el documento) y sigue con el sprint 1.
+   - Fuera de `esperando_aprobacion_plan` da 409; sin sesión 401 y sin CSRF 403. Cada decisión queda en `GET /api/chats/:id/timeline` con actor `user`, la ruta y el usuario.
+5. **Seguir el piloto** como en la sección anterior. Al terminar cada sprint verificá que la rama quedó en el remoto (`git ls-remote origin feature/<slug>`) y que la base del remoto no se movió.
+6. **Cierre del scope:** sin deuda abierta el panel corre `kyro scope complete --yes` y commitea solo `.agents/kyro/` (`chore(kyro): completar scope <slug>`). Con deuda abierta frena **una vez** en `esperando_aprobacion_cierre` con la lista en el Timeline; para seguir, `POST /api/chats/:id/autopilot` con `{ "action": "accept_debt", "reason": "…" }` (el motivo es obligatorio). Un work en `ready_to_close` se cierra con `kyro work close --outcome completed`.
+7. **Merge:** para probar un conflicto, adelantá la base del remoto con un cambio sobre el mismo archivo que tocó la rama: aparece `trayendo_dev` → `resolviendo_conflictos` (sesión `merge` del ejecutor) → `validando_post_merge` → `abriendo_pr` → `pr_lista`. La URL queda en el Timeline y en `autopilot_runs.pr_urls`. Si el repo de prueba tiene `.claude/skills/merge-dev/SKILL.md`, el piloto usa esa skill (sesión `merge_dev`).
+8. **Frenos para forzar:** un `validate_command` que falla → `build_roto` (sin PR); un `.env` o un token de mentira en el diff → `secretos` (el Timeline lista archivo y tipo, nunca el valor); un worktree sin `origin` → `git`; un informe de QA sin `Verdict:` → `qa_sin_aprobar`. Cada uno se resuelve y se retoma con `resume`.
+9. **Reinicio en la fase de merge:** con el piloto en `trayendo_dev`, matá la API y levantala: lee `autopilot_runs.phase = 'merge'` y retoma el merge (el pull, el push y la PR son idempotentes: una PR abierta de la rama se reusa).
+10. **Limpieza:** el panel no borra nada solo. Cerrá la PR de prueba a mano y borrá la rama del remoto y el worktree de prueba.
 
 ## 4. Levantar backend y frontend en la VM
 

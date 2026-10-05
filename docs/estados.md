@@ -125,12 +125,12 @@ Es una señal verificable, no una frase del agente: el panel solo la da por cier
 
 ## Cómo lo implementa el panel
 
-Estado de implementación al 05/10/2026 (scope `autopiloto-kyro`, sprint 2 `modelos-estado-permisos`). El estado fino solo existe para chats de tipo **scope** y **work**; un pedido directo tiene únicamente el estado de sesión (`chats.status`) y `GET /api/chats/:id/state` y `/timeline` le responden 404.
+Estado de implementación al 05/10/2026 (scope `autopiloto-kyro`, sprint 2 `modelos-estado-permisos`). El estado fino solo existe para chats de tipo **scope**, **work** e **idea** (un chat Idea madura el plan y, al aprobarse, pasa a ser un scope o un work); un pedido directo tiene únicamente el estado de sesión (`chats.status`) y `GET /api/chats/:id/state` y `/timeline` le responden 404.
 
 ### Tablas
 
 - **`worktree_state`** (migración 10, una fila por chat, `ON DELETE CASCADE`): `state`, `detail`, `phase`, `sprint_current`/`sprint_closed`/`sprint_total`, `task_done`/`task_total`, `open_debt`, `blocked_reason`, `actor`, `role`, `model`, `since` (cuándo empezó el estado actual) y `previous_state`. Es la fuente de verdad del estado.
-- **`autopilot_runs`** (migración 12, una fila por chat con piloto, `ON DELETE CASCADE`): `status` (`active`, `paused`, `off`, `stopped`, `waiting_quota`, `queued`, `finished`), `step` actual (`plan`, `execute`, `fix`, `close`, `manual`), `sprint_n`, `sessions_in_sprint`, `last_fingerprint` (JSON con las señales de Kyro antes del paso), `stop_reason`, `retry_at` y `policy_version`. Es el estado del piloto: sobrevive al reinicio. `agent_sessions` suma `step` y `policy_version`. El actor `pilot` escribe las transiciones del piloto.
+- **`autopilot_runs`** (migración 12, una fila por chat con piloto, `ON DELETE CASCADE`): `status` (`active`, `paused`, `off`, `stopped`, `waiting_quota`, `queued`, `finished`), `step` actual (`init`, `plan`, `execute`, `fix`, `close`, `merge`, `merge_dev`, `manual`), `sprint_n`, `sessions_in_sprint`, `last_fingerprint` (JSON con las señales de Kyro antes del paso), `stop_reason`, `retry_at`, `policy_version`, `seed_path` (el documento de la idea aprobada como scope, hasta que abre el paso `init`; migración 14), `phase` (`merge` desde que el trabajo se completa, para que un reinicio la retome) y `pr_urls` (las PR abiertas; migración 16). Es el estado del piloto: sobrevive al reinicio. `agent_sessions` suma `step` y `policy_version`. El actor `pilot` escribe las transiciones del piloto.
 - **`worktree_transitions`** (migración 10, el Timeline): `from_state`, `to_state`, `reason`, `actor`, `role`, `model`, `data` (JSON con las señales: `nextAction`, `nextTaskId`, `waitingOn`) y `created_at`. El actor es obligatorio y la base lo valida (`user`, `pilot`, `agent`, `system`).
 - **`agent_sessions`** (migración 9): una fila por sesión del SDK con `role` (`thinker` o `executor`), `provider`, `model`, `sdk_session_id`, `sprint_n` (lo asigna el piloto del sprint 3), `started_at`, `ended_at` y `result`. El piloto cuenta estas filas por sprint para el tope de sesiones.
 - `WorktreeStateRepository.transition()` escribe fila y transición en una sola transacción y publica el evento `state_changed` (también guardado en `chat_events`) por el SSE del chat. Repetir el mismo estado con otro detalle o avance **solo actualiza la fila**, sin sumar transición.
@@ -147,11 +147,28 @@ Estado de implementación al 05/10/2026 (scope `autopiloto-kyro`, sprint 2 `mode
 | `planificando` · `escribiendo_codigo` · `revisando_tarea` · `bloqueado` (`tarea_bloqueada`) · `cerrando` · `terminado` | `nextAction` de `kyro work status` (un Work) | `agent` |
 | `esperando_respuesta` | Hay una fila `pending_questions` pendiente | `agent` al preguntar; `user` al responder (vuelve al estado anterior) |
 | `planificando` · `escribiendo_codigo` … (abre el paso) | El piloto abre una sesión nueva (`session_started` con `step`, `role`, `model` y `policyVersion`) | `pilot` (con `data.step` y `data.policyVersion`) |
+| `madurando_idea` | Primer turno de un chat Idea (la idea la inicia el usuario); el fin del turno sin documento nuevo la deja en el mismo estado, y un mensaje nuevo con el plan ya escrito la devuelve acá | `user` al empezar; `agent` al terminar el turno |
+| `esperando_aprobacion_plan` | Terminó un turno de una idea sin pregunta pendiente y `git status` / `git diff` contra la base muestran **exactamente un** `.md` nuevo o cambiado en `.agents/kyro/<docType>/` (sin `scopes/`, `work/`, `trace/` ni `qa/`); la ruta queda en `detail` y `data.path` | `agent` |
+| `bloqueado` (`otro`) | Una idea terminó con más de un documento candidato: el detalle lista las rutas | `agent` |
+| `planificando` (decisión del plan) | `POST /api/chats/:id/idea` con `approve_scope` o `approve_work`; el Timeline guarda `data.{action, path, userId, username}` | `user` |
+| `madurando_idea` (cambios al plan) | `POST /api/chats/:id/idea` con `request_changes` y el texto, que viaja como turno nuevo del pensante | `user` |
+| `bloqueado` (`kyro_bloqueado`, decisión) | `kyro work create` rechazó el work: el chat sigue siendo Idea | `system` |
+| `cerrando` | El panel (no el agente) completa el scope (`kyro scope complete --yes`) o cierra el work (`kyro work close … --yes`) y commitea `.agents/kyro/` | `pilot` |
+| `esperando_aprobacion_cierre` (con deuda) | `await_scope_completion` sin sprint abierto y con deuda abierta: el piloto frena **una vez**; la lista (id, título, prioridad) va en `data.debt` de la entrada del Timeline | `pilot` |
+| `cerrando` (deuda aceptada) | `POST /api/chats/:id/autopilot { action: 'accept_debt', reason }` corre `kyro scope complete --accept-open-debt --reason … --yes`; el Timeline guarda quién aceptó, el motivo y la deuda aceptada | `user` |
+| `trayendo_dev` | Empieza la fase de merge: `git pull --no-rebase origin <base>` (genérico) o la sesión `merge_dev` del proyecto | `pilot` |
+| `resolviendo_conflictos` | El pull dejó rutas sin mergear (`git diff --diff-filter=U`) o `MERGE_HEAD`: se abre la sesión `merge` del ejecutor (`data.conflicts`) | `pilot` |
+| `validando_post_merge` | El pull trajo commits y el proyecto tiene `validate_command` (se corre sin shell y su salida recortada queda en el evento `validation`); sin comando, la entrada dice que no hubo validación | `pilot` |
+| `abriendo_pr` | `git push -u origin <rama>` y `gh pr list` / `gh pr create` (una PR abierta de la rama se reusa) | `pilot` |
+| `pr_lista` | La PR (o las PR de la raíz y de los repos hijos) quedó abierta: `data.prUrl` / `data.prUrls`, también en `autopilot_runs.pr_urls` | `pilot` |
+| `mergeada` | El merge-dev terminó y la rama de la raíz ya está en `origin/<base>` sin PR abierta (`git merge-base --is-ancestor`) | `pilot` |
+| `terminado` (run terminado) | El run quedó `finished` sin pasar por la fase de merge (un trabajo cuyo Kyro ya estaba `done`) | `pilot` |
 | `en_cola` | El piloto quiso abrir un paso y las 4 sesiones del panel estaban ocupadas; se reintenta al liberarse una | `pilot` |
 | `sin_cupo_de_uso` | La sesión terminó con un `rate_limit_event` rechazado o un resultado de límite de uso; `data.retryAt` trae el reintento (a los 15 minutos) | `pilot` |
 | `pausado` | El usuario pausó el piloto (`POST /api/chats/:id/autopilot { action: 'pause' }`); el turno en curso termina y no se abre el siguiente | `pilot` |
-| `bloqueado` (`sin_ssin_avance`) | Una sesión terminó sin que cambie el fingerprint de Kyro (`nextAction`, tarea, sprint, tareas hechas, deuda, pendientes de review) y sin pregunta respondida | `pilot` |
+| `bloqueado` (`sin_avance`) | Una sesión terminó sin que cambie el fingerprint de Kyro (`nextAction`, tarea, sprint, tareas hechas, deuda, pendientes de review) y sin pregunta respondida | `pilot` |
 | `bloqueado` (`tope_de_sesiones`) | El sprint llegó al tope (`PILOT_MAX_SESSIONS_PER_SPRINT`, 6 por defecto); también tras reinicios repetidos | `pilot` |
+| `bloqueado` (`qa_sin_aprobar`) | La sesión de cierre cerró el sprint y `.agents/kyro/qa/<scope>/sprint-<n>.md` falta, es un symlink, no empieza con `Verdict: <VEREDICTO>` o el veredicto no es APPROVED ni APPROVED WITH NOTES | `pilot` |
 | `bloqueado` (`qa_sin_correr`) | La sesión de cierre cerró el sprint (creció el ledger) sin un `tool_use` de la skill `kyro-qa` | `pilot` |
 | `bloqueado` (`kyro_bloqueado`) | Faltan verbos en `kyro capabilities --json` (`record-evidence`, `review`, `close-sprint`, `analyze`, `context-pack`) o `kyro analyze`/`context-pack --task` fallaron | `pilot` |
 | `bloqueado` (`integridad_kyro`) | Un blocker de Kyro pide `repair`: nunca se aplica solo | `pilot` |
@@ -198,20 +215,25 @@ El estado `bloqueado` guarda un `blocked_reason` de este catálogo (`BlockedReas
 | `tarea_bloqueada` | Un Work en `resolve_blocker`, o una tarea que tras 3 rondas de corrección quedó `blocked` | Lector de Kyro |
 | `kyro_bloqueado` | `context-pack` informa un blocker | Lector de Kyro |
 | `integridad_kyro` | Hallazgo de integridad de Kyro: `repair` nunca se aplica solo | Piloto (sprint 3) |
+| `qa_sin_aprobar` | El informe de QA del cierre falta o su veredicto no es una aprobación (R7, R8) | Piloto (sprint 4) |
 | `qa_sin_correr` | Una sesión de cierre cerró el sprint sin invocar la skill `kyro-qa` (R8) | Piloto (sprint 3) |
-| `git` | Falló un commit, pull, push o PR; el detalle trae la salida de git | Piloto (sprints 3 y 4) |
+| `git` | Falló un commit, pull, push o `gh`, no hubo commit nuevo tras el cierre de un sprint, la base local se movió durante el cierre, o el worktree no tiene remoto; el detalle trae la salida | Piloto (sprint 4) |
+| `secretos` | `scanSecrets` encontró un `.env`, una clave o un token en el diff contra la base, en lo pendiente o en un repo hijo; el detalle lista **solo archivos y tipos**, nunca el valor | Piloto (sprint 4) |
+| `conflicto` | La sesión `merge` terminó con rutas sin mergear o con el merge abierto | Piloto (sprint 4) |
+| `build_roto` | El `validate_command` falló o se pasó del tiempo después de traer cambios de la base: no se abre la PR | Piloto (sprint 4) |
+| `merge_sin_pr` | El `merge-dev` terminó y no hay PR abierta ni la rama llegó a la base | Piloto (sprint 4) |
 | `otro` | Cualquier otro freno con su motivo en el detalle | Piloto |
 
-El lector de Kyro deja `kyro_bloqueado` y `tarea_bloqueada`; el piloto del sprint 3 suma `sin_avance`, `tope_de_sesiones`, `integridad_kyro`, `qa_sin_correr` y `otro`. `git` lo escribirá el sprint 4.
+El lector de Kyro deja `kyro_bloqueado` y `tarea_bloqueada`; el piloto del sprint 3 suma `sin_avance`, `tope_de_sesiones`, `integridad_kyro`, `qa_sin_correr` y `otro`. El sprint 4 suma `qa_sin_aprobar`, `git`, `secretos`, `conflicto`, `build_roto` y `merge_sin_pr`.
 
 ### Qué estados todavía no se detectan
 
 - **Builds y tests** (`en_cola_build`, `buildeando`, `probando`, `corrigiendo`, `registrando_evidencia`): necesitan los hooks `PreToolUse`/`PostToolUse` y el semáforo de builds. Llegan con la etapa 5.
 - **Permisos** (`esperando_permiso`): hoy solo se registra `permission_denied`; aprobar con botones es de la etapa 5.
-- **Merge y PR** (`trayendo_dev`, `resolviendo_conflictos`, `validando_post_merge`, `abriendo_pr`, `en_cola_merge_raiz`, `mergeando_raiz`, `pr_lista`, `pr_checks_fallidos`, `pr_cambios_pedidos`): los trae el piloto (sprint 4) y el sondeo de `gh` (etapa 5).
+- **PR después de abierta** (`en_cola_merge_raiz`, `mergeando_raiz`, `pr_checks_fallidos`, `pr_cambios_pedidos`): necesitan el sondeo de `gh` y mergear la PR, que no es del panel todavía (etapa 5). El resto de la fase de merge (`trayendo_dev`, `resolviendo_conflictos`, `validando_post_merge`, `abriendo_pr`, `pr_lista`) ya lo escribe el piloto.
 - **Cierre** (`mergeada`, `limpiando`, `archivado`, `revisar`): limpieza automática, etapas 5 y 6.
 - **Aviso** de `sin_cupo_de_uso` y la hora exacta de reinicio del límite (`resetsAt`): scope `operaciones-worktree`; hoy el piloto reintenta cada 15 minutos.
-- **Idea** (`madurando_idea`, `esperando_aprobacion_plan`): chat de tipo Idea, sprint 4.
+- **Idea** (`madurando_idea`, `esperando_aprobacion_plan`): chat de tipo Idea, sprint 4; ya se escriben ambos: el primer turno la deja con actor `user` y el fin del turno no cambia el estado (T2.1); `esperando_aprobacion_plan` se escribe cuando git muestra exactamente un documento nuevo o cambiado de `kyro-idea` y no hay pregunta pendiente (T2.2); con varios queda `bloqueado` (`otro`) y con ninguno sigue en `madurando_idea`. Las decisiones sobre el plan (T2.3): aprobar como scope o work pasa a `planificando` (actor `user`, con la ruta y el usuario en el Timeline) y pedir cambios vuelve a `madurando_idea`; si `kyro work create` falla queda `bloqueado` (`kyro_bloqueado`).
 
 La etiqueta única por ítem y los tres niveles de estado (proyecto, trabajo y sesión) son del sprint 5.
 
