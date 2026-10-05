@@ -130,6 +130,7 @@ Estado de implementación al 05/10/2026 (scope `autopiloto-kyro`, sprint 2 `mode
 ### Tablas
 
 - **`worktree_state`** (migración 10, una fila por chat, `ON DELETE CASCADE`): `state`, `detail`, `phase`, `sprint_current`/`sprint_closed`/`sprint_total`, `task_done`/`task_total`, `open_debt`, `blocked_reason`, `actor`, `role`, `model`, `since` (cuándo empezó el estado actual) y `previous_state`. Es la fuente de verdad del estado.
+- **`autopilot_runs`** (migración 12, una fila por chat con piloto, `ON DELETE CASCADE`): `status` (`active`, `paused`, `off`, `stopped`, `waiting_quota`, `queued`, `finished`), `step` actual (`plan`, `execute`, `fix`, `close`, `manual`), `sprint_n`, `sessions_in_sprint`, `last_fingerprint` (JSON con las señales de Kyro antes del paso), `stop_reason`, `retry_at` y `policy_version`. Es el estado del piloto: sobrevive al reinicio. `agent_sessions` suma `step` y `policy_version`. El actor `pilot` escribe las transiciones del piloto.
 - **`worktree_transitions`** (migración 10, el Timeline): `from_state`, `to_state`, `reason`, `actor`, `role`, `model`, `data` (JSON con las señales: `nextAction`, `nextTaskId`, `waitingOn`) y `created_at`. El actor es obligatorio y la base lo valida (`user`, `pilot`, `agent`, `system`).
 - **`agent_sessions`** (migración 9): una fila por sesión del SDK con `role` (`thinker` o `executor`), `provider`, `model`, `sdk_session_id`, `sprint_n` (lo asigna el piloto del sprint 3), `started_at`, `ended_at` y `result`. El piloto cuenta estas filas por sprint para el tope de sesiones.
 - `WorktreeStateRepository.transition()` escribe fila y transición en una sola transacción y publica el evento `state_changed` (también guardado en `chat_events`) por el SSE del chat. Repetir el mismo estado con otro detalle o avance **solo actualiza la fila**, sin sumar transición.
@@ -145,6 +146,16 @@ Estado de implementación al 05/10/2026 (scope `autopiloto-kyro`, sprint 2 `mode
 | `bloqueado` (`kyro_bloqueado`) | `context-pack` informa un blocker | `agent` |
 | `planificando` · `escribiendo_codigo` · `revisando_tarea` · `bloqueado` (`tarea_bloqueada`) · `cerrando` · `terminado` | `nextAction` de `kyro work status` (un Work) | `agent` |
 | `esperando_respuesta` | Hay una fila `pending_questions` pendiente | `agent` al preguntar; `user` al responder (vuelve al estado anterior) |
+| `planificando` · `escribiendo_codigo` … (abre el paso) | El piloto abre una sesión nueva (`session_started` con `step`, `role`, `model` y `policyVersion`) | `pilot` (con `data.step` y `data.policyVersion`) |
+| `en_cola` | El piloto quiso abrir un paso y las 4 sesiones del panel estaban ocupadas; se reintenta al liberarse una | `pilot` |
+| `sin_cupo_de_uso` | La sesión terminó con un `rate_limit_event` rechazado o un resultado de límite de uso; `data.retryAt` trae el reintento (a los 15 minutos) | `pilot` |
+| `pausado` | El usuario pausó el piloto (`POST /api/chats/:id/autopilot { action: 'pause' }`); el turno en curso termina y no se abre el siguiente | `pilot` |
+| `bloqueado` (`sin_ssin_avance`) | Una sesión terminó sin que cambie el fingerprint de Kyro (`nextAction`, tarea, sprint, tareas hechas, deuda, pendientes de review) y sin pregunta respondida | `pilot` |
+| `bloqueado` (`tope_de_sesiones`) | El sprint llegó al tope (`PILOT_MAX_SESSIONS_PER_SPRINT`, 6 por defecto); también tras reinicios repetidos | `pilot` |
+| `bloqueado` (`qa_sin_correr`) | La sesión de cierre cerró el sprint (creció el ledger) sin un `tool_use` de la skill `kyro-qa` | `pilot` |
+| `bloqueado` (`kyro_bloqueado`) | Faltan verbos en `kyro capabilities --json` (`record-evidence`, `review`, `close-sprint`, `analyze`, `context-pack`) o `kyro analyze`/`context-pack --task` fallaron | `pilot` |
+| `bloqueado` (`integridad_kyro`) | Un blocker de Kyro pide `repair`: nunca se aplica solo | `pilot` |
+| `bloqueado` (`otro`) | La sesión terminó con error o el piloto falló; el detalle trae el motivo | `pilot` |
 | `interrumpido` | Al arrancar el panel, el chat estaba `running` | `system`; al retomar con un mensaje vuelve al estado anterior con actor `user` |
 | `error` | Falló la lectura de Kyro (el detalle trae el motivo) o la sesión terminó con error | `system` |
 
@@ -191,7 +202,7 @@ El estado `bloqueado` guarda un `blocked_reason` de este catálogo (`BlockedReas
 | `git` | Falló un commit, pull, push o PR; el detalle trae la salida de git | Piloto (sprints 3 y 4) |
 | `otro` | Cualquier otro freno con su motivo en el detalle | Piloto |
 
-Hoy el lector de Kyro deja `kyro_bloqueado` y `tarea_bloqueada`; los demás quedan disponibles y documentados para el orquestador del sprint 3.
+El lector de Kyro deja `kyro_bloqueado` y `tarea_bloqueada`; el piloto del sprint 3 suma `sin_avance`, `tope_de_sesiones`, `integridad_kyro`, `qa_sin_correr` y `otro`. `git` lo escribirá el sprint 4.
 
 ### Qué estados todavía no se detectan
 
@@ -199,7 +210,7 @@ Hoy el lector de Kyro deja `kyro_bloqueado` y `tarea_bloqueada`; los demás qued
 - **Permisos** (`esperando_permiso`): hoy solo se registra `permission_denied`; aprobar con botones es de la etapa 5.
 - **Merge y PR** (`trayendo_dev`, `resolviendo_conflictos`, `validando_post_merge`, `abriendo_pr`, `en_cola_merge_raiz`, `mergeando_raiz`, `pr_lista`, `pr_checks_fallidos`, `pr_cambios_pedidos`): los trae el piloto (sprint 4) y el sondeo de `gh` (etapa 5).
 - **Cierre** (`mergeada`, `limpiando`, `archivado`, `revisar`): limpieza automática, etapas 5 y 6.
-- **Transversales** `pausado` y `sin_cupo_de_uso`: el piloto (sprint 3) y el aviso de límite de uso (scope `operaciones-worktree`). `en_cola` llega con la cola de sesiones del piloto.
+- **Aviso** de `sin_cupo_de_uso` y la hora exacta de reinicio del límite (`resetsAt`): scope `operaciones-worktree`; hoy el piloto reintenta cada 15 minutos.
 - **Idea** (`madurando_idea`, `esperando_aprobacion_plan`): chat de tipo Idea, sprint 4.
 
 La etiqueta única por ítem y los tres niveles de estado (proyecto, trabajo y sesión) son del sprint 5.

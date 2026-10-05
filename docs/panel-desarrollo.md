@@ -209,6 +209,20 @@ Recorrido manual del sprint 2 de `autopiloto-kyro` (con la API y la web levantad
 
 Al terminar, contale al agente qué pasó en cada paso: el resultado se registra en Kyro (`debt-1` y la tarea T4.3 del sprint 2).
 
+### Probar el piloto automático (por la API)
+
+Recorrido del sprint 3 de `autopiloto-kyro`. La web del piloto (interruptor, pausar, preguntas con botones) es del sprint 5: por ahora se maneja por la API con la sesión y el token CSRF de una sesión de la web (sección 4). Pruebalo primero con un **Work de prueba** que solo cambie un archivo de doc (D31: el piloto se estrena con el usuario mirando), nunca con un scope real.
+
+1. **Activar:** `POST /api/chats` con `"kind": "work"`, `"autopilot": true` y un pedido chico (por ejemplo «agregá una línea al README»). Un pedido directo con `autopilot: true` da 400.
+2. **Mirar:** `GET /api/chats/:id/autopilot` trae `{ run, maxSessionsPerSprint }` (`run.status`, `run.step`, `run.sessionsInSprint`, `run.stopReason`); `GET /api/chats/:id/state` y `/timeline` traen el estado fino y las transiciones con actor `pilot`.
+3. **Pausar y seguir:** `POST /api/chats/:id/autopilot` con `{ "action": "pause" }`: el turno en curso termina y el piloto no abre el siguiente (estado `pausado`). `{ "action": "resume" }` lo retoma (también si estaba `stopped`: el tope de sesiones y el motivo se reinician). `{ "action": "off" }` lo apaga y el chat queda en modo manual; vuelve a encenderse con `resume`. Una acción que no corresponde al estado da 409.
+4. **En la base** (`~/.local/share/agents-panel/panel.sqlite`): `SELECT step, role, model, policy_version, result FROM agent_sessions WHERE chat_id = <id> ORDER BY id;` muestra una sesión por paso (plan con Opus, ejecución y cierre con Sonnet) y `SELECT * FROM autopilot_runs WHERE chat_id = <id>;` el estado del piloto.
+5. **Frenos:** un Work termina frenado con el motivo en `run.stopReason` (por ejemplo, listo para cerrar: el cierre y el merge son del sprint 4). Si frena por `sin_avance` o `tope_de_sesiones`, resolvelo y mandá `resume`.
+6. **Reinicio:** con el piloto a mitad de un paso, matá la API y levantala de nuevo: retoma solo el mismo paso con `resume` de su sesión (sin mensaje tuyo). Un run pausado o apagado no se retoma.
+7. El tope de sesiones por sprint sale de `PILOT_MAX_SESSIONS_PER_SPRINT` en el `.env` de la API (6 por defecto).
+
+**Importante:** hasta tener el servicio systemd (etapa 6), cerrar la terminal donde corre la API la corta y con ella el piloto. Levantala dentro de `tmux` (`tmux new -s panel`, y desconectate con `Ctrl-b d`) para que sobreviva a cerrar la conexión SSH; si la VM se reinicia, al levantar la API los pilotos activos se retoman solos.
+
 ## 4. Levantar backend y frontend en la VM
 
 Lo más simple, desde cualquier carpeta de la VM: `bash ~/proyectos/agents-panel/scripts/dev-panel.sh`. Mata las sesiones `panel-api` y `panel-web` si existen, compila `packages/shared`, levanta la API y la web cada una en su sesión de tmux y espera a que `/api/health` responda. Sirve también para reiniciar después de cambiar código. A mano, lo mismo (hay que estar parado en el repo):
