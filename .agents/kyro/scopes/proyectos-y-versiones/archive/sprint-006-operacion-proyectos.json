@@ -1,0 +1,853 @@
+{
+  "n": 6,
+  "slug": "operacion-proyectos",
+  "title": "Operación de proyectos: sin Kyro, inicializar, pull y borrado",
+  "objective": "Que un proyecto se opere completo desde la web: pedidos directos y sin tipos de Kyro cuando no lo tiene, inicialización de Kyro en una rama propia, pull del clon base y borrado seguro (sin trabajo sin pushear), y cerrar las pruebas manuales diferidas.",
+  "status": "complete",
+  "phases": [
+    {
+      "id": "P1",
+      "title": "Chats sin Kyro (API)",
+      "objective": "Tipo de chat 'direct' y reglas de tipos permitidos según hasKyro (debt-7).",
+      "status": "done",
+      "tasks": [
+        {
+          "id": "T1.1",
+          "title": "Tipo de chat 'direct' y prompt sin skill",
+          "description": "Agregar el tipo 'direct' a ChatKind (packages/shared), a la validación de POST /api/chats y a buildInitialPrompt: el prompt va tal cual (el pedido del usuario), sin referencia a skills de Kyro ni a .agents/. Un proyecto sin Kyro (hasKyro=false) rechaza scope y work con 409 y un motivo en español; direct se acepta siempre (con y sin Kyro). Migrar el CHECK/valores de chats.kind si la base lo restringe.",
+          "files_to_touch": [
+            "packages/shared/src/index.ts",
+            "apps/api/src/chats/service.ts",
+            "apps/api/src/chats/routes.ts",
+            "apps/api/src/chats/repo.ts",
+            "apps/api/test/chats.test.ts"
+          ],
+          "context": "debt-7. El slug del chat sigue siendo la rama del worktree (validateSlug). Los chats existentes no cambian. Tests con proyecto con y sin carpeta .agents/kyro. Código en inglés, mensajes al usuario en español.",
+          "acceptance_criteria": [
+            "POST /api/chats con kind 'direct' crea worktree y sesión en proyectos con y sin Kyro, y el primer prompt no menciona skills de Kyro",
+            "POST /api/chats con kind 'scope' o 'work' en un proyecto sin Kyro responde 409 y no crea worktree",
+            "Los chats scope y work de proyectos con Kyro siguen igual (tests existentes en verde)"
+          ],
+          "depends_on": [],
+          "scenario_refs": [
+            "S54"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "Tipo de chat 'direct': prompt sin skill, 409 para scope/work sin Kyro, migración 6 que reconstruye chats con foreign_keys apagadas",
+            "validation": [
+              "typecheck, lint y format:check sin errores",
+              "npx vitest api: 377/377 (incluye chats sin Kyro, direct con y sin Kyro y migración 6 conservando chat_events)"
+            ],
+            "files_changed": [
+              "packages/shared/src/index.ts",
+              "apps/api/src/chats/service.ts",
+              "apps/api/src/chats/routes.ts",
+              "apps/api/src/db/migrations.ts",
+              "apps/api/test/chats.test.ts",
+              "apps/api/test/db.test.ts",
+              "apps/api/test/helpers.ts"
+            ],
+            "notes": "Los tests de chats scope/work ahora usan makeKyroRepo (repo con .agents/kyro). Web aún no ofrece 'direct' (T5.1).",
+            "by": "maker",
+            "recordedAt": "2026-10-04T23:37:39.597Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "POST /api/chats con kind 'direct' crea worktree y sesión en proyectos con y sin Kyro, y el primer prompt no menciona skills de Kyro",
+              "POST /api/chats con kind 'scope' o 'work' en un proyecto sin Kyro responde 409 y no crea worktree",
+              "Los chats scope y work de proyectos con Kyro siguen igual (tests existentes en verde)"
+            ],
+            "findings": [],
+            "by": "checker",
+            "reviewedAt": "2026-10-04T23:37:41.635Z",
+            "requestDigest": "20ddf656f824d87fd8e8a71e6468abc03facb4c43a6b0fc97693132053c61d38",
+            "reviewedMaterialDigest": "61641299fe9ba5b3524ec75b8f8ccec9a35baa7cc1b5d13dada9a965c03378f7"
+          }
+        },
+        {
+          "id": "T1.2",
+          "title": "Permisos del agente en proyectos sin Kyro",
+          "description": "Revisar ALLOWED_TOOLS y la política de canUseTool para los chats direct: lectura (cat/ls/grep/find vía Read, Grep, Glob y Bash de solo lectura) permitida sin pedir confirmación, escritura solo dentro del worktree, nunca bypassPermissions. Documentar la política.",
+          "files_to_touch": [
+            "apps/api/src/agent/permissions.ts",
+            "apps/api/src/agent/sdk-runner.ts",
+            "apps/api/test/permissions.test.ts"
+          ],
+          "context": "debt-7 menciona permisos de lectura (cat/ls/grep). Regla del repo: el agente nunca corre con bypassPermissions. Verificar primero qué ya está permitido para no duplicar reglas.",
+          "acceptance_criteria": [
+            "Un chat direct puede leer archivos del worktree sin que la sesión quede en espera de aprobación",
+            "Escribir fuera del worktree sigue denegado",
+            "Test que cubre la política nueva"
+          ],
+          "depends_on": [
+            "T1.1"
+          ],
+          "scenario_refs": [
+            "S61"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "Bash admite ls, cat, head, tail, wc, grep y pwd como inicio de comando solo con argumentos dentro del worktree; sin variables, ~ ni globs. Vinculada al escenario S61.",
+            "validation": [
+              "typecheck, lint y format:check sin errores (repo completo, 05/10/2026)",
+              "npx vitest api: 417/417, incluido el test de la política de lectura (allow dentro, deny en /etc, .., ~, $HOME, globs, redirección y encadenado)"
+            ],
+            "files_changed": [
+              "apps/api/src/agent/permissions.ts",
+              "apps/api/test/agent.test.ts"
+            ],
+            "notes": "Política válida para todos los chats. find queda denegado (-delete/-exec). Escribir fuera del worktree sigue denegado.",
+            "by": "maker",
+            "recordedAt": "2026-10-05T00:00:56.113Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "Un chat direct puede leer archivos del worktree sin que la sesión quede en espera de aprobación",
+              "Escribir fuera del worktree sigue denegado",
+              "Test que cubre la política nueva"
+            ],
+            "findings": [],
+            "by": "checker",
+            "reviewedAt": "2026-10-05T00:00:56.404Z",
+            "requestDigest": "7fcc93772ec48233f50997c14874c18c2b5ac901705255b04b02134804615714",
+            "reviewedMaterialDigest": "fc71b19c2ff3865a513147ee6aad0a7a4746d8f1f1f190ea3be6d4e4a8179574"
+          }
+        }
+      ]
+    },
+    {
+      "id": "P2",
+      "title": "Inicializar Kyro en rama propia",
+      "objective": "Botón Inicializar Kyro que trabaja en un worktree dedicado y deja la rama commiteada.",
+      "status": "done",
+      "tasks": [
+        {
+          "id": "T2.1",
+          "title": "API: POST /api/projects/:id/kyro-init",
+          "description": "Con código TOTP (misma verificación que Actualizar Kyro), crear un worktree chore/kyro-init desde la rama base, correr 'kyro install --scope workspace --init-workspace --yes' ahí bajo el KyroLock compartido, commitear los archivos generados (Conventional Commit, sin atribución de IA) y dejar la rama sin pushear. Responde con la rama y el path. Rechaza con 409 si el proyecto ya tiene Kyro, si no está 'ready', si hay una actualización de Kyro corriendo o si ya existe la rama chore/kyro-init. Si falla, borra el worktree creado y deja el proyecto intacto.",
+          "files_to_touch": [
+            "apps/api/src/projects/service.ts",
+            "apps/api/src/projects/routes.ts",
+            "apps/api/src/worktrees/create.ts",
+            "apps/api/test/project-service.test.ts",
+            "apps/api/test/projects.test.ts"
+          ],
+          "context": "Decidido con el usuario: el init va en un worktree propio y queda commiteado en esa rama para revisarlo, pushearlo y mergearlo a la base; hasta el merge el clon base sigue sin Kyro. TOTP obligatorio como en la actualización. Reutilizar KyroLock (debt-4) y createWorktree. Probar con el runner de comandos inyectado, nunca el kyro real en los tests. Conventional Commits: chore(kyro): inicializar Kyro.",
+          "acceptance_criteria": [
+            "Con TOTP válido y proyecto sin Kyro se crea la rama chore/kyro-init con un commit que contiene .agents/kyro/",
+            "Sin TOTP o con TOTP inválido responde 401/403 y no toca nada",
+            "Un fallo de kyro install no deja worktree ni rama a medio crear",
+            "Proyecto con Kyro, no listo o con rama existente responde 409"
+          ],
+          "depends_on": [
+            "T1.1"
+          ],
+          "scenario_refs": [
+            "S56"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "POST /api/projects/:id/kyro-init: con TOTP crea el worktree chore/kyro-init, corre kyro install bajo KyroLock, commitea y deja la rama sin pushear; sin dejar restos si falla",
+            "validation": [
+              "typecheck, lint y format:check sin errores",
+              "npx vitest api: 385/385; test/kyro-branch.test.ts (7) con repos git reales: commit con .agents/kyro, clon base intacto, 401 sin/ con código inválido, fallo de install y 'sin archivos' sin worktree ni rama, 409 con Kyro/no listo/rama existente/init en curso, 404"
+            ],
+            "files_changed": [
+              "apps/api/src/projects/kyro-branch.ts",
+              "apps/api/src/projects/kyro-branch-routes.ts",
+              "apps/api/src/worktrees/create.ts",
+              "apps/api/src/app.ts",
+              "apps/api/test/kyro-branch.test.ts",
+              "apps/api/test/cli.test.ts",
+              "apps/api/test/helpers.ts"
+            ],
+            "notes": "El instalador se inyecta en los tests (kyroInstaller): el kyro real no se corrió contra la VM. La ruta de 'kyro install' real en un worktree queda por probar a mano (T6.3). Hay ventana donde no se chequea si un chat esta corriendo: no hace falta, el init no toca worktrees de chats.",
+            "by": "maker",
+            "recordedAt": "2026-10-04T23:43:57.429Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "Con TOTP válido y proyecto sin Kyro se crea la rama chore/kyro-init con un commit que contiene .agents/kyro/",
+              "Sin TOTP o con TOTP inválido responde 401/403 y no toca nada",
+              "Un fallo de kyro install no deja worktree ni rama a medio crear",
+              "Proyecto con Kyro, no listo o con rama existente responde 409"
+            ],
+            "findings": [],
+            "by": "checker",
+            "reviewedAt": "2026-10-04T23:43:57.725Z",
+            "requestDigest": "706499f0f6daba099eea4c073124ab411d07febf645a9dc16e61c37dc205eb1e",
+            "reviewedMaterialDigest": "b8ed4f2e0715783c6574622a1fa491f3581b27b8cb97a56768ece4872ebe7761"
+          }
+        }
+      ]
+    },
+    {
+      "id": "P3",
+      "title": "Pull del clon base",
+      "objective": "Traer lo subido a GitHub al clon base sin pisar nada (debt-8).",
+      "status": "done",
+      "tasks": [
+        {
+          "id": "T3.1",
+          "title": "API: POST /api/projects/:id/pull",
+          "description": "Por execFile (sin shell) correr 'git fetch origin' y 'git pull --ff-only origin <base_branch>' en el clon base. Antes comprobar que la rama actual es la base y que no hay cambios locales en archivos versionados. Rechazar con 409 y motivo claro si el proyecto no está listo, hay cambios locales, la rama no es la base, hay divergencia o hay una actualización de Kyro corriendo. Responder resultado: ya al día, o commits traídos (antes y después) con salida recortada. Implementar como función reutilizable por repo (el scope del piloto automático la extiende a repos hijos).",
+          "files_to_touch": [
+            "apps/api/src/projects/git.ts",
+            "apps/api/src/projects/service.ts",
+            "apps/api/src/projects/routes.ts",
+            "apps/api/test/project-pull.test.ts"
+          ],
+          "context": "debt-8. Tests con repos git reales en directorios temporales (un 'origin' bare y un clon), no con mocks de git. Los worktrees existentes no se tocan. Salida recortada como en maintenance_runs. Sin push.",
+          "acceptance_criteria": [
+            "Con commits nuevos en origin el clon base avanza por fast-forward y la respuesta indica cuántos commits se trajeron",
+            "Con cambios locales en archivos versionados o divergencia responde 409 y no modifica el clon",
+            "Sin novedades responde que ya está al día",
+            "No se usa shell: argumentos por execFile"
+          ],
+          "depends_on": [],
+          "scenario_refs": [
+            "S57"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "POST /api/projects/:id/pull: fetch + pull --ff-only del clon base por execFile; 409 con cambios locales versionados, otra rama o divergencia; informa commits traídos o 'al día'",
+            "validation": [
+              "typecheck, lint y format:check sin errores",
+              "npx vitest api: 397/397; project-pull.test.ts (12) con repos git reales (origin bare, clon, pusher): ff con N commits, al día, commits locales conservados, cambios locales/otra rama/divergencia sin tocar el clon, untracked no bloquea, rama tipo opción rechazada, 409/404/401/502 en la ruta"
+            ],
+            "files_changed": [
+              "apps/api/src/projects/git.ts",
+              "apps/api/src/projects/pull.ts",
+              "apps/api/src/projects/pull-routes.ts",
+              "apps/api/src/app.ts",
+              "apps/api/test/project-pull.test.ts",
+              "apps/api/test/cli.test.ts"
+            ],
+            "notes": "Sin TOTP: solo fast-forward, no puede perder trabajo. Rechaza si hay actualización de Kyro corriendo (el script corre kyro install en cada proyecto). git.ts exporta git() y GitCommandError para reutilizar en T4.1. Extensión a repos hijos queda para el scope del piloto.",
+            "by": "maker",
+            "recordedAt": "2026-10-04T23:46:13.845Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "Con commits nuevos en origin el clon base avanza por fast-forward y la respuesta indica cuántos commits se trajeron",
+              "Con cambios locales en archivos versionados o divergencia responde 409 y no modifica el clon",
+              "Sin novedades responde que ya está al día",
+              "No se usa shell: argumentos por execFile"
+            ],
+            "findings": [],
+            "by": "checker",
+            "reviewedAt": "2026-10-04T23:46:14.138Z",
+            "requestDigest": "c47a3f1e1d9172da2641e204571c203c5ecab641f8c005747f4d77c87cf352eb",
+            "reviewedMaterialDigest": "fe7d023074adf4cbe9f53aefff75b4d6e18a9b29fdbb79a8756a546f75e5bc84"
+          }
+        }
+      ]
+    },
+    {
+      "id": "P4",
+      "title": "Borrado seguro de proyectos",
+      "objective": "Borrar registro, clon, worktrees y .env cifrados solo si no se pierde trabajo.",
+      "status": "done",
+      "tasks": [
+        {
+          "id": "T4.1",
+          "title": "Chequeo de trabajo sin pushear",
+          "description": "Función que inspecciona el clon base y cada worktree del proyecto y devuelve la lista de bloqueos: cambios sin commitear (incluye archivos no versionados que no estén ignorados), commits que no están en ningún remoto (git log HEAD --not --remotes) y ramas locales sin upstream con commits propios. Solo lectura, por execFile. Un worktree cuya carpeta ya no existe no bloquea.",
+          "files_to_touch": [
+            "apps/api/src/projects/git.ts",
+            "apps/api/test/project-safety.test.ts"
+          ],
+          "context": "Pedido del usuario: no se puede borrar un proyecto con commits o cosas sin pushear. Tests con repos git reales temporales. Los .env escritos por el panel están ignorados por git y no deben bloquear.",
+          "acceptance_criteria": [
+            "Detecta cambios sin commitear, commits sin pushear y rama sin upstream con commits, indicando worktree y motivo",
+            "Un worktree limpio y pusheado no bloquea",
+            "Los .env gestionados por el panel no cuentan como cambios"
+          ],
+          "depends_on": [],
+          "scenario_refs": [
+            "S58"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "findUnsavedWork: lista cambios sin commitear y commits sin pushear en el clon base, cada worktree y repos anidados un nivel; solo lectura por execFile",
+            "validation": [
+              "typecheck, lint y format:check sin errores",
+              "npx vitest api: 406/406; project-safety.test.ts (9) con repos git reales: limpio, sin commitear/untracked, rama sin pushear, pusheada deja de bloquear, base del clon, HEAD suelto, .env ignorado no cuenta, worktree sin carpeta no bloquea, repo hijo anidado"
+            ],
+            "files_changed": [
+              "apps/api/src/projects/safety.ts",
+              "apps/api/test/project-safety.test.ts"
+            ],
+            "notes": "Un test encontró un bug propio (git() recorta el espacio inicial de ' M README.md'); corregido con regex. No hace fetch: un push hecho desde otra máquina y no traído se ve como sin pushear (falla del lado seguro). Repos hijos solo a un nivel de profundidad.",
+            "by": "maker",
+            "recordedAt": "2026-10-04T23:48:30.463Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "Detecta cambios sin commitear, commits sin pushear y rama sin upstream con commits, indicando worktree y motivo",
+              "Un worktree limpio y pusheado no bloquea",
+              "Los .env gestionados por el panel no cuentan como cambios"
+            ],
+            "findings": [],
+            "by": "checker",
+            "reviewedAt": "2026-10-04T23:48:30.754Z",
+            "requestDigest": "8d402722d9f3b394d1e208d73a4a564920ec2508f083aca3ce58d730534ba4d5",
+            "reviewedMaterialDigest": "d52ec1c9c33078a1f161d012f8514ac027a24dc1f1b535d47eb98cd6addc207b"
+          }
+        },
+        {
+          "id": "T4.2",
+          "title": "API: DELETE /api/projects/:id",
+          "description": "Con código TOTP y el nombre del proyecto en el cuerpo, borrar: rechazar con 409 si hay una sesión corriendo o bloqueos de T4.1 (devolver la lista en el cuerpo, sin borrar nada); si no, quitar worktrees (git worktree remove), la carpeta del clon (solo dentro del directorio de proyectos, mismo guardia que removeOwnFolder), los .env cifrados, los chats y el registro, en ese orden y con fallos parciales reportados. Rechaza si hay clonado en curso.",
+          "files_to_touch": [
+            "apps/api/src/projects/service.ts",
+            "apps/api/src/projects/routes.ts",
+            "apps/api/src/projects/repo.ts",
+            "apps/api/src/chats/repo.ts",
+            "apps/api/test/projects.test.ts"
+          ],
+          "context": "El borrado era no-objetivo del scope; se promueve a requisito por decisión del usuario. Destructivo: nunca borrar fuera del directorio de proyectos ni de los worktrees del panel; resolver rutas con realpath. Registrar el evento sin valores de .env.",
+          "acceptance_criteria": [
+            "Proyecto limpio y pusheado: queda sin registro, sin carpeta, sin worktrees y sin .env cifrados",
+            "Con trabajo sin pushear o sesión corriendo responde 409 con la lista de motivos y no borra nada",
+            "Sin TOTP válido o con nombre distinto responde error y no borra nada",
+            "Ninguna ruta fuera del directorio de proyectos se toca"
+          ],
+          "depends_on": [
+            "T4.1"
+          ],
+          "scenario_refs": [
+            "S58",
+            "S59"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "DELETE /api/projects/:id con TOTP y nombre: borra worktrees, clon, chats, eventos, .env cifrados y registro; 409 con lista de bloqueos o sesión corriendo sin tocar nada",
+            "validation": [
+              "typecheck, lint y format:check sin errores",
+              "npx vitest api: 417/417; project-delete.test.ts (11) con repos git reales: borrado completo, 409 con commit sin pushear y éxito tras pushear, 409 con cambios sin commitear, 409 con sesión corriendo, 400 nombre incorrecto, 401 sin/ con código inválido, 400 campo extra, 404, 409 clonando, nombre visible aceptado, clon fuera de projectsDir se conserva, symlink no se sigue, fallo parcial reintentable"
+            ],
+            "files_changed": [
+              "apps/api/src/projects/delete.ts",
+              "apps/api/src/projects/delete-routes.ts",
+              "apps/api/src/projects/repo.ts",
+              "apps/api/src/app.ts",
+              "apps/api/test/project-delete.test.ts",
+              "apps/api/test/cli.test.ts"
+            ],
+            "notes": "El código TOTP se verifica antes que el nombre (un 401 no revela nada). La carpeta del clon solo se borra si es un directorio real (sin symlink) hijo directo de projectsDir; si no, se desregistra y se conserva (cloneRemoved:false). Riesgo conocido y no cubierto: un chat creado justo mientras corre el borrado (ventana de milisegundos) podría dejar un worktree huérfano. Tras un fallo parcial el proyecto sigue registrado y se puede reintentar. Probado solo con repos temporales: el borrado real queda para T6.3 con un repo descartable.",
+            "by": "maker",
+            "recordedAt": "2026-10-04T23:54:25.462Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "Proyecto limpio y pusheado: queda sin registro, sin carpeta, sin worktrees y sin .env cifrados",
+              "Con trabajo sin pushear o sesión corriendo responde 409 con la lista de motivos y no borra nada",
+              "Sin TOTP válido o con nombre distinto responde error y no borra nada",
+              "Ninguna ruta fuera del directorio de proyectos se toca"
+            ],
+            "findings": [],
+            "by": "checker",
+            "reviewedAt": "2026-10-04T23:54:25.758Z",
+            "requestDigest": "365021f6a0853a75e75cd098818ecd01698754924bd569bd541490d984c19d41",
+            "reviewedMaterialDigest": "1da5e4f1d2a47a61015eb51c58da1890d388d567c67bc8d5b0914dad5437c918"
+          }
+        }
+      ]
+    },
+    {
+      "id": "P5",
+      "title": "Web de operación",
+      "objective": "Exponer todo en la web con los componentes de la identidad visual.",
+      "status": "done",
+      "tasks": [
+        {
+          "id": "T5.1",
+          "title": "Formulario de chat nuevo por tipo disponible",
+          "description": "El selector de tipo muestra Scope, Work y Pedido directo si el proyecto tiene Kyro, y solo Pedido directo si no. Sin Kyro, mostrar un aviso con el botón Inicializar Kyro. Lógica pura de tipos disponibles en un archivo testeable.",
+          "files_to_touch": [
+            "apps/web/src/app/chats/new-chat.form.ts",
+            "apps/web/src/app/chats/new-chat.page.ts",
+            "apps/web/src/app/chats/new-chat.form.spec.ts",
+            "apps/web/src/app/chats/chats.service.ts",
+            "apps/web/src/app/chats/status.ts"
+          ],
+          "context": "Decidido: con Kyro se muestran los tres tipos; sin Kyro, ni Scope ni Work. Standalone + signals, componentes Modal/Button/Badge de identidad-visual.md, solo tokens (sin hex fuera de tokens.css).",
+          "acceptance_criteria": [
+            "Proyecto sin Kyro: solo 'Pedido directo' y el botón Inicializar Kyro",
+            "Proyecto con Kyro: Scope, Work y Pedido directo",
+            "El chat de tipo direct se ve en la sidebar con su etiqueta"
+          ],
+          "depends_on": [
+            "T1.1"
+          ],
+          "scenario_refs": [
+            "S55"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "El formulario de chat nuevo ofrece Work, Scope y Pedido directo con Kyro, y solo Pedido directo (más aviso con enlace a Inicializar Kyro) sin Kyro; la sidebar muestra 'directo · rama'",
+            "validation": [
+              "typecheck, lint y format:check sin errores",
+              "web: 113/113 tests (chat-kinds.spec.ts nuevo: tipos por hasKyro, default, efectivo, parseo; status.spec con 'directo'); build en verde"
+            ],
+            "files_changed": [
+              "apps/web/src/app/chats/chat-kinds.ts",
+              "apps/web/src/app/chats/chat-kinds.spec.ts",
+              "apps/web/src/app/chats/new-chat.form.ts",
+              "apps/web/src/app/chats/status.ts",
+              "apps/web/src/app/chats/status.spec.ts"
+            ],
+            "notes": "NO probado en un navegador: la lógica de tipos está testeada, el render del formulario no. El enlace 'Inicializar Kyro' apunta a la tab 'repository' de la configuración, que se crea en T5.2 (hasta entonces cae en General).",
+            "by": "maker",
+            "recordedAt": "2026-10-04T23:55:35.070Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "Proyecto sin Kyro: solo 'Pedido directo' y el botón Inicializar Kyro",
+              "Proyecto con Kyro: Scope, Work y Pedido directo",
+              "El chat de tipo direct se ve en la sidebar con su etiqueta"
+            ],
+            "findings": [],
+            "by": "checker",
+            "reviewedAt": "2026-10-04T23:55:35.359Z",
+            "requestDigest": "90fac2b371a5a6f45b8c74a0d6e1bc145431af2e5b09808a51a135a0291d97be",
+            "reviewedMaterialDigest": "23b0d47f1490debada63b73b6b64f5c7c70f161836f17594dc6575bcf3757608"
+          }
+        },
+        {
+          "id": "T5.2",
+          "title": "Configuración: Repositorio y zona de borrado",
+          "description": "Nueva tab Repositorio en la configuración del proyecto: botón Traer cambios de GitHub (pull, muestra el resultado o el motivo del rechazo) y botón Inicializar Kyro (si no tiene) con modal de TOTP que muestra al terminar la rama chore/kyro-init. Tab/zona General con 'Borrar proyecto': modal que pide escribir el nombre y el código TOTP, muestra la lista de bloqueos si el borrado se rechaza, y al terminar vuelve a Proyectos. El código se vacía al enviar, al cerrar y al fallar (R28).",
+          "files_to_touch": [
+            "apps/web/src/app/projects/project-settings.ts",
+            "apps/web/src/app/projects/settings-tabs.ts",
+            "apps/web/src/app/projects/settings.page.ts",
+            "apps/web/src/app/projects/projects.service.ts",
+            "apps/web/src/app/projects/repo-actions.section.ts",
+            "apps/web/src/app/projects/settings-tabs.spec.ts"
+          ],
+          "context": "Seguir el patrón del modal de TOTP de env-files.section.ts y de Versiones. Tab elegida en la URL (R30). Sin colores fuera de tokens.",
+          "acceptance_criteria": [
+            "La tab Repositorio permite traer cambios y muestra el resultado o el 409",
+            "Inicializar Kyro pide TOTP en un modal y muestra la rama creada",
+            "Borrar proyecto exige nombre y TOTP, lista los bloqueos y, si sale bien, vuelve a Proyectos",
+            "El código TOTP nunca queda en memoria tras enviar, cerrar o fallar"
+          ],
+          "depends_on": [
+            "T2.1",
+            "T3.1",
+            "T4.2"
+          ],
+          "scenario_refs": [
+            "S56",
+            "S57",
+            "S58"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "Configuración suma la tab Repositorio (Traer cambios de GitHub, Inicializar Kyro con modal TOTP que muestra la rama creada) y, en General, la zona de peligro con Borrar proyecto (modal con nombre + TOTP, lista de bloqueos del 409, vuelve a Proyectos)",
+            "validation": [
+              "typecheck, lint y format:check sin errores",
+              "web: 119/119 tests (repo-actions.spec.ts nuevo: resúmenes de pull y rama, coincidencia de nombre, lectura de bloqueos del 409; settings-tabs.spec con la tab repository); api 417/417; build en verde",
+              "grep: sin colores hex/rgb fuera de tokens.css ni URLs externas nuevas"
+            ],
+            "files_changed": [
+              "apps/web/src/app/projects/repo-actions.section.ts",
+              "apps/web/src/app/projects/delete-project.modal.ts",
+              "apps/web/src/app/projects/project-danger-zone.ts",
+              "apps/web/src/app/projects/repo-actions.ts",
+              "apps/web/src/app/projects/repo-actions.spec.ts",
+              "apps/web/src/app/projects/projects.service.ts",
+              "apps/web/src/app/projects/settings.page.ts",
+              "apps/web/src/app/projects/settings-tabs.ts",
+              "packages/shared/src/index.ts"
+            ],
+            "notes": "NO probado en un navegador ni contra la API real: solo la lógica pura tiene tests; los componentes están validados por typecheck, lint, build y revisión. El código TOTP se vacía al enviar y al cerrar (takeCode), como en los otros modales; el modal de borrado mantiene el nombre tipeado tras un error para reintentar. Tipos PullResult, KyroBranchResult y DeleteBlocker pasaron a packages/shared y la API los importa. Se verifica a mano en T6.3.",
+            "by": "maker",
+            "recordedAt": "2026-10-04T23:58:25.218Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "La tab Repositorio permite traer cambios y muestra el resultado o el 409",
+              "Inicializar Kyro pide TOTP en un modal y muestra la rama creada",
+              "Borrar proyecto exige nombre y TOTP, lista los bloqueos y, si sale bien, vuelve a Proyectos",
+              "El código TOTP nunca queda en memoria tras enviar, cerrar o fallar"
+            ],
+            "findings": [],
+            "by": "checker",
+            "reviewedAt": "2026-10-04T23:58:25.509Z",
+            "requestDigest": "d7ff142d0f3bd41a0c35d2c55287763f1b692c5ab6ed13c6204460172baf43cb",
+            "reviewedMaterialDigest": "594aabd9b714b90de7c26f28c1299b2531c8b075f0f88a324481f1ed808a0c13"
+          }
+        }
+      ]
+    },
+    {
+      "id": "P6",
+      "title": "Docs, verificación y pruebas manuales",
+      "objective": "Documentar, verificar y resolver debt-9.",
+      "status": "done",
+      "tasks": [
+        {
+          "id": "T6.1",
+          "title": "Docs y reglas",
+          "description": "Actualizar docs/plan.md (borrado deja de ser no-objetivo, tipo direct, pull, init en rama), docs/panel-desarrollo.md (cómo operar un proyecto desde la web), docs/estados.md si cambia algún estado, docs/identidad-visual.md si hay componentes nuevos, y el apartado de Proyectos registrados de CLAUDE.md (proyectos sin Kyro). Si se agrega algo a la VM, docs/vm-setup.md y la bitácora.",
+          "files_to_touch": [
+            "docs/plan.md",
+            "docs/panel-desarrollo.md",
+            "docs/estados.md",
+            "docs/identidad-visual.md",
+            "CLAUDE.md"
+          ],
+          "context": "Docs en español; si una decisión cambia se actualiza el doc en el mismo cambio. No se pegan secretos.",
+          "acceptance_criteria": [
+            "Cada comportamiento nuevo está descrito en el doc correspondiente",
+            "El borrado figura como funcionalidad con sus guardas y no como no-objetivo"
+          ],
+          "depends_on": [
+            "T5.2"
+          ],
+          "scenario_refs": [
+            "S62"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "Docs de pedido directo, Inicializar Kyro, Traer cambios y Borrar proyecto en plan.md, panel-desarrollo.md, CLAUDE.md e identidad-visual.md. Vinculada al escenario S62.",
+            "validation": [
+              "prettier --check de docs y CLAUDE.md sin diferencias",
+              "revisión contra el código: rutas, códigos de respuesta, rama chore/kyro-init, ruta del worktree y reglas de borrado coinciden con lo implementado"
+            ],
+            "files_changed": [
+              "docs/plan.md",
+              "docs/panel-desarrollo.md",
+              "CLAUDE.md",
+              "docs/identidad-visual.md"
+            ],
+            "notes": "estados.md y vm-setup.md sin cambios (ningún estado nuevo, nada tocado en la VM). spec.nonGoals sigue listando 'Borrar proyectos': plan --update-active no edita nonGoals; R35 lo reemplaza.",
+            "by": "maker",
+            "recordedAt": "2026-10-05T00:00:56.743Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "Cada comportamiento nuevo está descrito en el doc correspondiente",
+              "El borrado figura como funcionalidad con sus guardas y no como no-objetivo"
+            ],
+            "findings": [],
+            "by": "checker",
+            "reviewedAt": "2026-10-05T00:00:57.026Z",
+            "requestDigest": "618439ef799c7a77e902bbef6c780bfae6ed771c43dcc2ad34d0ed1e878a00d6",
+            "reviewedMaterialDigest": "7b94670efd68bfd9388e10e1672e763eb577f9fd381b99d632003b3f76d72220"
+          }
+        },
+        {
+          "id": "T6.2",
+          "title": "Verificación automática del sprint",
+          "description": "Correr typecheck, lint, format:check, tests y build de todo el repo; grep de hex fuera de tokens.css y de URLs externas; kyro analyze.",
+          "files_to_touch": [],
+          "context": "Mismo criterio que T4.2 del sprint 5. Anotar con honestidad lo que no se probó en un navegador.",
+          "acceptance_criteria": [
+            "typecheck, lint, format:check, tests y build en verde",
+            "grep de hex fuera de tokens.css = 0",
+            "kyro analyze sin hallazgos"
+          ],
+          "depends_on": [
+            "T6.1"
+          ],
+          "scenario_refs": [
+            "S65"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "Verificación automática del repo completo tras T1.1-T6.1, E1 y E2. Vinculada a S65.",
+            "validation": [
+              "typecheck sin errores; lint y format:check limpios",
+              "npm test: api 427/427 y web 120/120; build en verde",
+              "grep de hex/rgb fuera de tokens.css = 0; sin URLs externas ni Google Fonts en la web",
+              "kyro analyze: no semantic issues found"
+            ],
+            "files_changed": [
+              "docs"
+            ],
+            "notes": "NO probado en un navegador ni contra la API real; el kyro install real y el borrado real quedan para T6.3.",
+            "by": "maker",
+            "recordedAt": "2026-10-05T00:14:20.221Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "typecheck, lint, format:check, tests y build en verde",
+              "grep de hex fuera de tokens.css = 0",
+              "kyro analyze sin hallazgos"
+            ],
+            "findings": [],
+            "by": "checker",
+            "reviewedAt": "2026-10-05T00:14:20.521Z",
+            "requestDigest": "d4bef9c27c90486f8ea05993f2847f9e23542f9ccaea18930830476f34c34fc1",
+            "reviewedMaterialDigest": "82ef04366e764fe54012d671e7de72209d01ba9f764d901cebbebd61f0678dbb"
+          }
+        },
+        {
+          "id": "T6.3",
+          "title": "Pruebas manuales diferidas (debt-9) y recorrido del sprint",
+          "description": "Checklist que corre el usuario en la web, con la API real: (1) Versiones: Actualizar con script falso y 409 con un chat corriendo; (2) subir un .env con un chat corriendo y ver la fila 'agente en curso'; (3) buscar valores falsos del .env en los logs de la API; (4) recorrido nuevo: proyecto sin Kyro solo ofrece Pedido directo, Inicializar Kyro crea la rama, Traer cambios, y Borrar rechazado con trabajo sin pushear y aceptado en un proyecto descartable; (5) recorrido visual de lo del sprint 5 que no se vio en un navegador. Registrar cada resultado como evidencia.",
+          "files_to_touch": [],
+          "context": "debt-9 es alta y no se puede diferir otra vez. Es una tarea del usuario: no marcar done sin sus resultados. Usar solo un repo descartable para el borrado.",
+          "acceptance_criteria": [
+            "Cada punto de la lista tiene resultado registrado (ok o falla con detalle)",
+            "debt-9 queda resuelta o cada falla pasa a deuda con prioridad"
+          ],
+          "depends_on": [
+            "T6.2"
+          ],
+          "scenario_refs": [
+            "S60"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "El usuario recorrió el checklist manual completo y reportó que todo anduvo bien",
+            "validation": "Reporte del usuario (05/10/2026): 'Da todo bien'. Cubre los 9 puntos enviados: Actualizar Kyro con script falso y 409 con chat corriendo, raíz salteada, .env con chat corriendo, ausencia del valor falso en logs, proyecto sin Kyro (pedido directo e Inicializar Kyro), Traer cambios con rechazo por cambios locales, aviso de project.json, Borrar con rechazo por commit sin pushear y borrado tras pushear, y recorrido visual del sprint 5",
+            "files_changed": [],
+            "notes": "Evidencia declarada por el usuario, sin capturas ni salida por punto: no la puedo verificar por mi cuenta. No hubo fallas que registrar como deuda.",
+            "by": "maker",
+            "recordedAt": "2026-10-05T01:55:24.505Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "Cada punto de la lista tiene resultado registrado (ok o falla con detalle)",
+              "debt-9 queda resuelta o cada falla pasa a deuda con prioridad"
+            ],
+            "findings": [],
+            "by": "checker",
+            "reviewedAt": "2026-10-05T01:55:24.799Z",
+            "requestDigest": "30cbe6a6982de8f5dead05ac40bcbf6b12d93843025e87f397b0202303148525",
+            "reviewedMaterialDigest": "339b010456205b31d5a4fb580abde8d6337dd973c04742596d523560ef001408"
+          }
+        }
+      ]
+    }
+  ],
+  "emergentTasks": [
+    {
+      "id": "E1",
+      "title": "Inicializar Kyro enlaza las skills en Claude",
+      "description": "Tras 'kyro install' (alta de proyecto con Kyro e Inicializar Kyro) correr scripts/vm/06-kyro-skills.sh para que las skills globales de ~/.agents/skills queden enlazadas en ~/.claude/skills. Best effort e idempotente; las skills son globales de la VM, no se copian por proyecto.",
+      "files_to_touch": [],
+      "context": "",
+      "acceptance_criteria": [
+        "kyroInstall corre 06-kyro-skills.sh después de kyro install y nunca falla si el script falla o no existe",
+        "La ruta al script apunta al archivo real del repo (test)",
+        "Documentado que las skills son globales y no se copian por proyecto"
+      ],
+      "depends_on": [],
+      "scenario_refs": [
+        "S56"
+      ],
+      "status": "done",
+      "evidence": {
+        "summary": "kyroInstall corre 06-kyro-skills.sh después de kyro install (best effort, idempotente); las skills son globales y no se copian por proyecto. Vinculada a S56.",
+        "validation": [
+          "typecheck, lint y format:check sin errores; npm test api 427/427 (test de la ruta real del script y de que no lanza si falta)",
+          "kyro install --init-workspace verificado en una carpeta temporal sin Kyro: crea .agents/kyro/{.gitignore,project.json,local.json,scopes} y git status los muestra, así que el commit de chore/kyro-init no queda vacío"
+        ],
+        "files_changed": [
+          "apps/api/src/projects/service.ts",
+          "apps/api/test/project-service.test.ts",
+          "docs/vm-setup.md",
+          "docs/plan.md",
+          "docs/panel-desarrollo.md"
+        ],
+        "notes": "~/.claude/skills ya tenía los 8 symlinks: hoy no cambia nada, cubre skills nuevas de versiones futuras. El kyro install real dentro del worktree de chore/kyro-init desde el panel queda para T6.3.",
+        "by": "maker",
+        "recordedAt": "2026-10-05T00:14:19.564Z"
+      },
+      "verdict": {
+        "result": "pass",
+        "checked_criteria": [
+          "kyroInstall corre 06-kyro-skills.sh después de kyro install y nunca falla si el script falla o no existe",
+          "La ruta al script apunta al archivo real del repo (test)",
+          "Documentado que las skills son globales y no se copian por proyecto"
+        ],
+        "findings": [],
+        "by": "checker",
+        "reviewedAt": "2026-10-05T00:14:19.868Z",
+        "requestDigest": "ac06b94be635e58c9956d6d1daa86268268789dcbac1690fe36f4ebeb82d90c0",
+        "reviewedMaterialDigest": "9b55da7c0c9be56d59b8fe43ddf0995dd088ea4dcbd564dfece29eced699f127"
+      }
+    },
+    {
+      "id": "E2",
+      "title": "Actualizar Kyro: saltear raíces con cambios y avisar project.json sin commitear",
+      "description": "El update global corre siempre. En cada raíz, si el repo tiene cambios locales fuera de .agents/kyro/ se sasaltea 'kyro update' y se informa en el resultado de esa corrida (lista de raíces salteadas). Si tras el update .agents/kyro/project.json queda modificado, el proyecto muestra el aviso 'Kyro actualizado en el clon: hay cambios por commitear'; se commitean con un work o con el botón Commit de un worktree, no a mano sobre el clon base. El pull del clon base no debe rechazarse por cambios confinados a .agents/kyro/.",
+      "files_to_touch": [],
+      "context": "",
+      "acceptance_criteria": [
+        "08-kyro-update.sh siempre corre el paso global y saltea cada raíz con cambios fuera de .agents/kyro/, imprimiendo una línea KYRO_SKIPPED=<raíz> por raíz salteada antes de KYRO_VERSION",
+        "GET /api/maintenance-runs devuelve skipped:[...] por corrida y la pantalla Versiones lo muestra",
+        "Un proyecto con .agents/kyro/project.json modificado expone kyroPendingCommit:true y la web muestra el aviso en la tarjeta y en la página del proyecto",
+        "Traer cambios no se rechaza si lo único modificado está dentro de .agents/kyro/",
+        "Docs y bitácora de vm-setup.md actualizados (procedimiento del script cambió)"
+      ],
+      "depends_on": [],
+      "scenario_refs": [
+        "S63",
+        "S64"
+      ],
+      "status": "done",
+      "evidence": {
+        "summary": "08-kyro-update.sh saltea las raíces con cambios fuera de .agents/kyro/ y emite KYRO_SKIPPED; las corridas exponen skipped; los proyectos con project.json modificado exponen kyroPendingCommit y la web avisa; Traer cambios ignora .agents/kyro/",
+        "validation": [
+          "typecheck, lint y format:check sin errores",
+          "npm test: api 427/427 y web 120/120; build en verde",
+          "kyro-update-script.test.ts ejecuta el script real con stubs de npm y kyro y repos temporales: global siempre corre, raíz limpia y raíz con cambios solo en .agents/kyro/ se actualizan, raíz con README modificado o archivo sin seguimiento se saltea y se informa, KYRO_VERSION sigue siendo la última línea, raíz sin Kyro rechazada sin tocar nada",
+          "project-pull.test.ts: un pull con .agents/kyro/project.json modificado avanza, y con README modificado sigue rechazando; kyroPendingCommit true/false/ausente en list y detail"
+        ],
+        "files_changed": [
+          "scripts/vm/08-kyro-update.sh",
+          "apps/api/src/maintenance/runs.ts",
+          "apps/api/src/projects/git.ts",
+          "apps/api/src/projects/routes.ts",
+          "packages/shared/src/index.ts",
+          "apps/web/src/app/versions/versions.page.ts",
+          "apps/web/src/app/projects/project-label.ts",
+          "apps/web/src/app/projects/projects.page.ts",
+          "apps/web/src/app/projects/project-layout.ts",
+          "docs/plan.md",
+          "docs/panel-desarrollo.md",
+          "docs/vm-setup.md"
+        ],
+        "notes": "NO probado en un navegador ni contra el kyro real: el script se probó con stubs. El aviso menciona el botón Commit de un worktree, que todavía no existe (es del scope del piloto automático); hoy solo sirve el work. El borrado de proyecto sigue bloqueado por un project.json modificado (decisión: es trabajo sin commitear). La línea de 'skipped' se recorta junto con la salida si pasa de 16 KB, pero va al final para sobrevivir al recorte.",
+        "by": "maker",
+        "recordedAt": "2026-10-05T00:12:31.119Z"
+      },
+      "verdict": {
+        "result": "pass",
+        "checked_criteria": [
+          "08-kyro-update.sh siempre corre el paso global y saltea cada raíz con cambios fuera de .agents/kyro/, imprimiendo una línea KYRO_SKIPPED=<raíz> por raíz salteada antes de KYRO_VERSION",
+          "GET /api/maintenance-runs devuelve skipped:[...] por corrida y la pantalla Versiones lo muestra",
+          "Un proyecto con .agents/kyro/project.json modificado expone kyroPendingCommit:true y la web muestra el aviso en la tarjeta y en la página del proyecto",
+          "Traer cambios no se rechaza si lo único modificado está dentro de .agents/kyro/",
+          "Docs y bitácora de vm-setup.md actualizados (procedimiento del script cambió)"
+        ],
+        "findings": [],
+        "by": "checker",
+        "reviewedAt": "2026-10-05T00:12:31.411Z",
+        "requestDigest": "4ac0fc6fded604b43ffb3e89a590a1ea335f569a0df4532c73374eb628f6f8ae",
+        "reviewedMaterialDigest": "54cd4c5a310217eaafd4a6760a0f8cdacb74103b883fd66ee24d3116886a7495"
+      }
+    },
+    {
+      "id": "E3",
+      "title": "QA: la política de lectura del agente se evade con comillas y barra invertida",
+      "description": "checkReadArgs valida las rutas de ls/cat/head/tail/wc/grep sobre el texto sin interpretar, pero bash las interpreta distinto: 'cat \\/etc/passwd', 'cat \"\"../../etc/passwd' y \"cat ''/etc/passwd\" quedan permitidos y leen fuera del worktree (verificado: decide() devuelve allow y bash imprime /etc/hostname). Rechazar todo argumento con comillas internas o barra invertida, y las opciones con rutas adjuntas.",
+      "files_to_touch": [
+        "apps/api/src/agent/permissions.ts",
+        "apps/api/test/agent.test.ts"
+      ],
+      "context": "Required by kyro qa: hallazgo CRITICAL de seguridad en T1.2 (R31/S61)",
+      "acceptance_criteria": [
+        "decide() deniega cat con barra invertida, comillas internas o vacías pegadas a la ruta, y opciones largas con / o = (por ejemplo --file=/etc/passwd)",
+        "Los usos legítimos siguen permitidos: ls -la src, cat README.md | head -20, grep -rn \"foo bar\" src",
+        "Test de regresión con los tres casos verificados contra el bash real (ninguno puede leer fuera del worktree)"
+      ],
+      "depends_on": [],
+      "scenario_refs": [
+        "S61"
+      ],
+      "status": "done",
+      "evidence": {
+        "summary": "checkReadArgs rechaza comillas internas, barras invertidas y opciones con ruta o valor; se cierra la evasión de la política de lectura. Vinculada a S61.",
+        "validation": [
+          "decide() deniega los 6 casos de evasión y permite los usos legítimos (ls -la src, grep -rn \"foo bar\" src, cat \"README.md\")",
+          "bash real confirmó antes del arreglo que 'cat \"\"../../etc/hostname' y 'cat \\/etc/hostname' leían fuera del cwd",
+          "typecheck, lint y format sin errores; npx vitest api 430/430"
+        ],
+        "files_changed": [
+          "apps/api/src/agent/permissions.ts",
+          "apps/api/test/agent.test.ts",
+          "docs/plan.md"
+        ],
+        "notes": "Hallazgo del QA. Patrones de grep con | o ; se siguen denegando (conservador).",
+        "by": "maker",
+        "recordedAt": "2026-10-05T01:44:48.620Z"
+      },
+      "verdict": {
+        "result": "pass",
+        "checked_criteria": [
+          "decide() deniega cat con barra invertida, comillas internas o vacías pegadas a la ruta, y opciones largas con / o = (por ejemplo --file=/etc/passwd)",
+          "Los usos legítimos siguen permitidos: ls -la src, cat README.md | head -20, grep -rn \"foo bar\" src",
+          "Test de regresión con los tres casos verificados contra el bash real (ninguno puede leer fuera del worktree)"
+        ],
+        "findings": [],
+        "by": "checker",
+        "reviewedAt": "2026-10-05T01:44:48.905Z",
+        "requestDigest": "45b6159ea97d52aa1c7d6401b41f25cbed082b3dc30523458a4e559d27cd406c",
+        "reviewedMaterialDigest": "0ebb87ae153546e3f291d6fe0b4b5df9c2eaa90a74d2dc56299f76ccf38e6de8"
+      }
+    },
+    {
+      "id": "E4",
+      "title": "QA: borrar un proyecto no verifica una carpeta de clon sin .git",
+      "description": "ProjectDeleter solo busca trabajo sin guardar si existe .git; si la carpeta del clon existe pero no es un repo (se le borró .git o es otra cosa) igual la borra con rm -rf sin ninguna verificación. Bloquear con 409 y un motivo claro.",
+      "files_to_touch": [
+        "apps/api/src/projects/delete.ts",
+        "apps/api/test/project-delete.test.ts"
+      ],
+      "context": "Required by kyro qa: hallazgo MAJOR en T4.2 (R35/S58)",
+      "acceptance_criteria": [
+        "Con la carpeta del clon existente y sin .git el borrado responde 409 con un bloqueo explicativo y no borra nada",
+        "Con la carpeta del clon inexistente el borrado sigue funcionando (desregistra y limpia worktrees)"
+      ],
+      "depends_on": [],
+      "scenario_refs": [
+        "S58"
+      ],
+      "status": "done",
+      "evidence": {
+        "summary": "Borrar proyecto rechaza con 409 una carpeta de clon sin .git; con la carpeta inexistente sigue desregistrando. Vinculada a S58.",
+        "validation": [
+          "project-delete.test.ts: sin .git → 409 con bloqueo y nada se borra; carpeta ya borrada → 200",
+          "typecheck, lint y format sin errores; npx vitest api 430/430"
+        ],
+        "files_changed": [
+          "apps/api/src/projects/delete.ts",
+          "apps/api/test/project-delete.test.ts",
+          "docs/plan.md"
+        ],
+        "notes": "Hallazgo del QA. Residual: un worktree en disco que git ya no registra no se inspecciona antes de borrar <worktrees>/<proyecto>.",
+        "by": "maker",
+        "recordedAt": "2026-10-05T01:44:49.247Z"
+      },
+      "verdict": {
+        "result": "pass",
+        "checked_criteria": [
+          "Con la carpeta del clon existente y sin .git el borrado responde 409 con un bloqueo explicativo y no borra nada",
+          "Con la carpeta del clon inexistente el borrado sigue funcionando (desregistra y limpia worktrees)"
+        ],
+        "findings": [],
+        "by": "checker",
+        "reviewedAt": "2026-10-05T01:44:49.521Z",
+        "requestDigest": "ba458935a27bfd1d74b2882e3fd4650444cf80e5c0f13295f351e4ba2851aae3",
+        "reviewedMaterialDigest": "bd67f5146b7eb25767c0928fac9b2b1c83fd268fd71a80cfedc0bf183998cb29"
+      }
+    }
+  ],
+  "definitionOfDone": [
+    "Todas las tareas done con evidencia y veredicto pass",
+    "Calidad: typecheck, lint, format:check, tests y build en verde; kyro analyze limpio",
+    "debt-7, debt-8 y debt-9 resueltas",
+    "El borrado nunca elimina trabajo sin pushear (probado con repos git reales)",
+    "Docs actualizados en el mismo cambio"
+  ]
+}

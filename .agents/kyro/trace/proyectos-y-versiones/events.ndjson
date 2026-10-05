@@ -346,3 +346,111 @@
 {"v":1,"ts":"2026-10-04T23:23:37.130Z","scope":"proyectos-y-versiones","type":"tool_command_run","surface":"cli","command":"close-sprint","args":{"outcome":"shipped"}}
 {"v":1,"ts":"2026-10-04T23:23:37.131Z","scope":"proyectos-y-versiones","type":"gate_approved","gate":"close_sprint"}
 {"v":1,"ts":"2026-10-04T23:23:37.271Z","scope":"proyectos-y-versiones","type":"close_snapshot","sprintN":5,"snapshotId":"sprint-005-ui-identidad-layout.json","outcome":"shipped"}
+{"v":1,"ts":"2026-10-04T23:26:55.078Z","scope":"proyectos-y-versiones","type":"route_selected","nextAction":"plan_sprint","packMode":"scope","budgetClass":"brief","reasoningTier":"light"}
+{"v":1,"ts":"2026-10-04T23:32:54.647Z","scope":"proyectos-y-versiones","type":"tool_command_run","surface":"cli","command":"plan","args":{"mode":"sprint"}}
+{"v":1,"ts":"2026-10-04T23:32:59.137Z","scope":"proyectos-y-versiones","type":"tool_command_run","surface":"cli","command":"plan","args":{"mode":"update-active","digest":"9de7027eb8cff603d31ecc8d75522759094769d8b6df849921a21f938f8c46fc","reason":"Agregar los requisitos R31-R36 y sus escenarios del sprint 6, y vincularlos a las tareas."}}
+{"v":1,"ts":"2026-10-04T23:33:36.902Z","scope":"proyectos-y-versiones","type":"route_selected","nextAction":"execute_task","packMode":"scope","budgetClass":"execute","reasoningTier":"standard"}
+{"v":1,"ts":"2026-10-04T23:33:37.245Z","scope":"proyectos-y-versiones","type":"route_selected","nextAction":"execute_task","packMode":"task","budgetClass":"execute","reasoningTier":"standard"}
+{"v":1,"ts":"2026-10-04T23:37:39.599Z","scope":"proyectos-y-versiones","type":"tool_command_run","surface":"cli","command":"record-evidence","args":{"task":"T1.1","status":"done"}}
+{"v":1,"ts":"2026-10-04T23:37:41.689Z","scope":"proyectos-y-versiones","type":"tool_command_run","surface":"cli","command":"review","args":{"task":"T1.1","verdict":"pass","requestDigest":"20ddf656f824d87fd8e8a71e6468abc03facb4c43a6b0fc97693132053c61d38"}}
+{"v":1,"ts":"2026-10-04T23:37:41.694Z","scope":"proyectos-y-versiones","type":"gate_approved","gate":"checker","taskId":"T1.1"}
+{"v":1,"ts":"2026-10-04T23:39:08.671Z","scope":"proyectos-y-versiones","type":"tool_command_run","surface":"cli","command":"record-evidence","args":{"task":"T1.2","status":"done"}}
+{"v":1,"ts":"2026-10-04T23:39:09.027Z","scope":"proyectos-y-versiones","type":"tool_command_run","surface":"cli","command":"review","args":{"task":"T1.2","verdict":"pass","requestDigest":"58ffeabe7adc109329250f0fb447f672d244099e733c1a07274090343bd7ce9c"}}
+{"v":1,"ts":"2026-10-04T23:39:09.033Z","scope":"proyectos-y-versiones","type":"gate_approved","gate":"checker","taskId":"T1.2"}
+{"v":1,"ts":"2026-10-04T23:39:09.357Z","scope":"proyectos-y-versiones","type":"route_selected","nextAction":"execute_task","packMode":"scope","budgetClass":"execute","reasoningTier":"standard"}
+{"v":1,"ts":"2026-10-04T23:43:57.431Z","scope":"proyectos-y-versiones","type":"tool_command_run","surface":"cli","command":"record-evidence","args":{"task":"T2.1","status":"done"}}
+{"v":1,"ts":"2026-10-04T23:43:57.777Z","scope":"proyectos-y-versiones","type":"tool_command_run","surface":"cli","command":"review","args":{"task":"T2.1","verdict":"pass","requestDigest":"706499f0f6daba099eea4c073124ab411d07febf645a9dc16e61c37dc205eb1e"}}
+{"v":1,"ts":"2026-10-04T23:43:57.784Z","scope":"proyectos-y-versiones","type":"gate_approved","gate":"checker","taskId":"T2.1"}
+{"v":1,"ts":"2026-10-04T23:46:13.848Z","scope":"proyectos-y-versiones","type":"tool_command_run","surface":"cli","command":"record-evidence","args":{"task":"T3.1","status":"done"}}
+{"v":1,"ts":"2026-10-04T23:46:14.191Z","scope":"proyectos-y-versiones","type":"tool_command_run","surface":"cli","command":"review","args":{"task":"T3.1","verdict":"pass","requestDigest":"c47a3f1e1d9172da2641e204571c203c5ecab641f8c005747f4d77c87cf352eb"}}
+{"v":1,"ts":"2026-10-04T23:46:14.198Z","scope":"proyectos-y-versiones","type":"gate_approved","gate":"checker","taskId":"T3.1"}
+{"v":1,"ts":"2026-10-04T23:48:30.465Z","scope":"proyectos-y-versiones","type":"tool_command_run","surface":"cli","command":"record-evidence","args":{"task":"T4.1","status":"done"}}
+{"v":1,"ts":"2026-10-04T23:48:30.805Z","scope":"proyectos-y-versiones","type":"tool_command_run","surface":"cli","command":"review","args":{"task":"T4.1","verdict":"pass","requestDigest":"8d402722d9f3b394d1e208d73a4a564920ec2508f083aca3ce58d730534ba4d5"}}
+{"v":1,"ts":"2026-10-04T23:48:30.812Z","scope":"proyectos-y-versiones","type":"gate_approved","gate":"checker","taskId":"T4.1"}
+{"v":1,"ts":"2026-10-04T23:54:25.467Z","scope":"proyectos-y-versiones","type":"tool_command_run","surface":"cli","command":"record-evidence","args":{"task":"T4.2","status":"done"}}
+{"v":1,"ts":"2026-10-04T23:54:25.811Z","scope":"proyectos-y-versiones","type":"tool_command_run","surface":"cli","command":"review","args":{"task":"T4.2","verdict":"pass","requestDigest":"365021f6a0853a75e75cd098818ecd01698754924bd569bd541490d984c19d41"}}
+{"v":1,"ts":"2026-10-04T23:54:25.818Z","scope":"proyectos-y-versiones","type":"gate_approved","gate":"checker","taskId":"T4.2"}
+{"v":1,"ts":"2026-10-04T23:55:35.073Z","scope":"proyectos-y-versiones","type":"tool_command_run","surface":"cli","command":"record-evidence","args":{"task":"T5.1","status":"done"}}
+{"v":1,"ts":"2026-10-04T23:55:35.411Z","scope":"proyectos-y-versiones","type":"tool_command_run","surface":"cli","command":"review","args":{"task":"T5.1","verdict":"pass","requestDigest":"90fac2b371a5a6f45b8c74a0d6e1bc145431af2e5b09808a51a135a0291d97be"}}
+{"v":1,"ts":"2026-10-04T23:55:35.417Z","scope":"proyectos-y-versiones","type":"gate_approved","gate":"checker","taskId":"T5.1"}
+{"v":1,"ts":"2026-10-04T23:58:25.224Z","scope":"proyectos-y-versiones","type":"tool_command_run","surface":"cli","command":"record-evidence","args":{"task":"T5.2","status":"done"}}
+{"v":1,"ts":"2026-10-04T23:58:25.562Z","scope":"proyectos-y-versiones","type":"tool_command_run","surface":"cli","command":"review","args":{"task":"T5.2","verdict":"pass","requestDigest":"d7ff142d0f3bd41a0c35d2c55287763f1b692c5ab6ed13c6204460172baf43cb"}}
+{"v":1,"ts":"2026-10-04T23:58:25.569Z","scope":"proyectos-y-versiones","type":"gate_approved","gate":"checker","taskId":"T5.2"}
+{"v":1,"ts":"2026-10-04T23:59:09.269Z","scope":"proyectos-y-versiones","type":"tool_command_run","surface":"cli","command":"record-evidence","args":{"task":"T6.1","status":"done"}}
+{"v":1,"ts":"2026-10-04T23:59:09.612Z","scope":"proyectos-y-versiones","type":"tool_command_run","surface":"cli","command":"review","args":{"task":"T6.1","verdict":"pass","requestDigest":"88a6a46d33c2e3f5e34606d8d688bdfdeb25b2d576664f17cb2501745422158d"}}
+{"v":1,"ts":"2026-10-04T23:59:09.618Z","scope":"proyectos-y-versiones","type":"gate_approved","gate":"checker","taskId":"T6.1"}
+{"v":1,"ts":"2026-10-05T00:00:36.358Z","scope":"proyectos-y-versiones","type":"validation_result","source":"analyze","blocking":false,"findingCount":2,"codes":["A001","A002"]}
+{"v":1,"ts":"2026-10-05T00:00:44.096Z","scope":"proyectos-y-versiones","type":"tool_command_run","surface":"cli","command":"scenario add","args":{"id":"S61"}}
+{"v":1,"ts":"2026-10-05T00:00:44.381Z","scope":"proyectos-y-versiones","type":"tool_command_run","surface":"cli","command":"scenario add","args":{"id":"S62"}}
+{"v":1,"ts":"2026-10-05T00:00:47.431Z","scope":"proyectos-y-versiones","type":"tool_command_run","surface":"cli","command":"scenario link","args":{"task":"T1.2","scenario":"S61"}}
+{"v":1,"ts":"2026-10-05T00:00:47.713Z","scope":"proyectos-y-versiones","type":"tool_command_run","surface":"cli","command":"scenario link","args":{"task":"T6.1","scenario":"S62"}}
+{"v":1,"ts":"2026-10-05T00:00:48.041Z","scope":"proyectos-y-versiones","type":"validation_result","source":"analyze","blocking":true,"findingCount":3,"codes":["A002","A003","A001"]}
+{"v":1,"ts":"2026-10-05T00:00:48.042Z","scope":"proyectos-y-versiones","type":"blocked_reason","reason":"task T1.2 pass verdict is stale: reviewed material changed","code":"A002"}
+{"v":1,"ts":"2026-10-05T00:00:48.042Z","scope":"proyectos-y-versiones","type":"blocked_reason","reason":"task T6.1 pass verdict is stale: reviewed material changed","code":"A003"}
+{"v":1,"ts":"2026-10-05T00:00:48.337Z","scope":"proyectos-y-versiones","type":"route_selected","nextAction":"review_task","packMode":"scope","budgetClass":"review","reasoningTier":"standard"}
+{"v":1,"ts":"2026-10-05T00:00:56.118Z","scope":"proyectos-y-versiones","type":"tool_command_run","surface":"cli","command":"record-evidence","args":{"task":"T1.2","status":"done"}}
+{"v":1,"ts":"2026-10-05T00:00:56.458Z","scope":"proyectos-y-versiones","type":"tool_command_run","surface":"cli","command":"review","args":{"task":"T1.2","verdict":"pass","requestDigest":"7fcc93772ec48233f50997c14874c18c2b5ac901705255b04b02134804615714"}}
+{"v":1,"ts":"2026-10-05T00:00:56.465Z","scope":"proyectos-y-versiones","type":"gate_approved","gate":"checker","taskId":"T1.2"}
+{"v":1,"ts":"2026-10-05T00:00:56.748Z","scope":"proyectos-y-versiones","type":"tool_command_run","surface":"cli","command":"record-evidence","args":{"task":"T6.1","status":"done"}}
+{"v":1,"ts":"2026-10-05T00:00:57.078Z","scope":"proyectos-y-versiones","type":"tool_command_run","surface":"cli","command":"review","args":{"task":"T6.1","verdict":"pass","requestDigest":"618439ef799c7a77e902bbef6c780bfae6ed771c43dcc2ad34d0ed1e878a00d6"}}
+{"v":1,"ts":"2026-10-05T00:00:57.084Z","scope":"proyectos-y-versiones","type":"gate_approved","gate":"checker","taskId":"T6.1"}
+{"v":1,"ts":"2026-10-05T00:00:57.397Z","scope":"proyectos-y-versiones","type":"validation_result","source":"analyze","blocking":false,"findingCount":0,"codes":[]}
+{"v":1,"ts":"2026-10-05T00:00:57.690Z","scope":"proyectos-y-versiones","type":"route_selected","nextAction":"execute_task","packMode":"scope","budgetClass":"execute","reasoningTier":"standard"}
+{"v":1,"ts":"2026-10-05T00:01:02.272Z","scope":"proyectos-y-versiones","type":"tool_command_run","surface":"cli","command":"record-evidence","args":{"task":"T6.2","status":"done"}}
+{"v":1,"ts":"2026-10-05T00:01:02.619Z","scope":"proyectos-y-versiones","type":"tool_command_run","surface":"cli","command":"review","args":{"task":"T6.2","verdict":"pass","requestDigest":"118d802b3464c949bbbc6d48911a97b48f1aee147787b9012f55ef4014314dcf"}}
+{"v":1,"ts":"2026-10-05T00:01:02.626Z","scope":"proyectos-y-versiones","type":"gate_approved","gate":"checker","taskId":"T6.2"}
+{"v":1,"ts":"2026-10-05T00:01:02.937Z","scope":"proyectos-y-versiones","type":"route_selected","nextAction":"execute_task","packMode":"scope","budgetClass":"execute","reasoningTier":"standard"}
+{"v":1,"ts":"2026-10-05T00:06:05.796Z","scope":"proyectos-y-versiones","type":"tool_command_run","surface":"cli","command":"add-emergent","args":{"id":"E1"}}
+{"v":1,"ts":"2026-10-05T00:06:06.085Z","scope":"proyectos-y-versiones","type":"tool_command_run","surface":"cli","command":"add-emergent","args":{"id":"E2"}}
+{"v":1,"ts":"2026-10-05T00:06:06.396Z","scope":"proyectos-y-versiones","type":"route_selected","nextAction":"execute_task","packMode":"scope","budgetClass":"execute","reasoningTier":"standard"}
+{"v":1,"ts":"2026-10-05T00:06:12.874Z","scope":"proyectos-y-versiones","type":"route_selected","nextAction":"execute_task","packMode":"task","budgetClass":"execute","reasoningTier":"standard"}
+{"v":1,"ts":"2026-10-05T00:07:39.632Z","scope":"proyectos-y-versiones","type":"tool_command_run","surface":"cli","command":"record-evidence","args":{"task":"E1","status":"done"}}
+{"v":1,"ts":"2026-10-05T00:07:39.971Z","scope":"proyectos-y-versiones","type":"tool_command_run","surface":"cli","command":"review","args":{"task":"E1","verdict":"pass","requestDigest":"9558d0d316965807afe3e58f32e69827739fe70cc895a1b5c3653577634c84ba"}}
+{"v":1,"ts":"2026-10-05T00:07:39.977Z","scope":"proyectos-y-versiones","type":"gate_approved","gate":"checker","taskId":"E1"}
+{"v":1,"ts":"2026-10-05T00:12:30.838Z","scope":"proyectos-y-versiones","type":"tool_command_run","surface":"cli","command":"plan","args":{"mode":"update-active","digest":"78778f540c10950d258bde5414d0a40cc73faf10702d398212d248c3171ff0df","reason":"R37: la actualización de Kyro saltea raíces con cambios locales y avisa project.json sin commitear (pedido del usuario durante el sprint 6)."}}
+{"v":1,"ts":"2026-10-05T00:12:31.125Z","scope":"proyectos-y-versiones","type":"tool_command_run","surface":"cli","command":"record-evidence","args":{"task":"E2","status":"done"}}
+{"v":1,"ts":"2026-10-05T00:12:31.465Z","scope":"proyectos-y-versiones","type":"tool_command_run","surface":"cli","command":"review","args":{"task":"E2","verdict":"pass","requestDigest":"4ac0fc6fded604b43ffb3e89a590a1ea335f569a0df4532c73374eb628f6f8ae"}}
+{"v":1,"ts":"2026-10-05T00:12:31.471Z","scope":"proyectos-y-versiones","type":"gate_approved","gate":"checker","taskId":"E2"}
+{"v":1,"ts":"2026-10-05T00:12:31.796Z","scope":"proyectos-y-versiones","type":"validation_result","source":"analyze","blocking":false,"findingCount":2,"codes":["A001","A002"]}
+{"v":1,"ts":"2026-10-05T00:12:32.100Z","scope":"proyectos-y-versiones","type":"route_selected","nextAction":"execute_task","packMode":"scope","budgetClass":"execute","reasoningTier":"standard"}
+{"v":1,"ts":"2026-10-05T00:12:43.390Z","scope":"proyectos-y-versiones","type":"tool_command_run","surface":"cli","command":"plan","args":{"mode":"update-active","digest":"8a15d6982a4b3d56a4fc1b555e0034e339934f6e9ce016d623f5b303fdb0c0d9","reason":"Trazabilidad: E1 a S56 y T6.2 a un escenario de verificación automática."}}
+{"v":1,"ts":"2026-10-05T00:14:10.923Z","scope":"proyectos-y-versiones","type":"validation_result","source":"analyze","blocking":false,"findingCount":0,"codes":[]}
+{"v":1,"ts":"2026-10-05T00:14:19.572Z","scope":"proyectos-y-versiones","type":"tool_command_run","surface":"cli","command":"record-evidence","args":{"task":"E1","status":"done"}}
+{"v":1,"ts":"2026-10-05T00:14:19.925Z","scope":"proyectos-y-versiones","type":"tool_command_run","surface":"cli","command":"review","args":{"task":"E1","verdict":"pass","requestDigest":"ac06b94be635e58c9956d6d1daa86268268789dcbac1690fe36f4ebeb82d90c0"}}
+{"v":1,"ts":"2026-10-05T00:14:19.931Z","scope":"proyectos-y-versiones","type":"gate_approved","gate":"checker","taskId":"E1"}
+{"v":1,"ts":"2026-10-05T00:14:20.227Z","scope":"proyectos-y-versiones","type":"tool_command_run","surface":"cli","command":"record-evidence","args":{"task":"T6.2","status":"done"}}
+{"v":1,"ts":"2026-10-05T00:14:20.576Z","scope":"proyectos-y-versiones","type":"tool_command_run","surface":"cli","command":"review","args":{"task":"T6.2","verdict":"pass","requestDigest":"d4bef9c27c90486f8ea05993f2847f9e23542f9ccaea18930830476f34c34fc1"}}
+{"v":1,"ts":"2026-10-05T00:14:20.583Z","scope":"proyectos-y-versiones","type":"gate_approved","gate":"checker","taskId":"T6.2"}
+{"v":1,"ts":"2026-10-05T00:14:20.907Z","scope":"proyectos-y-versiones","type":"validation_result","source":"analyze","blocking":false,"findingCount":0,"codes":[]}
+{"v":1,"ts":"2026-10-05T01:42:57.702Z","scope":"proyectos-y-versiones","type":"tool_command_run","surface":"cli","command":"add-emergent","args":{"id":"E3"}}
+{"v":1,"ts":"2026-10-05T01:42:57.993Z","scope":"proyectos-y-versiones","type":"tool_command_run","surface":"cli","command":"add-emergent","args":{"id":"E4"}}
+{"v":1,"ts":"2026-10-05T01:44:39.992Z","scope":"proyectos-y-versiones","type":"tool_command_run","surface":"cli","command":"record-evidence","args":{"task":"E3","status":"done"}}
+{"v":1,"ts":"2026-10-05T01:44:40.317Z","scope":"proyectos-y-versiones","type":"tool_command_run","surface":"cli","command":"review","args":{"task":"E3","verdict":"pass","requestDigest":"8d22d266eb6b2ee88a63d93e34d13f51cef9a2594f2c20c69b121430b1084b63"}}
+{"v":1,"ts":"2026-10-05T01:44:40.323Z","scope":"proyectos-y-versiones","type":"gate_approved","gate":"checker","taskId":"E3"}
+{"v":1,"ts":"2026-10-05T01:44:40.599Z","scope":"proyectos-y-versiones","type":"tool_command_run","surface":"cli","command":"record-evidence","args":{"task":"E4","status":"done"}}
+{"v":1,"ts":"2026-10-05T01:44:40.933Z","scope":"proyectos-y-versiones","type":"tool_command_run","surface":"cli","command":"review","args":{"task":"E4","verdict":"pass","requestDigest":"aad06f255d4f2049ba3552359e880484b1c53de0d3b40b9408f741149a7f71e8"}}
+{"v":1,"ts":"2026-10-05T01:44:40.938Z","scope":"proyectos-y-versiones","type":"gate_approved","gate":"checker","taskId":"E4"}
+{"v":1,"ts":"2026-10-05T01:44:41.251Z","scope":"proyectos-y-versiones","type":"validation_result","source":"analyze","blocking":false,"findingCount":2,"codes":["A001","A002"]}
+{"v":1,"ts":"2026-10-05T01:44:41.551Z","scope":"proyectos-y-versiones","type":"route_selected","nextAction":"execute_task","packMode":"scope","budgetClass":"execute","reasoningTier":"standard"}
+{"v":1,"ts":"2026-10-05T01:44:48.051Z","scope":"proyectos-y-versiones","type":"tool_command_run","surface":"cli","command":"scenario link","args":{"task":"E3","scenario":"S61"}}
+{"v":1,"ts":"2026-10-05T01:44:48.339Z","scope":"proyectos-y-versiones","type":"tool_command_run","surface":"cli","command":"scenario link","args":{"task":"E4","scenario":"S58"}}
+{"v":1,"ts":"2026-10-05T01:44:48.625Z","scope":"proyectos-y-versiones","type":"tool_command_run","surface":"cli","command":"record-evidence","args":{"task":"E3","status":"done"}}
+{"v":1,"ts":"2026-10-05T01:44:48.960Z","scope":"proyectos-y-versiones","type":"tool_command_run","surface":"cli","command":"review","args":{"task":"E3","verdict":"pass","requestDigest":"45b6159ea97d52aa1c7d6401b41f25cbed082b3dc30523458a4e559d27cd406c"}}
+{"v":1,"ts":"2026-10-05T01:44:48.968Z","scope":"proyectos-y-versiones","type":"gate_approved","gate":"checker","taskId":"E3"}
+{"v":1,"ts":"2026-10-05T01:44:49.252Z","scope":"proyectos-y-versiones","type":"tool_command_run","surface":"cli","command":"record-evidence","args":{"task":"E4","status":"done"}}
+{"v":1,"ts":"2026-10-05T01:44:49.573Z","scope":"proyectos-y-versiones","type":"tool_command_run","surface":"cli","command":"review","args":{"task":"E4","verdict":"pass","requestDigest":"ba458935a27bfd1d74b2882e3fd4650444cf80e5c0f13295f351e4ba2851aae3"}}
+{"v":1,"ts":"2026-10-05T01:44:49.579Z","scope":"proyectos-y-versiones","type":"gate_approved","gate":"checker","taskId":"E4"}
+{"v":1,"ts":"2026-10-05T01:44:49.893Z","scope":"proyectos-y-versiones","type":"validation_result","source":"analyze","blocking":false,"findingCount":0,"codes":[]}
+{"v":1,"ts":"2026-10-05T01:55:24.511Z","scope":"proyectos-y-versiones","type":"tool_command_run","surface":"cli","command":"record-evidence","args":{"task":"T6.3","status":"done"}}
+{"v":1,"ts":"2026-10-05T01:55:24.854Z","scope":"proyectos-y-versiones","type":"tool_command_run","surface":"cli","command":"review","args":{"task":"T6.3","verdict":"pass","requestDigest":"30cbe6a6982de8f5dead05ac40bcbf6b12d93843025e87f397b0202303148525"}}
+{"v":1,"ts":"2026-10-05T01:55:24.862Z","scope":"proyectos-y-versiones","type":"gate_approved","gate":"checker","taskId":"T6.3"}
+{"v":1,"ts":"2026-10-05T01:55:25.160Z","scope":"proyectos-y-versiones","type":"tool_command_run","surface":"cli","command":"debt","args":{"op":"resolve","id":"debt-7"}}
+{"v":1,"ts":"2026-10-05T01:55:25.451Z","scope":"proyectos-y-versiones","type":"tool_command_run","surface":"cli","command":"debt","args":{"op":"resolve","id":"debt-8"}}
+{"v":1,"ts":"2026-10-05T01:55:25.754Z","scope":"proyectos-y-versiones","type":"tool_command_run","surface":"cli","command":"debt","args":{"op":"resolve","id":"debt-9"}}
+{"v":1,"ts":"2026-10-05T01:55:26.088Z","scope":"proyectos-y-versiones","type":"validation_result","source":"analyze","blocking":false,"findingCount":0,"codes":[]}
+{"v":1,"ts":"2026-10-05T01:56:25.434Z","scope":"proyectos-y-versiones","type":"tool_command_run","surface":"cli","command":"close-sprint","args":{"outcome":"shipped"}}
+{"v":1,"ts":"2026-10-05T01:56:25.435Z","scope":"proyectos-y-versiones","type":"gate_approved","gate":"close_sprint"}
+{"v":1,"ts":"2026-10-05T01:56:25.592Z","scope":"proyectos-y-versiones","type":"close_snapshot","sprintN":6,"snapshotId":"sprint-006-operacion-proyectos.json","outcome":"shipped"}
+{"v":1,"ts":"2026-10-05T01:56:30.077Z","scope":"proyectos-y-versiones","type":"blocked_reason","reason":"Operation scope_complete requires explicit confirmation.","code":"CONFIRMATION_REQUIRED"}
+{"v":1,"ts":"2026-10-05T01:56:33.235Z","scope":"proyectos-y-versiones","type":"gate_approved","gate":"scope_complete"}
+{"v":1,"ts":"2026-10-05T01:56:33.236Z","scope":"proyectos-y-versiones","type":"tool_command_run","surface":"cli","command":"scope complete","args":{}}
