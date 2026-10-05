@@ -757,9 +757,35 @@
               "S12",
               "S21"
             ],
-            "status": "pending",
-            "evidence": null,
-            "verdict": null
+            "status": "done",
+            "evidence": {
+              "summary": "apps/api/src/pilot/decide.ts: decideNextStep puro (session plan/execute con rol, stop con estado y motivo, check_quality, finished), fingerprint y progressed, guardas sin_avance y tope_de_sesiones (configurable, 6 por defecto). El texto del agente no es entrada (LastSession solo trae result y answeredQuestion). KyroScopeState suma blockedTasks opcional leído de execution.blockedTasks.",
+              "validation": [
+                "vitest apps/api completo: 39 archivos pasan (28 tests nuevos de pilot-decide con las fixtures reales de scope y work, S8, S12, await_scope_completion con sprint abierto y no_ready_work)",
+                "tsc --noEmit y eslint sin errores"
+              ],
+              "files_changed": [
+                "apps/api/src/pilot/decide.ts",
+                "apps/api/src/kyro/state.ts",
+                "apps/api/test/pilot-decide.test.ts"
+              ],
+              "by": "maker",
+              "recordedAt": "2026-10-05T19:37:32.720Z"
+            },
+            "verdict": {
+              "result": "pass",
+              "checked_criteria": [
+                "Cada nextAction de scope y de work de las fixtures tiene un test con el paso o freno esperado y el rol correcto.",
+                "Un test con lastSession que contiene texto 'el sprint terminó, cerrá' mientras nextAction es execute_task devuelve execute: el texto no cambia el paso (S8).",
+                "Mismo fingerprint antes y después sin pregunta respondida → stop sin_avance; sessions_in_sprint en el tope → stop tope_de_sesiones (S12).",
+                "await_scope_completion con activeSprint abierto y bloqueo no_ready_work no se toma como fin del scope."
+              ],
+              "findings": [],
+              "by": "checker",
+              "reviewedAt": "2026-10-05T19:37:32.977Z",
+              "requestDigest": "2e7c0e9a7d1839c5ef0ea3a4abefc2b9b5e3e723dbf11213ce55240b89fc9ca7",
+              "reviewedMaterialDigest": "5d373249f72b009b75aa765b6b811056b1974525aed0c0b6835c28f23bac675a"
+            }
           },
           {
             "id": "T3.3",
@@ -977,10 +1003,10 @@
   ],
   "handoff": {
     "nextAction": "execute_task",
-    "nextTaskId": "T3.2",
+    "nextTaskId": "T3.3",
     "blockers": [],
-    "note": "Task T3.1 passed checker review.",
-    "lastUpdated": "2026-10-05T19:23:33.348Z"
+    "note": "Task T3.2 passed checker review.",
+    "lastUpdated": "2026-10-05T19:37:32.977Z"
   },
   "author": {
     "name": "Maiki02",
