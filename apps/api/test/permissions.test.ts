@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   ALLOWED_TOOLS,
+  COMMAND_RUNNERS,
   FIXED_DENIED_COMMANDS,
   PermissionConfigError,
   checkBash,
@@ -97,6 +98,22 @@ describe('fixed denied commands', () => {
     expect(verdict(`git log | ${name}`, extras({ commands: [name] }))).toBe('deny');
   });
 
+  it.each(COMMAND_RUNNERS)(
+    'denies the command runner %s even when the project lists it',
+    (name) => {
+      const stored = extras({ commands: [name] });
+      expect(verdict(`${name} sudo id`, stored)).toBe('deny');
+      expect(verdict(`git ls-files | ${name} ssh`, stored)).toBe('deny');
+    },
+  );
+
+  it('closes the wrapper paths to the fixed list', () => {
+    const stored = extras({ commands: ['env', 'xargs', 'bash'] });
+    expect(verdict('env sudo id', stored)).toBe('deny');
+    expect(verdict('bash -c tailscale', stored)).toBe('deny');
+    expect(verdict('git ls-files | xargs ssh', stored)).toBe('deny');
+  });
+
   it('says the command is never allowed', () => {
     const result = checkBash('oci compute instance list', cwd, extras({ commands: ['oci'] }));
     expect(result).toMatchObject({ behavior: 'deny' });
@@ -172,6 +189,11 @@ describe('validateProjectPermissions', () => {
       'sudo',
       'ssh',
       'oci',
+      'env',
+      'xargs',
+      'bash',
+      'sh',
+      'nohup',
     ]) {
       expect(() => validateProjectPermissions({ commands: [name], hosts: [] }), name).toThrow(
         PermissionConfigError,

@@ -3,7 +3,7 @@ import type { ProjectPermissions } from '@agents-panel/shared';
 import {
   ALLOWED_BASH_COMMANDS,
   CURL_BASE_HOSTS,
-  FIXED_DENIED_COMMANDS,
+  NEVER_ENABLED_COMMANDS,
   PIPE_FILTERS,
   PermissionConfigError,
   READ_COMMANDS,
@@ -48,7 +48,7 @@ export function registerPermissionRoutes(app: FastifyInstance, deps: PermissionR
       curlBaseHosts: [...CURL_BASE_HOSTS],
       commands: [...extras.commands],
       hosts: [...extras.hosts],
-      fixedDenied: [...FIXED_DENIED_COMMANDS],
+      fixedDenied: [...NEVER_ENABLED_COMMANDS],
       suggestions: suggestPermissions(project.repoPath, extras),
     };
   }

@@ -66,7 +66,16 @@ describe('project permissions', () => {
     expect(body.hosts).toEqual([]);
     expect(body.base).toEqual(expect.arrayContaining(['git', 'gh', 'npm', 'go', 'kyro', 'ls']));
     expect(body.fixedDenied).toEqual(
-      expect.arrayContaining(['oci', 'tailscale', 'terraform', 'sudo', 'ssh', 'wget']),
+      expect.arrayContaining([
+        'oci',
+        'tailscale',
+        'terraform',
+        'sudo',
+        'ssh',
+        'wget',
+        'env',
+        'bash',
+      ]),
     );
     expect(body.curlBaseHosts).toEqual(['localhost', '127.0.0.1']);
     expect(body.suggestions).toEqual([]);
@@ -105,6 +114,8 @@ describe('project permissions', () => {
     [{ commands: ['sudo'], hosts: [] }],
     [{ commands: ['oci'], hosts: [] }],
     [{ commands: ['ssh'], hosts: [] }],
+    [{ commands: ['env'], hosts: [] }],
+    [{ commands: ['xargs'], hosts: [] }],
     [{ commands: ['git'], hosts: [] }],
     [{ commands: ['/usr/bin/uv'], hosts: [] }],
     [{ commands: ['uv run'], hosts: [] }],

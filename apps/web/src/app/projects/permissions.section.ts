@@ -147,8 +147,8 @@ import { ProjectsService } from './projects.service';
 
       <h3 class="pt-4">Nunca se habilitan</h3>
       <p class="hint">
-        Pueden cambiar lo que se paga en Oracle o sacar datos de la VM, así que ninguna
-        configuración los habilita.
+        Pueden cambiar lo que se paga en Oracle o sacar datos de la VM, o ejecutan el comando que
+        reciben (shells y envoltorios como env o xargs), así que ninguna configuración los habilita.
       </p>
       <div class="env-row">
         @for (name of current.fixedDenied; track name) {

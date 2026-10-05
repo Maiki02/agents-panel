@@ -26,6 +26,46 @@ export const FIXED_DENIED_COMMANDS = [
   'wget',
 ] as const;
 
+/**
+ * Commands that run the command passed to them (shells and wrappers). The check only sees the first
+ * word of each stage, so enabling one would turn `env sudo …` or `xargs ssh` into an allowed call:
+ * they are never enabled either.
+ */
+export const COMMAND_RUNNERS = [
+  'bash',
+  'sh',
+  'zsh',
+  'dash',
+  'ksh',
+  'fish',
+  'busybox',
+  'env',
+  'xargs',
+  'exec',
+  'eval',
+  'command',
+  'builtin',
+  'nohup',
+  'timeout',
+  'nice',
+  'setsid',
+  'stdbuf',
+  'script',
+  'time',
+  'watch',
+  'chroot',
+  'runuser',
+  'doas',
+  'pkexec',
+  'parallel',
+] as const;
+
+/** Everything no project configuration can enable: the fixed list plus the command runners. */
+export const NEVER_ENABLED_COMMANDS: readonly string[] = [
+  ...FIXED_DENIED_COMMANDS,
+  ...COMMAND_RUNNERS,
+];
+
 /** Per-project additions to the Bash base: extra command names and hosts `curl` may reach. */
 export interface BashExtras {
   commands: readonly string[];
@@ -188,7 +228,7 @@ export const MAX_EXTRA_HOSTS = 50;
 /** Everything a project may not add because the base or the fixed list already decides it. */
 export const NOT_CONFIGURABLE = new Set<string>([
   ...ALLOWED_BASH_COMMANDS,
-  ...FIXED_DENIED_COMMANDS,
+  ...NEVER_ENABLED_COMMANDS,
   ...READ_COMMANDS,
   ...PIPE_FILTERS,
   'cd',
@@ -210,7 +250,7 @@ export function validateProjectPermissions(input: {
     if (!COMMAND_NAME_RE.test(command)) {
       throw new PermissionConfigError(`Nombre de comando inválido: ${command.slice(0, 50)}`);
     }
-    if ((FIXED_DENIED_COMMANDS as readonly string[]).includes(command)) {
+    if (NEVER_ENABLED_COMMANDS.includes(command)) {
       throw new PermissionConfigError(`El comando ${command} no se puede habilitar`);
     }
     if (NOT_CONFIGURABLE.has(command)) {
@@ -248,8 +288,9 @@ export function checkBash(
         if (verdict.behavior === 'deny') return verdict;
         continue;
       }
-      // The fixed list wins over everything, a project's configuration included.
-      if ((FIXED_DENIED_COMMANDS as readonly string[]).includes(first)) {
+      // The fixed list wins over everything, a project's configuration included (even one stored
+      // before a name joined the list).
+      if (NEVER_ENABLED_COMMANDS.includes(first)) {
         return deny(`Bash command never allowed: ${first}`);
       }
       if (first === 'curl') {
