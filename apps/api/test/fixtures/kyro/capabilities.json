@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "ok": true,
+  "command": "capabilities",
+  "phase": "result",
+  "data": {
+    "version": "6.1.0",
+    "capabilities": [
+      "add-emergent",
+      "adr",
+      "analyze",
+      "close-sprint",
+      "clarify",
+      "context-pack",
+      "debt",
+      "doctor",
+      "plan",
+      "record-evidence",
+      "repair",
+      "review",
+      "rule",
+      "scenario",
+      "scope",
+      "status",
+      "work"
+    ]
+  }
+}

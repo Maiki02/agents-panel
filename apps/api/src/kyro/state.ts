@@ -268,3 +268,121 @@ export function parseWorkState(workStatusJson: unknown): KyroWorkState {
     blockedReason: nullableStr(data, 'blockedReason', 'work-status.data'),
   };
 }
+
+export interface TaskScenario {
+  id: string;
+  requirement: string;
+  given: string;
+  when: string;
+  then: string;
+}
+
+/** What a session needs to work on one task, from `context-pack --task` or `work context-pack`. */
+export interface KyroTaskContext {
+  kind: 'scope' | 'work';
+  /** Scope or work id. */
+  name: string;
+  nextAction: string;
+  /** Slug and objective of the active sprint; null for a work or when no sprint is active. */
+  sprintSlug: string | null;
+  sprintObjective: string | null;
+  taskId: string | null;
+  title: string | null;
+  description: string | null;
+  files: string[];
+  context: string | null;
+  criteria: string[];
+  scenarios: TaskScenario[];
+  openDebt: number;
+  conventions: string[];
+}
+
+function optionalStrings(obj: Json, key: string): string[] {
+  const value = obj[key];
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === 'string')
+    : [];
+}
+
+function optionalStr(obj: Json, key: string): string | null {
+  const value = obj[key];
+  return typeof value === 'string' && value !== '' ? value : null;
+}
+
+function conventionTexts(obj: Json): string[] {
+  const value = obj['conventions'];
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry) => {
+    if (typeof entry === 'string') return [entry];
+    if (isRecord(entry) && typeof entry['rule'] === 'string') return [entry['rule']];
+    return [];
+  });
+}
+
+function scenarioList(obj: Json): TaskScenario[] {
+  const value = obj['taskScenarios'];
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry) => {
+    if (!isRecord(entry)) return [];
+    const text = (key: string) => (typeof entry[key] === 'string' ? entry[key] : '');
+    return [
+      {
+        id: text('id'),
+        requirement: text('requirement'),
+        given: text('given'),
+        when: text('when'),
+        then: text('then'),
+      },
+    ];
+  });
+}
+
+/** Task context of a scope from `kyro context-pack --kyro-scope <s> --task --verbosity detailed --json`. */
+export function parseScopeTaskContext(contextPackTaskJson: unknown): KyroTaskContext {
+  const pack = envelopeData(contextPackTaskJson, 'kyro context-pack --task');
+  return {
+    kind: 'scope',
+    name: str(pack, 'scope', 'context-pack.data'),
+    nextAction: str(pack, 'nextAction', 'context-pack.data'),
+    sprintSlug: optionalStr(pack, 'activeSprintSlug'),
+    sprintObjective: optionalStr(pack, 'activeSprintObjective'),
+    taskId: optionalStr(pack, 'taskId'),
+    title: optionalStr(pack, 'taskTitle'),
+    description: optionalStr(pack, 'taskDescription'),
+    files: optionalStrings(pack, 'taskFiles'),
+    context: optionalStr(pack, 'taskContext'),
+    criteria: optionalStrings(pack, 'taskAcceptanceCriteria'),
+    scenarios: scenarioList(pack),
+    openDebt: typeof pack['openDebtCount'] === 'number' ? pack['openDebtCount'] : 0,
+    conventions: conventionTexts(pack),
+  };
+}
+
+/** Task context of a work from `kyro work context-pack --work <w> --json`. */
+export function parseWorkTaskContext(workContextPackJson: unknown): KyroTaskContext {
+  const data = envelopeData(workContextPackJson, 'kyro work context-pack');
+  const work = record(data, 'work', 'work-context-pack.data');
+  const task = isRecord(data['task']) ? data['task'] : {};
+  return {
+    kind: 'work',
+    name: str(work, 'id', 'work-context-pack.data.work'),
+    nextAction: str(data, 'nextAction', 'work-context-pack.data'),
+    sprintSlug: null,
+    sprintObjective: null,
+    taskId: optionalStr(data, 'nextTaskId'),
+    title: optionalStr(task, 'title'),
+    description: optionalStr(task, 'description'),
+    files: optionalStrings(task, 'filesToTouch'),
+    context: optionalStr(task, 'context'),
+    criteria: optionalStrings(task, 'acceptanceCriteria'),
+    scenarios: [],
+    openDebt: 0,
+    conventions: [],
+  };
+}
+
+/** Verbs of the installed CLI from `kyro capabilities --json`. */
+export function parseCapabilities(capabilitiesJson: unknown): string[] {
+  const data = envelopeData(capabilitiesJson, 'kyro capabilities');
+  return strings(data, 'capabilities', 'capabilities.data');
+}

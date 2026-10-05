@@ -4,9 +4,13 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 import {
   KyroStateError,
+  parseCapabilities,
   parseScopeState,
+  parseScopeTaskContext,
   parseWorkState,
+  parseWorkTaskContext,
   type KyroScopeState,
+  type KyroTaskContext,
   type KyroWorkState,
 } from './state.js';
 
@@ -130,6 +134,46 @@ export class KyroReader {
     try {
       const status = await this.json(cwd, ['work', 'status', '--work', slug, '--json']);
       return { ok: true, state: parseWorkState(status) };
+    } catch (error) {
+      return { ok: false, error: this.toError(error) };
+    }
+  }
+
+  /** Task context of a scope: the same data `kyro-task-context` uses, as typed fields. */
+  async contextPackTask(cwd: string, scope: string): Promise<KyroReadResult<KyroTaskContext>> {
+    try {
+      const pack = await this.json(cwd, [
+        'context-pack',
+        '--kyro-scope',
+        scope,
+        '--task',
+        '--verbosity',
+        'detailed',
+        '--json',
+      ]);
+      return { ok: true, state: parseScopeTaskContext(pack) };
+    } catch (error) {
+      return { ok: false, error: this.toError(error) };
+    }
+  }
+
+  /** Task context of a work (`work context-pack`). */
+  async workContextPack(cwd: string, work: string): Promise<KyroReadResult<KyroTaskContext>> {
+    try {
+      const pack = await this.json(cwd, ['work', 'context-pack', '--work', work, '--json']);
+      return { ok: true, state: parseWorkTaskContext(pack) };
+    } catch (error) {
+      return { ok: false, error: this.toError(error) };
+    }
+  }
+
+  /** The verbs the installed Kyro supports (`capabilities --json`). */
+  async capabilities(cwd: string): Promise<KyroReadResult<string[]>> {
+    try {
+      return {
+        ok: true,
+        state: parseCapabilities(await this.json(cwd, ['capabilities', '--json'])),
+      };
     } catch (error) {
       return { ok: false, error: this.toError(error) };
     }

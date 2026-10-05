@@ -16,7 +16,7 @@ mkdir -p .agents/kyro/scopes
 printf '{\n  "schemaVersion": 4,\n  "artifactRoot": ".agents/kyro/scopes"\n}\n' > .agents/kyro/project.json
 printf '{\n  "schemaVersion": 4,\n  "activeScope": "demo"\n}\n' > .agents/kyro/local.json
 
-rm -f "$OUT"/context-pack.*.json "$OUT"/status-full.*.json "$OUT"/sprint.*.json "$OUT"/work-*.json
+rm -f "$OUT"/context-pack.*.json "$OUT"/status-full.*.json "$OUT"/sprint.*.json "$OUT"/work-*.json "$OUT"/context-pack-task.*.json "$OUT"/capabilities.json
 
 # --- scope fixtures -----------------------------------------------------------------------------
 
@@ -77,6 +77,8 @@ plan_init demo '[]'
 snap plan_sprint
 plan_sprint 1 uno a.txt b.txt
 snap execute_task
+kyro context-pack --kyro-scope demo --task --verbosity detailed --json > "$OUT/context-pack-task.execute_task.json"
+kyro capabilities --json > "$OUT/capabilities.json"
 echo x > a.txt
 kyro record-evidence T1.1 --kyro-scope demo --summary "done" --validation "ls a.txt" --file a.txt > /dev/null
 snap review_task

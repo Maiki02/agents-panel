@@ -148,3 +148,69 @@ describe('KyroReader.readWork', () => {
     expect(result).toMatchObject({ ok: false, error: { kind: 'cli_failed' } });
   });
 });
+
+describe('KyroReader task context and capabilities', () => {
+  function fake(outputs: Record<string, string>) {
+    const calls: Call[] = [];
+    const run: CommandRunner = (file, args, { cwd }) => {
+      calls.push({ file, args, cwd });
+      const out = outputs[args.slice(0, 2).join(' ')] ?? outputs[args[0] ?? ''];
+      return out === undefined ? Promise.reject(new Error('no such verb')) : Promise.resolve(out);
+    };
+    return { calls, reader: new KyroReader(run) };
+  }
+
+  it('reads the task context of a scope with argv and no shell', async () => {
+    const { calls, reader } = fake({
+      'context-pack': fixture('context-pack-task.execute_task.json'),
+    });
+    const read = await reader.contextPackTask('/wt', 'demo');
+    expect(read).toMatchObject({ ok: true, state: { taskId: 'T1.1', name: 'demo' } });
+    expect(calls).toEqual([
+      {
+        file: 'kyro',
+        cwd: '/wt',
+        args: [
+          'context-pack',
+          '--kyro-scope',
+          'demo',
+          '--task',
+          '--verbosity',
+          'detailed',
+          '--json',
+        ],
+      },
+    ]);
+  });
+
+  it('reads the task context of a work', async () => {
+    const { calls, reader } = fake({
+      'work context-pack': fixture('work-context-pack.execute_task.json'),
+    });
+    expect(await reader.workContextPack('/wt', 'demo-work')).toMatchObject({
+      ok: true,
+      state: { kind: 'work', taskId: 'W1' },
+    });
+    expect(calls[0]?.args).toEqual(['work', 'context-pack', '--work', 'demo-work', '--json']);
+  });
+
+  it('reads the capabilities of the installed Kyro', async () => {
+    const { reader } = fake({ capabilities: fixture('capabilities.json') });
+    const read = await reader.capabilities('/wt');
+    expect(read.ok && read.state).toEqual(expect.arrayContaining(['record-evidence', 'review']));
+  });
+
+  it('returns the failure instead of throwing', async () => {
+    const { reader } = fake({});
+    expect(await reader.capabilities('/wt')).toMatchObject({
+      ok: false,
+      error: { kind: 'cli_failed' },
+    });
+    expect(await reader.contextPackTask('/wt', 'demo')).toMatchObject({ ok: false });
+    const bad = fake({ capabilities: '{"ok":true,"data":{}}' });
+    expect(await bad.reader.capabilities('/wt')).toMatchObject({
+      ok: false,
+      error: { kind: 'unexpected_output' },
+    });
+  });
+});
