@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "kind": "organic-work",
+  "id": "capacidad-y-tiempos",
+  "title": "Capacidad de la VM y tiempos de cada trabajo",
+  "objective": "El panel lanza trabajo en paralelo sobre una VM con disco y RAM fijos (cupo gratis), pero no muestra cuánto ocupa cada proyecto, cuánto queda libre ni cuánto trabajó la máquina en cada scope o work. Por eso el usuario decide a ciegas si abrir otro trabajo, qué limpiar y cuánto le cuesta cada pedido. Mostrar el disco y la RAM en la página Proyectos y la fecha de creación y el tiempo de ejecución neto en cada tarjeta de chat convierte esas decisiones en lecturas directas, sin entrar por SSH.",
+  "brief": {
+    "path": "brief.md",
+    "digest": "6629e83341fa831103beb992ccbe40600d02ee7080759f74b50319d0628bb5d5",
+    "sourceIdea": {
+      "path": ".agents/kyro/plan/2026-10-05-capacidad-y-tiempos.md",
+      "digest": "6629e83341fa831103beb992ccbe40600d02ee7080759f74b50319d0628bb5d5",
+      "title": "Capacidad de la VM y tiempos de cada trabajo"
+    }
+  },
+  "state": "draft",
+  "revision": 1,
+  "createdAt": "2026-10-05T23:36:25.678Z",
+  "updatedAt": "2026-10-05T23:36:25.678Z",
+  "handoff": {
+    "nextAction": "plan_tasks",
+    "nextTaskId": null,
+    "blockedReason": null
+  },
+  "tasks": [],
+  "activity": [
+    {
+      "seq": 1,
+      "at": "2026-10-05T23:36:25.678Z",
+      "event": "created",
+      "taskId": null,
+      "by": "Maiki02",
+      "reason": "Created through the Work CLI.",
+      "revision": 1
+    }
+  ],
+  "closure": null,
+  "promotion": null
+}
