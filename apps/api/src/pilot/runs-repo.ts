@@ -48,7 +48,8 @@ export class AutopilotTransitionError extends Error {
   override readonly name = 'AutopilotTransitionError';
 }
 
-type Action = 'pause' | 'resume' | 'off' | 'stop' | 'finish';
+type Action =
+  'pause' | 'resume' | 'off' | 'stop' | 'finish' | 'queue' | 'dequeue' | 'quota' | 'retry';
 
 /** Statuses from which each explicit transition is allowed. Anything else is refused. */
 const FROM: Record<Action, readonly AutopilotStatus[]> = {
@@ -59,6 +60,12 @@ const FROM: Record<Action, readonly AutopilotStatus[]> = {
   off: ['active', 'paused', 'stopped', 'waiting_quota', 'queued'],
   stop: ['active', 'queued', 'waiting_quota'],
   finish: ['active'],
+  // No free session: wait in line until one frees up.
+  queue: ['active'],
+  dequeue: ['queued'],
+  // Usage limit reached: wait and try again later.
+  quota: ['active', 'queued'],
+  retry: ['waiting_quota'],
 };
 
 /** One row per scope or work with the autopilot on; the pilot's state lives here, not in memory. */
@@ -72,6 +79,15 @@ export class AutopilotRunRepository {
     const row = this.db.prepare('SELECT * FROM autopilot_runs WHERE chat_id = ?').get(chatId) as
       RunRow | undefined;
     return row ? toRun(row) : undefined;
+  }
+
+  /** Runs in a status, oldest first (the pilot lists the queued ones when a session frees up). */
+  listByStatus(status: AutopilotStatus): AutopilotRun[] {
+    return (
+      this.db
+        .prepare('SELECT * FROM autopilot_runs WHERE status = ? ORDER BY updated_at, chat_id')
+        .all(status) as unknown as RunRow[]
+    ).map(toRun);
   }
 
   /** Switches the autopilot on for a chat that has none. */
@@ -111,6 +127,56 @@ export class AutopilotRunRepository {
 
   finish(chatId: number): AutopilotRun {
     return this.move(chatId, 'finish', 'finished', { stop_reason: null, retry_at: null });
+  }
+
+  /** Waits in line for a free session; the pilot tries again when one frees up. */
+  queue(chatId: number): AutopilotRun {
+    return this.move(chatId, 'queue', 'queued', {});
+  }
+
+  dequeue(chatId: number): AutopilotRun {
+    return this.move(chatId, 'dequeue', 'active', {});
+  }
+
+  /** The usage limit was reached: waits until `retryAt` (epoch ms) and tries again. */
+  waitForQuota(chatId: number, retryAt: number): AutopilotRun {
+    return this.move(chatId, 'quota', 'waiting_quota', { retry_at: retryAt });
+  }
+
+  retryAfterQuota(chatId: number): AutopilotRun {
+    return this.move(chatId, 'retry', 'active', { retry_at: null });
+  }
+
+  /**
+   * A session is about to open: records its step, the signals Kyro showed before it (to tell later
+   * whether it moved anything) and counts it for the sprint; a new sprint restarts the count.
+   */
+  beginSession(
+    chatId: number,
+    input: {
+      step: AutopilotStep;
+      sprintN: number | null;
+      fingerprint: Record<string, unknown>;
+      policyVersion: number;
+    },
+  ): AutopilotRun {
+    const run = this.require(chatId);
+    const newSprint = input.sprintN !== null && input.sprintN !== run.sprintN;
+    this.db
+      .prepare(
+        `UPDATE autopilot_runs SET step = ?, sprint_n = ?, sessions_in_sprint = ?, last_fingerprint = ?,
+           policy_version = ?, updated_at = ? WHERE chat_id = ?`,
+      )
+      .run(
+        input.step,
+        input.sprintN ?? run.sprintN,
+        newSprint ? 1 : run.sessionsInSprint + 1,
+        JSON.stringify(input.fingerprint),
+        input.policyVersion,
+        this.now(),
+        chatId,
+      );
+    return this.require(chatId);
   }
 
   private require(chatId: number): AutopilotRun {

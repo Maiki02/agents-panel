@@ -23,9 +23,15 @@ const actionBody = {
  */
 export function registerAutopilotRoutes(
   app: FastifyInstance,
-  deps: { service: ChatService; runs: AutopilotRunRepository; maxSessionsPerSprint: number },
+  deps: {
+    service: ChatService;
+    runs: AutopilotRunRepository;
+    maxSessionsPerSprint: number;
+    /** The pilot picks the work up again after a resume. */
+    onResume?: (chatId: number) => void;
+  },
 ): void {
-  const { service, runs, maxSessionsPerSprint } = deps;
+  const { service, runs, maxSessionsPerSprint, onResume } = deps;
 
   const info = (chatId: number): AutopilotInfo => ({
     run: runs.get(chatId) ?? null,
@@ -57,8 +63,10 @@ export function registerAutopilotRoutes(
       requirePilotable(chatId);
       try {
         if (request.body.action === 'pause') runs.pause(chatId);
-        else if (request.body.action === 'resume') runs.resume(chatId);
-        else runs.turnOff(chatId);
+        else if (request.body.action === 'resume') {
+          runs.resume(chatId);
+          onResume?.(chatId);
+        } else runs.turnOff(chatId);
       } catch (error) {
         if (error instanceof AutopilotTransitionError) throw new ChatError(error.message, 409);
         throw error;

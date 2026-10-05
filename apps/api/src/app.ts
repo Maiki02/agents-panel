@@ -14,6 +14,7 @@ import type { AgentRunner } from './agent/runner.js';
 import { SdkRunner } from './agent/sdk-runner.js';
 import { AgentSessionRepository } from './chats/sessions-repo.js';
 import { registerAutopilotRoutes } from './pilot/routes.js';
+import { Autopilot, type PilotKyro } from './pilot/autopilot.js';
 import { AutopilotRunRepository } from './pilot/runs-repo.js';
 import { ChatEventBus } from './chats/events.js';
 import { QuestionRepository } from './chats/questions-repo.js';
@@ -87,6 +88,8 @@ export interface AppDeps {
   projectService?: ProjectService;
   /** Reads Kyro state after each turn; tests inject one backed by fixtures. */
   kyroReader?: KyroStateReader;
+  /** Everything the pilot reads from Kyro; tests inject fixtures. */
+  pilotKyro?: PilotKyro;
 }
 
 export function buildApp(deps: AppDeps, options: FastifyServerOptions = {}): FastifyInstance {
@@ -140,7 +143,9 @@ export function buildApp(deps: AppDeps, options: FastifyServerOptions = {}): Fas
   const questions = new QuestionRepository(deps.db, now);
   const autopilotRuns = new AutopilotRunRepository(deps.db, now);
   const worktreeState = new WorktreeStateRepository(deps.db, chats, bus, now);
-  const tracker = new WorktreeStateTracker(worktreeState, deps.kyroReader ?? new KyroReader());
+  const realKyro = new KyroReader();
+  const kyroReader = deps.kyroReader ?? realKyro;
+  const tracker = new WorktreeStateTracker(worktreeState, kyroReader);
   const manager =
     deps.manager ??
     new AgentManager(
@@ -159,6 +164,16 @@ export function buildApp(deps: AppDeps, options: FastifyServerOptions = {}): Fas
   chats.markRunningAsInterrupted();
   tracker.markInterrupted(interrupted);
   questions.cancelAllPending();
+  const pilot = new Autopilot({
+    chats,
+    runs: autopilotRuns,
+    manager,
+    kyro: deps.pilotKyro ?? realKyro,
+    tracker,
+    questions,
+    maxSessionsPerSprint: deps.config.pilotMaxSessionsPerSprint,
+    now,
+  });
   const envFiles = new EnvFileRepository(deps.db, deps.config.secretKey, now);
   const chatService = new ChatService({
     chats,
@@ -169,6 +184,9 @@ export function buildApp(deps: AppDeps, options: FastifyServerOptions = {}): Fas
     envFiles,
     tracker,
     autopilot: autopilotRuns,
+    onAutopilotStart: (chatId) => {
+      pilot.kick(chatId);
+    },
   });
 
   const runs = new MaintenanceRunRepository(deps.db, now);
@@ -232,6 +250,9 @@ export function buildApp(deps: AppDeps, options: FastifyServerOptions = {}): Fas
     service: chatService,
     runs: autopilotRuns,
     maxSessionsPerSprint: deps.config.pilotMaxSessionsPerSprint,
+    onResume: (chatId) => {
+      pilot.kick(chatId);
+    },
   });
   registerStreamRoute(app, {
     chats,

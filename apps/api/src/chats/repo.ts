@@ -176,6 +176,26 @@ export class ChatRepository {
     return toEvent(row);
   }
 
+  /** Highest seq of the chat's events (0 when it has none). */
+  lastSeq(chatId: number): number {
+    const row = this.db
+      .prepare('SELECT COALESCE(MAX(seq), 0) AS seq FROM chat_events WHERE chat_id = ?')
+      .get(chatId) as { seq: number };
+    return row.seq;
+  }
+
+  /** Every event after `afterSeq`, read in pages. */
+  allEventsAfter(chatId: number, afterSeq: number): ChatEvent[] {
+    const all: ChatEvent[] = [];
+    for (let cursor = afterSeq; ;) {
+      const page = this.eventsAfter(chatId, cursor, 500);
+      all.push(...page);
+      const last = page.at(-1);
+      if (last === undefined || page.length < 500) return all;
+      cursor = last.seq;
+    }
+  }
+
   eventsAfter(chatId: number, afterSeq = 0, limit = 1000): ChatEvent[] {
     return (
       this.db

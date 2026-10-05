@@ -78,6 +78,8 @@ export interface ChatServiceDeps {
   tracker?: WorktreeStateTracker;
   /** Autopilot rows; absent in tests that do not use the pilot. */
   autopilot?: AutopilotRunRepository;
+  /** Called once the chat exists and its first turn started, when the autopilot is on. */
+  onAutopilotStart?: (chatId: number) => void;
 }
 
 export class ChatService {
@@ -177,6 +179,7 @@ export class ChatService {
         chats.delete(chat.id);
         throw error;
       }
+      if (input.autopilot === true) this.deps.onAutopilotStart?.(chat.id);
       return chats.findById(chat.id) ?? chat;
     } catch (error) {
       // Nothing may outlive a failed create: drop the worktree and branch too.

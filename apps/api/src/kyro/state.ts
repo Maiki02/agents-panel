@@ -386,3 +386,30 @@ export function parseCapabilities(capabilitiesJson: unknown): string[] {
   const data = envelopeData(capabilitiesJson, 'kyro capabilities');
   return strings(data, 'capabilities', 'capabilities.data');
 }
+
+export interface AnalyzeFinding {
+  id: string;
+  severity: string;
+  category: string;
+  detail: string;
+  remedy: string;
+}
+
+/** Findings of `kyro analyze --kyro-scope <s> --json`. */
+export function parseAnalyzeFindings(analyzeJson: unknown): AnalyzeFinding[] {
+  const data = envelopeData(analyzeJson, 'kyro analyze');
+  const findings = field(data, 'findings', 'analyze.data');
+  if (!Array.isArray(findings)) throw new KyroStateError('analyze.data.findings must be an array');
+  return findings.map((finding, index) => {
+    if (!isRecord(finding))
+      throw new KyroStateError(`analyze.data.findings[${String(index)}] must be an object`);
+    const where = `analyze.data.findings[${String(index)}]`;
+    return {
+      id: str(finding, 'id', where),
+      severity: str(finding, 'severity', where).toUpperCase(),
+      category: str(finding, 'category', where),
+      detail: str(finding, 'detail', where),
+      remedy: typeof finding['remedy'] === 'string' ? finding['remedy'] : '',
+    };
+  });
+}

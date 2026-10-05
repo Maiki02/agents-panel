@@ -315,6 +315,7 @@ export const BLOCKED_REASONS = [
   'tarea_bloqueada',
   'kyro_bloqueado',
   'integridad_kyro',
+  'qa_sin_correr',
   'git',
   'otro',
 ] as const;

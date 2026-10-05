@@ -1,5 +1,11 @@
 import { randomUUID } from 'node:crypto';
-import type { Chat, ChatStatus, ModelRole, PendingQuestion } from '@agents-panel/shared';
+import type {
+  AutopilotStep,
+  Chat,
+  ChatStatus,
+  ModelRole,
+  PendingQuestion,
+} from '@agents-panel/shared';
 import type { ChatEventBus } from '../chats/events.js';
 import {
   QuestionNotPendingError,
@@ -9,11 +15,26 @@ import {
 } from '../chats/questions-repo.js';
 import type { ChatRepository } from '../chats/repo.js';
 import type { AgentSessionRepository } from '../chats/sessions-repo.js';
-import type { TurnObserver } from '../worktrees/state-tracker.js';
+import type { TurnInfo, TurnObserver } from '../worktrees/state-tracker.js';
 import { NO_BASH_EXTRAS, decide, type BashExtras } from './permissions.js';
 import { ASK_USER_QUESTION, type AgentRunner, type PermissionDecision } from './runner.js';
 
 export const MAX_CONCURRENT_SESSIONS = 4;
+
+/** Extra data of a turn the pilot opens: the step it serves and the policy it was given. */
+export interface PilotTurn {
+  step: AutopilotStep;
+  policyVersion: number;
+  sprintN: number | null;
+}
+
+export interface StartOptions {
+  role?: ModelRole;
+  /** Set by the pilot; absent for a turn the user started. */
+  pilot?: PilotTurn;
+  /** Do not resume the chat's SDK session: the turn starts a new one. */
+  freshSession?: boolean;
+}
 
 export class SessionLimitError extends Error {
   override readonly name = 'SessionLimitError';
@@ -115,7 +136,7 @@ export class AgentManager {
    * The turn runs with the chat's model for `role` (executor by default).
    * Throws AlreadyRunningError / SessionLimitError / MaintenanceError (all map to HTTP 409).
    */
-  start(chatId: number, text: string, options: { role?: ModelRole } = {}): void {
+  start(chatId: number, text: string, options: StartOptions = {}): void {
     if (this.maintenance) throw new MaintenanceError();
     const chat = this.chats.findById(chatId);
     if (!chat) throw new Error(`Chat not found: ${String(chatId)}`);
@@ -129,11 +150,32 @@ export class AgentManager {
     this.record(chatId, 'user_prompt', { text });
     const role = options.role ?? 'executor';
     const model = chat.models[role];
-    const sessionRowId = this.sessions?.open(chatId, role, chat.models.provider, model) ?? null;
-    this.record(chatId, 'session_started', { role, provider: chat.models.provider, model });
-    this.observe(() => this.observer?.turnStarted(chat, { role, model }));
+    const pilot = options.pilot;
+    const sessionRowId =
+      this.sessions?.open(chatId, role, chat.models.provider, model, pilot?.sprintN ?? null, {
+        step: pilot?.step ?? 'manual',
+        policyVersion: pilot?.policyVersion ?? null,
+      }) ?? null;
+    this.record(chatId, 'session_started', {
+      role,
+      provider: chat.models.provider,
+      model,
+      ...(pilot ? { step: pilot.step, policyVersion: pilot.policyVersion } : {}),
+    });
+    const turnInfo: TurnInfo = {
+      role,
+      model,
+      ...(pilot ? { pilot: { step: pilot.step, policyVersion: pilot.policyVersion } } : {}),
+    };
+    this.observe(() => this.observer?.turnStarted(chat, turnInfo));
 
-    const done = this.consume(chat, text, { role, model, sessionRowId }, controller).finally(() => {
+    const done = this.consume(
+      chat,
+      text,
+      { ...turnInfo, sessionRowId },
+      controller,
+      options.freshSession === true,
+    ).finally(() => {
       this.active.delete(chatId);
     });
     this.active.set(chatId, { controller, done });
@@ -232,8 +274,9 @@ export class AgentManager {
   private async consume(
     chat: Chat,
     prompt: string,
-    turn: { role: ModelRole; model: string; sessionRowId: number | null },
+    turn: TurnInfo & { sessionRowId: number | null },
     controller: AbortController,
+    freshSession: boolean,
   ): Promise<void> {
     const chatId = chat.id;
     const cwd = chat.worktreePath;
@@ -246,7 +289,8 @@ export class AgentManager {
         prompt,
         model: turn.model,
         role: turn.role,
-        ...(chat.sdkSessionId ? { resumeSessionId: chat.sdkSessionId } : {}),
+        // A pilot step opens a new SDK session instead of continuing the previous one.
+        ...(chat.sdkSessionId && !freshSession ? { resumeSessionId: chat.sdkSessionId } : {}),
         signal: controller.signal,
         canUseTool: (toolName, input, context) => {
           if (toolName === ASK_USER_QUESTION && this.questions) {
@@ -297,7 +341,11 @@ export class AgentManager {
     const finished = this.chats.findById(chatId);
     if (finished && this.observer) {
       try {
-        await this.observer.turnFinished(finished, { role: turn.role, model: turn.model }, final);
+        await this.observer.turnFinished(
+          finished,
+          { role: turn.role, model: turn.model, ...(turn.pilot ? { pilot: turn.pilot } : {}) },
+          final,
+        );
       } catch {
         // The state is a view of the work: failing to update it must not break the chat.
       }

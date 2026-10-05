@@ -1,4 +1,11 @@
-import type { Chat, ChatStatus, ModelRole, WorktreeStateId } from '@agents-panel/shared';
+import type {
+  AutopilotStep,
+  BlockedReason,
+  Chat,
+  ChatStatus,
+  ModelRole,
+  WorktreeStateId,
+} from '@agents-panel/shared';
 import { mapKyroState } from '../kyro/map-state.js';
 import type { KyroReadResult } from '../kyro/reader.js';
 import type { KyroScopeState, KyroWorkState } from '../kyro/state.js';
@@ -13,6 +20,8 @@ export interface KyroStateReader {
 export interface TurnInfo {
   role: ModelRole;
   model: string;
+  /** Present when the pilot opened the turn: its transitions are the pilot's, not the agent's. */
+  pilot?: { step: AutopilotStep; policyVersion: number };
 }
 
 /** What AgentManager tells the outside world about a turn; it must never break the turn. */
@@ -24,7 +33,13 @@ export interface TurnObserver {
 }
 
 /** After these the user resumed the work by sending a message: the agent is moving again. */
-const STOPPED: readonly WorktreeStateId[] = ['interrumpido', 'error'];
+const STOPPED: readonly WorktreeStateId[] = [
+  'interrumpido',
+  'error',
+  'pausado',
+  'sin_cupo_de_uso',
+  'bloqueado',
+];
 /** Waits for a question or a permission: a restart cancels them, so a resume never goes back to one. */
 const QUESTION_WAITS: readonly WorktreeStateId[] = ['esperando_respuesta', 'esperando_permiso'];
 /** The state before the first turn of a scope or work. */
@@ -69,23 +84,32 @@ export class WorktreeStateTracker implements TurnObserver {
     if (!WorktreeStateTracker.tracked(chat)) return;
     const current = this.states.get(chat.id);
     const common = { role: turn.role, model: turn.model };
+    const actor = turn.pilot ? 'pilot' : 'agent';
+    const data = turn.pilot ? { ...turn.pilot } : undefined;
     if (current === undefined || PREPARING.includes(current.state)) {
       this.states.transition(chat.id, {
         state: 'planificando',
-        actor: 'agent',
+        actor,
+        ...(data ? { data } : {}),
         reason: 'Empezó el primer turno',
         ...common,
       });
     } else if (STOPPED.includes(current.state)) {
       this.states.transition(chat.id, {
         state: this.resumeState(chat, current.previousState),
-        actor: 'user',
-        reason: 'Retomó el trabajo con un mensaje',
+        actor: turn.pilot ? 'pilot' : 'user',
+        ...(data ? { data } : {}),
+        reason: turn.pilot ? 'El piloto retomó el trabajo' : 'Retomó el trabajo con un mensaje',
         ...common,
       });
     } else {
       // Same state: only the role and model of the running session change.
-      this.states.transition(chat.id, { ...this.keep(current), actor: 'agent', ...common });
+      this.states.transition(chat.id, {
+        ...this.keep(current),
+        actor,
+        ...(data ? { data } : {}),
+        ...common,
+      });
     }
   }
 
@@ -136,7 +160,7 @@ export class WorktreeStateTracker implements TurnObserver {
     const mapped = mapKyroState(read.state);
     this.states.transition(chat.id, {
       state: mapped.state,
-      actor: 'agent',
+      actor: turn.pilot ? 'pilot' : 'agent',
       reason: `Kyro: ${read.state.nextAction}`,
       detail: mapped.detail,
       phase: mapped.phase,
@@ -147,11 +171,12 @@ export class WorktreeStateTracker implements TurnObserver {
       taskTotal: mapped.taskTotal,
       openDebt: mapped.openDebt,
       blockedReason: mapped.blockedReason,
-      // No pilot yet: when the turn ends the next move is the user's.
+      // Without the pilot the next move is the user's; with it, the pilot decides.
       data: {
         nextAction: read.state.nextAction,
         nextTaskId: read.state.nextTaskId,
-        waitingOn: 'user',
+        waitingOn: turn.pilot ? 'pilot' : 'user',
+        ...turn.pilot,
       },
       ...common,
     });
@@ -181,6 +206,35 @@ export class WorktreeStateTracker implements TurnObserver {
       reason: 'Respondió la pregunta',
       role: current.role,
       model: current.model,
+    });
+  }
+
+  /**
+   * The pilot's own transitions (it stopped, waits for a free session or for the usage limit):
+   * same progress as the stored row, actor `pilot`, and the reason for the Timeline.
+   */
+  pilotMark(
+    chat: Chat,
+    mark: {
+      state: WorktreeStateId;
+      reason: string;
+      detail?: string | null;
+      blockedReason?: BlockedReason | null;
+      data?: Record<string, unknown>;
+    },
+  ): void {
+    if (!WorktreeStateTracker.tracked(chat)) return;
+    const current = this.states.get(chat.id);
+    this.states.transition(chat.id, {
+      ...(current ? this.keep(current) : {}),
+      state: mark.state,
+      actor: 'pilot',
+      reason: mark.reason,
+      detail: mark.detail ?? null,
+      blockedReason: mark.blockedReason ?? null,
+      ...(mark.data ? { data: mark.data } : {}),
+      role: current?.role ?? null,
+      model: current?.model ?? null,
     });
   }
 

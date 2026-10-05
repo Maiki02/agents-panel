@@ -187,6 +187,7 @@ El estado `bloqueado` guarda un `blocked_reason` de este catálogo (`BlockedReas
 | `tarea_bloqueada` | Un Work en `resolve_blocker`, o una tarea que tras 3 rondas de corrección quedó `blocked` | Lector de Kyro |
 | `kyro_bloqueado` | `context-pack` informa un blocker | Lector de Kyro |
 | `integridad_kyro` | Hallazgo de integridad de Kyro: `repair` nunca se aplica solo | Piloto (sprint 3) |
+| `qa_sin_correr` | Una sesión de cierre cerró el sprint sin invocar la skill `kyro-qa` (R8) | Piloto (sprint 3) |
 | `git` | Falló un commit, pull, push o PR; el detalle trae la salida de git | Piloto (sprints 3 y 4) |
 | `otro` | Cualquier otro freno con su motivo en el detalle | Piloto |
 

@@ -4,11 +4,13 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 import {
   KyroStateError,
+  parseAnalyzeFindings,
   parseCapabilities,
   parseScopeState,
   parseScopeTaskContext,
   parseWorkState,
   parseWorkTaskContext,
+  type AnalyzeFinding,
   type KyroScopeState,
   type KyroTaskContext,
   type KyroWorkState,
@@ -162,6 +164,16 @@ export class KyroReader {
     try {
       const pack = await this.json(cwd, ['work', 'context-pack', '--work', work, '--json']);
       return { ok: true, state: parseWorkTaskContext(pack) };
+    } catch (error) {
+      return { ok: false, error: this.toError(error) };
+    }
+  }
+
+  /** `kyro analyze` of a scope: the pilot closes a sprint only without CRITICAL or HIGH findings. */
+  async analyze(cwd: string, scope: string): Promise<KyroReadResult<AnalyzeFinding[]>> {
+    try {
+      const out = await this.json(cwd, ['analyze', '--kyro-scope', scope, '--json']);
+      return { ok: true, state: parseAnalyzeFindings(out) };
     } catch (error) {
       return { ok: false, error: this.toError(error) };
     }
