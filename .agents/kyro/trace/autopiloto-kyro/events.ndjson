@@ -157,3 +157,8 @@
 {"v":1,"ts":"2026-10-05T19:37:32.723Z","scope":"autopiloto-kyro","type":"tool_command_run","surface":"cli","command":"record-evidence","args":{"task":"T3.2","status":"done"}}
 {"v":1,"ts":"2026-10-05T19:37:33.064Z","scope":"autopiloto-kyro","type":"tool_command_run","surface":"cli","command":"review","args":{"task":"T3.2","verdict":"pass","requestDigest":"2e7c0e9a7d1839c5ef0ea3a4abefc2b9b5e3e723dbf11213ce55240b89fc9ca7"}}
 {"v":1,"ts":"2026-10-05T19:37:33.069Z","scope":"autopiloto-kyro","type":"gate_approved","gate":"checker","taskId":"T3.2"}
+{"v":1,"ts":"2026-10-05T19:37:37.626Z","scope":"autopiloto-kyro","type":"route_selected","nextAction":"execute_task","packMode":"task","budgetClass":"execute","reasoningTier":"standard"}
+{"v":1,"ts":"2026-10-05T19:37:51.014Z","scope":"autopiloto-kyro","type":"route_selected","nextAction":"execute_task","packMode":"task","budgetClass":"execute","reasoningTier":"standard"}
+{"v":1,"ts":"2026-10-05T19:41:19.508Z","scope":"autopiloto-kyro","type":"tool_command_run","surface":"cli","command":"record-evidence","args":{"task":"T3.3","status":"done"}}
+{"v":1,"ts":"2026-10-05T19:41:19.853Z","scope":"autopiloto-kyro","type":"tool_command_run","surface":"cli","command":"review","args":{"task":"T3.3","verdict":"pass","requestDigest":"d6b2f9e276671dd7eda462ccfda640c4f00ce4dd2aba26990dd8912121e10d1b"}}
+{"v":1,"ts":"2026-10-05T19:41:19.858Z","scope":"autopiloto-kyro","type":"gate_approved","gate":"checker","taskId":"T3.3"}

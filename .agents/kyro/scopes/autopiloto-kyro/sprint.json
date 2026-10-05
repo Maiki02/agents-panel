@@ -809,9 +809,37 @@
             "scenario_refs": [
               "S7"
             ],
-            "status": "pending",
-            "evidence": null,
-            "verdict": null
+            "status": "done",
+            "evidence": {
+              "summary": "pilot/prompts.ts: buildStepPrompt(plan|execute|fix|close) con la skill correcta (kyro-forge; kyro-qa y luego kyro-forge en el cierre; kyro-work para un Work), contexto de la tarea, hallazgos de analyze en fix y el bloque de política de su paso; checkCapabilities frena con kyro_bloqueado si falta record-evidence, review, close-sprint, analyze o context-pack. KyroReader suma contextPackTask, workContextPack y capabilities (execFile con argv); state.ts suma parseScopeTaskContext, parseWorkTaskContext y parseCapabilities. Fixtures reales nuevas (capabilities.json, context-pack-task.execute_task.json) y capture.sh actualizado.",
+              "validation": [
+                "vitest apps/api completo: 41 archivos, 825 tests pasan (19 de pilot-prompts con fixtures y 4 nuevos de kyro-reader)",
+                "tsc --noEmit y eslint sin errores"
+              ],
+              "files_changed": [
+                "apps/api/src/pilot/prompts.ts",
+                "apps/api/src/kyro/reader.ts",
+                "apps/api/src/kyro/state.ts",
+                "apps/api/test/pilot-prompts.test.ts",
+                "apps/api/test/kyro-reader.test.ts",
+                "apps/api/test/fixtures/kyro/capture.sh"
+              ],
+              "by": "maker",
+              "recordedAt": "2026-10-05T19:41:19.505Z"
+            },
+            "verdict": {
+              "result": "pass",
+              "checked_criteria": [
+                "Los prompts de plan, ejecución, fix y cierre incluyen la skill correcta, el contexto de la tarea y el bloque de política de su paso; tests con fixtures.",
+                "Ningún prompt invoca kyro-sprint-executor (test).",
+                "Si capabilities no trae record-evidence o review, el piloto frena con kyro_bloqueado y el detalle (test con lector falso)."
+              ],
+              "findings": [],
+              "by": "checker",
+              "reviewedAt": "2026-10-05T19:41:19.769Z",
+              "requestDigest": "d6b2f9e276671dd7eda462ccfda640c4f00ce4dd2aba26990dd8912121e10d1b",
+              "reviewedMaterialDigest": "169898954d438bfb62f0f48389ddbf7953c1f51cf00d3e4f32ebba2899d94ea6"
+            }
           },
           {
             "id": "T3.4",
@@ -1003,10 +1031,10 @@
   ],
   "handoff": {
     "nextAction": "execute_task",
-    "nextTaskId": "T3.3",
+    "nextTaskId": "T3.4",
     "blockers": [],
-    "note": "Task T3.2 passed checker review.",
-    "lastUpdated": "2026-10-05T19:37:32.977Z"
+    "note": "Task T3.3 passed checker review.",
+    "lastUpdated": "2026-10-05T19:41:19.769Z"
   },
   "author": {
     "name": "Maiki02",
