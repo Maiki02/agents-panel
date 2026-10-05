@@ -961,9 +961,9 @@
       "title": "Los tests de apps/api dejan carpetas panel-* en /tmp (mkdtemp sin limpieza): agotaron los inodos de la VM el 05/10/2026. Limpiar lo creado en afterEach o usar un TMPDIR propio por corrida",
       "origin": 3,
       "priority": "medium",
-      "status": "open",
+      "status": "resolved",
       "targetSprint": 6,
-      "note": "Ver bitácora de docs/vm-setup.md y ~/.agents/scripts/clean-test-tmp.sh (paliativo)"
+      "note": "test/global-setup.ts: cada corrida de vitest usa su propio TMPDIR y lo borra al final; 774 tests pasan y /tmp queda igual (28 entradas antes y después)"
     },
     {
       "id": "debt-5",

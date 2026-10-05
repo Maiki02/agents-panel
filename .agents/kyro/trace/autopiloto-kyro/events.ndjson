@@ -152,3 +152,4 @@
 {"v":1,"ts":"2026-10-05T19:23:33.439Z","scope":"autopiloto-kyro","type":"gate_approved","gate":"checker","taskId":"T3.1"}
 {"v":1,"ts":"2026-10-05T19:23:46.934Z","scope":"autopiloto-kyro","type":"tool_command_run","surface":"cli","command":"debt","args":{"op":"add","id":"debt-4","priority":"medium"}}
 {"v":1,"ts":"2026-10-05T19:23:47.194Z","scope":"autopiloto-kyro","type":"tool_command_run","surface":"cli","command":"debt","args":{"op":"add","id":"debt-5","priority":"low"}}
+{"v":1,"ts":"2026-10-05T19:34:44.684Z","scope":"autopiloto-kyro","type":"tool_command_run","surface":"cli","command":"debt","args":{"op":"resolve","id":"debt-4"}}
