@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import type { Chat, ChatKind, ModelRole, PendingQuestion } from '@agents-panel/shared';
 import {
   AgentManager,
+  type PilotTurn,
   AlreadyRunningError,
   MaintenanceError,
   SessionLimitError,
@@ -25,6 +26,7 @@ import {
   type QuestionRepository,
 } from './questions-repo.js';
 import type { ChatRepository } from './repo.js';
+import { POLICY_VERSION, buildPolicy } from '../pilot/policy.js';
 import type { AutopilotRunRepository } from '../pilot/runs-repo.js';
 
 export class ChatError extends Error {
@@ -170,11 +172,17 @@ export class ChatService {
         );
         // Provisional role rule until the pilot picks one per step: the first turn of a scope or
         // work (init or plan) thinks, everything else executes.
-        this.startTurn(
-          chat.id,
-          buildInitialPrompt(input.kind, input.prompt),
-          input.kind === 'direct' ? 'executor' : 'thinker',
-        );
+        const initial = buildInitialPrompt(input.kind, input.prompt);
+        if (input.autopilot === true) {
+          // The pilot's first turn is a planning session: it runs under the same policy as the rest.
+          this.startTurn(chat.id, `${initial}\n\n${buildPolicy('plan')}`, 'thinker', {
+            step: 'plan',
+            policyVersion: POLICY_VERSION,
+            sprintN: null,
+          });
+        } else {
+          this.startTurn(chat.id, initial, input.kind === 'direct' ? 'executor' : 'thinker');
+        }
       } catch (error) {
         chats.delete(chat.id);
         throw error;
@@ -257,9 +265,14 @@ export class ChatService {
     return chat;
   }
 
-  private startTurn(chatId: number, text: string, role: ModelRole = 'executor'): void {
+  private startTurn(
+    chatId: number,
+    text: string,
+    role: ModelRole = 'executor',
+    pilot?: PilotTurn,
+  ): void {
     try {
-      this.deps.manager.start(chatId, text, { role });
+      this.deps.manager.start(chatId, text, { role, ...(pilot ? { pilot } : {}) });
     } catch (error) {
       if (
         error instanceof AlreadyRunningError ||

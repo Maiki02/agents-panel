@@ -6,6 +6,8 @@ import { UserRepository } from '../src/auth/users.js';
 import { ChatRepository } from '../src/chats/repo.js';
 import { AgentSessionRepository } from '../src/chats/sessions-repo.js';
 import { loadConfig } from '../src/config.js';
+import type { PilotKyro } from '../src/pilot/autopilot.js';
+import { POLICY_VERSION, buildPolicy } from '../src/pilot/policy.js';
 import { AutopilotRunRepository, AutopilotTransitionError } from '../src/pilot/runs-repo.js';
 import { ProjectRepository } from '../src/projects/repo.js';
 import { FakeRunner } from './fake-runner.js';
@@ -18,7 +20,19 @@ afterEach(async () => {
 });
 
 async function boot(overrides: Record<string, string> = {}) {
-  const made = makeApp(overrides, undefined, { runner: new FakeRunner() });
+  const runner = new FakeRunner();
+  // The pilot's loop is not under test here: its first read of Kyro never answers, so a run
+  // created with autopilot stays active while the assertions run.
+  const never = () => new Promise<never>(() => undefined);
+  const pilotKyro: PilotKyro = {
+    readScope: never,
+    readWork: never,
+    capabilities: never,
+    contextPackTask: never,
+    workContextPack: never,
+    analyze: never,
+  };
+  const made = makeApp(overrides, undefined, { runner, pilotKyro });
   app = made.app;
   await made.app.ready();
   const user = await new UserRepository(made.db).create('alice', PASSWORD);
@@ -48,7 +62,7 @@ async function boot(overrides: Record<string, string> = {}) {
       branch: `feature/${slug}`,
       status: 'idle',
     });
-  return { ...made, headers, project, chats, runs, post, get, newChat };
+  return { ...made, runner, headers, project, chats, runs, post, get, newChat };
 }
 
 describe('AutopilotRunRepository', () => {
@@ -135,6 +149,39 @@ describe('autopilot routes', () => {
       const info = (await get(`/api/chats/${String(chat.id)}/autopilot`)).json<AutopilotInfo>();
       expect(info.run).toMatchObject({ chatId: chat.id, status: 'active' });
     }
+  });
+
+  it('the first turn with autopilot carries the policy of the plan step and is a pilot session (R16)', async () => {
+    const { post, runner, db, project } = await boot();
+    const res = await post('/api/chats', {
+      projectId: project.id,
+      kind: 'scope',
+      slug: 'with-policy',
+      prompt: 'Armá algo',
+      autopilot: true,
+    });
+    expect(res.statusCode).toBe(201);
+    const first = runner.calls[0];
+    expect(first?.prompt).toContain('Request: Armá algo');
+    expect(first?.prompt).toContain(buildPolicy('plan'));
+    expect(first?.role).toBe('thinker');
+    const sessions = new AgentSessionRepository(db).listByChat(res.json<Chat>().id);
+    expect(sessions[0]).toMatchObject({ step: 'plan', policyVersion: POLICY_VERSION });
+  });
+
+  it('without autopilot the first prompt has no policy and the session is manual', async () => {
+    const { post, runner, db, project } = await boot();
+    const res = await post('/api/chats', {
+      projectId: project.id,
+      kind: 'scope',
+      slug: 'no-policy',
+      prompt: 'Armá algo',
+    });
+    expect(runner.calls[0]?.prompt).not.toContain('Autopilot policy');
+    expect(new AgentSessionRepository(db).listByChat(res.json<Chat>().id)[0]).toMatchObject({
+      step: 'manual',
+      policyVersion: null,
+    });
   });
 
   it('does not create a run without autopilot, and answers null', async () => {
