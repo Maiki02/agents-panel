@@ -175,3 +175,9 @@
 {"v":1,"ts":"2026-10-05T19:54:20.636Z","scope":"autopiloto-kyro","type":"tool_command_run","surface":"cli","command":"record-evidence","args":{"task":"T4.1","status":"done"}}
 {"v":1,"ts":"2026-10-05T19:54:20.970Z","scope":"autopiloto-kyro","type":"tool_command_run","surface":"cli","command":"review","args":{"task":"T4.1","verdict":"pass","requestDigest":"3814e96511a20c27c1e888f05b1c00776f0cc3e4b9693529f2cfa4f60bb8b083"}}
 {"v":1,"ts":"2026-10-05T19:54:20.976Z","scope":"autopiloto-kyro","type":"gate_approved","gate":"checker","taskId":"T4.1"}
+{"v":1,"ts":"2026-10-05T19:54:28.686Z","scope":"autopiloto-kyro","type":"route_selected","nextAction":"execute_task","packMode":"task","budgetClass":"execute","reasoningTier":"standard"}
+{"v":1,"ts":"2026-10-05T19:56:29.605Z","scope":"autopiloto-kyro","type":"validation_result","source":"analyze","blocking":false,"findingCount":9,"codes":["A001","A002","A003","A004","A005","A006","A007","A008","A009"]}
+{"v":1,"ts":"2026-10-05T19:56:37.695Z","scope":"autopiloto-kyro","type":"tool_command_run","surface":"cli","command":"record-evidence","args":{"task":"T4.2","status":"done"}}
+{"v":1,"ts":"2026-10-05T19:56:38.035Z","scope":"autopiloto-kyro","type":"tool_command_run","surface":"cli","command":"review","args":{"task":"T4.2","verdict":"pass","requestDigest":"634f6e403e690fad79eb395fd7c5ed67c510a285785c3ea9c97d6c5784302f80"}}
+{"v":1,"ts":"2026-10-05T19:56:38.040Z","scope":"autopiloto-kyro","type":"gate_approved","gate":"checker","taskId":"T4.2"}
+{"v":1,"ts":"2026-10-05T19:56:38.728Z","scope":"autopiloto-kyro","type":"route_selected","nextAction":"qa_or_close","packMode":"scope","budgetClass":"close","reasoningTier":"deep"}

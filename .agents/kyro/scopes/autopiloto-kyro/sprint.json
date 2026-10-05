@@ -503,7 +503,7 @@
     "slug": "orquestador-politica",
     "title": "Orquestador y política de gates",
     "objective": "Un scope o work con piloto activo avanza solo de sesión en sesión (plan con el pensante, ejecución y cierre con el ejecutor) decidiendo cada paso por señales de Kyro y del SDK, con la política de gates inyectada, QA y analyze verificados antes de cerrar, frenos con motivo y retoma tras reinicio, probado con runner y Kyro falsos.",
-    "status": "executing",
+    "status": "complete",
     "phases": [
       {
         "id": "P1",
@@ -970,7 +970,7 @@
         "id": "P4",
         "title": "Docs y verificación",
         "objective": "Los docs describen el piloto real y el sprint pasa todos los gates automáticos.",
-        "status": "active",
+        "status": "done",
         "tasks": [
           {
             "id": "T4.1",
@@ -1051,9 +1051,31 @@
               "S11",
               "S25"
             ],
-            "status": "pending",
-            "evidence": null,
-            "verdict": null
+            "status": "done",
+            "evidence": {
+              "summary": "Verificación automática del sprint 3: typecheck, lint, format:check, test y build salen con 0; 1012 tests (846 api + 166 web). Greps: sin bypassPermissions ni allowDangerouslySkipPermissions en apps/api, apps/web ni packages/shared; kyro-sprint-executor solo en policy.ts como cláusula que lo prohíbe; los únicos exec( son db.exec de SQLite (ningún comando externo nuevo sin execFile); apps/api/src/http y auth sin cambios (allowlist pública intacta, las rutas nuevas /api/chats/:id/autopilot exigen sesión y CSRF con test 401/403). kyro analyze: 9 MEDIUM, 0 CRITICAL ni HIGH.",
+              "validation": [
+                "npm run typecheck, lint, format:check, test, build: todos exit 0; 42 archivos y 846 tests en api, 19 archivos y 166 en web",
+                "grep bypassPermissions|allowDangerouslySkipPermissions, kyro-sprint-executor, exec(, git diff de http/auth: sin hallazgos",
+                "kyro analyze --kyro-scope autopiloto-kyro: MEDIUM 9, sin CRITICAL ni HIGH"
+              ],
+              "files_changed": [],
+              "by": "maker",
+              "recordedAt": "2026-10-05T19:56:37.691Z"
+            },
+            "verdict": {
+              "result": "pass",
+              "checked_criteria": [
+                "typecheck, lint, format:check, test y build salen con 0 y se registra el número de tests.",
+                "Los greps no encuentran bypass, kyro-sprint-executor fuera de la prohibición, shell ni rutas públicas nuevas.",
+                "kyro analyze no tiene CRITICAL ni HIGH."
+              ],
+              "findings": [],
+              "by": "checker",
+              "reviewedAt": "2026-10-05T19:56:37.953Z",
+              "requestDigest": "634f6e403e690fad79eb395fd7c5ed67c510a285785c3ea9c97d6c5784302f80",
+              "reviewedMaterialDigest": "33e6d75df2f0cfa96ec585cdbc8463714cb6296cf3f4f8d0d8d05d9266cbc810"
+            }
           }
         ]
       }
@@ -1116,11 +1138,11 @@
     }
   ],
   "handoff": {
-    "nextAction": "execute_task",
-    "nextTaskId": "T4.2",
+    "nextAction": "qa_or_close",
+    "nextTaskId": null,
     "blockers": [],
-    "note": "Task T4.1 passed checker review.",
-    "lastUpdated": "2026-10-05T19:54:20.886Z"
+    "note": "Task T4.2 passed checker review.",
+    "lastUpdated": "2026-10-05T19:56:37.953Z"
   },
   "author": {
     "name": "Maiki02",
