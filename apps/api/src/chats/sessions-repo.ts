@@ -71,6 +71,23 @@ export class AgentSessionRepository {
       .run(this.now(), result, id);
   }
 
+  /** Latest session of the chat that never ended (the process died with it); undefined if none. */
+  lastOpen(chatId: number): AgentSession | undefined {
+    const row = this.db
+      .prepare(
+        'SELECT * FROM agent_sessions WHERE chat_id = ? AND ended_at IS NULL ORDER BY id DESC LIMIT 1',
+      )
+      .get(chatId) as SessionRow | undefined;
+    return row ? toSession(row) : undefined;
+  }
+
+  /** Closes every session still open: at startup nothing of the previous process is running. */
+  closeOpen(result: string): void {
+    this.db
+      .prepare('UPDATE agent_sessions SET ended_at = ?, result = ? WHERE ended_at IS NULL')
+      .run(this.now(), result);
+  }
+
   listByChat(chatId: number): AgentSession[] {
     return (
       this.db

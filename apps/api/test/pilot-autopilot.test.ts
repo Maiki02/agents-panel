@@ -1,3 +1,4 @@
+import { fingerprint } from '../src/pilot/decide.js';
 import { describe, expect, it } from 'vitest';
 import type { AutopilotStep } from '@agents-panel/shared';
 import { AgentManager } from '../src/agent/manager.js';
@@ -112,6 +113,7 @@ class FakeKyro implements PilotKyro {
 }
 
 function stepOf(prompt: string): string {
+  if (prompt.includes('panel restarted')) return 'execute';
   if (prompt.includes('This is a planning session')) return 'plan';
   if (prompt.includes('Fix the findings')) return 'fix';
   if (prompt.includes('This is a closing session')) return 'close';
@@ -146,7 +148,9 @@ async function setup(
   runner.script = (params: RunParams) => {
     const step = stepOf(params.prompt);
     // Only the pilot's prompts move Kyro; a manual message does nothing to it.
-    if (params.prompt.includes('Autopilot policy')) kyro.apply(step);
+    if (params.prompt.includes('Autopilot policy') || params.prompt.includes('panel restarted')) {
+      kyro.apply(step);
+    }
     n++;
     const events: AgentEvent[] = [
       { type: 'system:init', payload: {}, sessionId: `sess-${String(n)}` },
@@ -175,6 +179,7 @@ async function setup(
     kyro,
     tracker,
     questions,
+    sessions,
     maxSessionsPerSprint: opts.maxSessions ?? 6,
     now: () => clock,
     schedule: (fn, ms) => scheduled.push({ fn, ms }),
@@ -474,5 +479,92 @@ describe('event readers', () => {
       ]),
     ).toBe(true);
     expect(hitUsageLimit([event('result:success', { is_error: false, result: 'ok' })])).toBe(false);
+  });
+});
+
+describe('resuming after a restart (S16)', () => {
+  /** A run in the middle of its execution step: Kyro at execute_task, an open SDK session. */
+  async function midStep(opts: Parameters<typeof setup>[0] = {}) {
+    const t = await setup({ total: 1, ...opts });
+    t.kyro.apply('plan');
+    t.runs.beginSession(t.chat.id, {
+      step: 'execute',
+      sprintN: 1,
+      fingerprint: fingerprint(t.kyro.state),
+      policyVersion: POLICY_VERSION,
+    });
+    t.sessions.open(t.chat.id, 'executor', 'claude', 'claude-sonnet-5-5', 1, {
+      step: 'execute',
+      policyVersion: POLICY_VERSION,
+    });
+    t.chats.setSessionId(t.chat.id, 'sess-old');
+    t.chats.setStatus(t.chat.id, 'interrupted');
+    return t;
+  }
+
+  it('resumes the same step with resume of the SDK session and no message from the user', async () => {
+    const t = await midStep();
+    t.pilot.resumeAll();
+    await t.pilot.drive(t.chat.id);
+
+    const first = t.runner.calls[0];
+    expect(first).toMatchObject({ resumeSessionId: 'sess-old', role: 'executor' });
+    expect(first?.prompt).toContain('panel restarted');
+    const sessions = t.sessions.listByChat(t.chat.id);
+    expect(sessions[0]).toMatchObject({ step: 'execute', result: 'interrupted' });
+    expect(sessions[1]).toMatchObject({ step: 'execute' });
+    // The resumed session counts for the sprint and the route goes on to the closing.
+    expect(sessions.map((s) => s.step)).toEqual(['execute', 'execute', 'close']);
+    expect(t.runs.get(t.chat.id)).toMatchObject({ status: 'stopped' });
+  });
+
+  it('does not resume a paused or switched-off run', async () => {
+    const paused = await midStep();
+    paused.runs.pause(paused.chat.id);
+    paused.pilot.resumeAll();
+    await paused.pilot.drive(paused.chat.id);
+    expect(paused.runner.calls).toHaveLength(0);
+
+    const off = await midStep();
+    off.runs.turnOff(off.chat.id);
+    off.pilot.resumeAll();
+    await off.pilot.drive(off.chat.id);
+    expect(off.runner.calls).toHaveLength(0);
+  });
+
+  it('a run waiting for the usage limit keeps its retry_at', async () => {
+    const t = await midStep();
+    t.runs.waitForQuota(t.chat.id, t.clock() + 5 * 60_000);
+    t.pilot.resumeAll();
+    expect(t.scheduled.map((x) => x.ms)).toEqual([5 * 60_000]);
+    await t.pilot.drive(t.chat.id);
+    expect(t.runner.calls).toHaveLength(0);
+
+    t.scheduled[0]?.fn();
+    await t.pilot.drive(t.chat.id);
+    expect(t.runner.calls.length).toBeGreaterThan(0);
+  });
+
+  it('repeated restarts end in tope_de_sesiones, not in a loop', async () => {
+    const t = await midStep({ maxSessions: 1 });
+    t.pilot.resumeAll();
+    await t.pilot.drive(t.chat.id);
+    expect(t.runner.calls).toHaveLength(0);
+    expect(t.states.get(t.chat.id)).toMatchObject({
+      state: 'bloqueado',
+      blockedReason: 'tope_de_sesiones',
+    });
+  });
+
+  it('a run between steps (no open session) decides again from Kyro', async () => {
+    const t = await setup({ total: 1 });
+    t.pilot.resumeAll();
+    await t.pilot.drive(t.chat.id);
+    expect(t.sessions.listByChat(t.chat.id).map((s) => s.step)).toEqual([
+      'plan',
+      'execute',
+      'close',
+    ]);
+    expect(t.runner.calls.every((c) => c.resumeSessionId === undefined)).toBe(true);
   });
 });

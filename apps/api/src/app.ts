@@ -146,6 +146,7 @@ export function buildApp(deps: AppDeps, options: FastifyServerOptions = {}): Fas
   const realKyro = new KyroReader();
   const kyroReader = deps.kyroReader ?? realKyro;
   const tracker = new WorktreeStateTracker(worktreeState, kyroReader);
+  const agentSessions = new AgentSessionRepository(deps.db, now);
   const manager =
     deps.manager ??
     new AgentManager(
@@ -154,7 +155,7 @@ export function buildApp(deps: AppDeps, options: FastifyServerOptions = {}): Fas
       bus,
       undefined,
       questions,
-      new AgentSessionRepository(deps.db, now),
+      agentSessions,
       tracker,
       (projectId) => projects.getBashExtras(projectId),
     );
@@ -171,6 +172,7 @@ export function buildApp(deps: AppDeps, options: FastifyServerOptions = {}): Fas
     kyro: deps.pilotKyro ?? realKyro,
     tracker,
     questions,
+    sessions: agentSessions,
     maxSessionsPerSprint: deps.config.pilotMaxSessionsPerSprint,
     now,
   });
@@ -206,6 +208,8 @@ export function buildApp(deps: AppDeps, options: FastifyServerOptions = {}): Fas
   // Clones that were running when the server stopped can never finish: mark them as errors.
   app.addHook('onReady', async () => {
     await projectService.recoverInterrupted();
+    // The pilots that were moving pick up where they were (after the restart marked their chats).
+    pilot.resumeAll();
     // Same for Kyro updates: a run left 'running' by a restart can never finish.
     runs.failInterrupted();
   });

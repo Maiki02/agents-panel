@@ -1,6 +1,7 @@
-import type { AutopilotRun, Chat, ChatEvent } from '@agents-panel/shared';
+import type { AutopilotRun, AutopilotStep, Chat, ChatEvent, ModelRole } from '@agents-panel/shared';
 import { SessionLimitError, MaintenanceError, type AgentManager } from '../agent/manager.js';
 import type { ChatRepository } from '../chats/repo.js';
+import type { AgentSessionRepository } from '../chats/sessions-repo.js';
 import type { QuestionRepository } from '../chats/questions-repo.js';
 import type { KyroReadResult } from '../kyro/reader.js';
 import type {
@@ -42,10 +43,30 @@ export interface AutopilotDeps {
   kyro: PilotKyro;
   tracker: WorktreeStateTracker;
   questions: QuestionRepository;
+  /** Sessions of every chat; needed to resume an interrupted step after a restart. */
+  sessions?: AgentSessionRepository;
   maxSessionsPerSprint?: number;
   now?: () => number;
   /** Runs `fn` after `ms`; injectable so tests do not wait 15 minutes. */
   schedule?: (fn: () => void, ms: number) => void;
+}
+
+/** Short prompt for a step that a restart cut: the policy was already given in its session. */
+const CONTINUE_PROMPT = [
+  'The panel restarted while you were working on this step and your session was interrupted.',
+  'Continue the same step where it stopped: re-read "kyro context-pack --kyro-scope <scope> --task --json" (or "kyro work context-pack" for a work) to see where Kyro is, and keep following the autopilot policy you were given. Do not start over.',
+].join('\n');
+
+interface PendingResume {
+  role: ModelRole;
+  step: AutopilotStep;
+  sprintN: number | null;
+  policyVersion: number;
+}
+
+interface AfterClose {
+  closedBefore: number;
+  fromSeq: number;
 }
 
 const BLOCKING_SEVERITIES = new Set(['CRITICAL', 'HIGH']);
@@ -103,6 +124,8 @@ export function hitUsageLimit(events: ChatEvent[]): boolean {
  */
 export class Autopilot {
   private readonly loops = new Map<number, Promise<void>>();
+  /** Steps interrupted by a restart, to reopen in their SDK session on the next pass of the loop. */
+  private readonly pendingResume = new Map<number, PendingResume>();
   private readonly max: number;
   private readonly now: () => number;
   private readonly schedule: (fn: () => void, ms: number) => void;
@@ -152,7 +175,7 @@ export class Autopilot {
   private async loop(chatId: number): Promise<void> {
     const { chats, runs, manager, kyro, questions } = this.deps;
     let last: LastSession | null = null;
-    let afterClose: { closedBefore: number; fromSeq: number } | null = null;
+    let afterClose: AfterClose | null = null;
     for (;;) {
       let run = runs.get(chatId);
       const chat = chats.findById(chatId);
@@ -187,6 +210,16 @@ export class Autopilot {
         return;
       }
       const state = read.state;
+
+      const resume = this.pendingResume.get(chatId);
+      if (resume !== undefined) {
+        this.pendingResume.delete(chatId);
+        const resumed = await this.resumeStep(chat, resume, state);
+        if (resumed === null) return;
+        last = resumed.last;
+        afterClose = resumed.afterClose;
+        continue;
+      }
 
       // Closing a sprint without having run QA is never accepted (R8).
       if (afterClose !== null) {
@@ -271,33 +304,145 @@ export class Autopilot {
         afterClose = { closedBefore: state.sprint.closed ?? 0, fromSeq };
       }
 
-      await manager.waitForIdle(chatId);
-      const ended = chats.findById(chatId);
-      const events = chats.allEventsAfter(chatId, fromSeq);
-      if (hitUsageLimit(events)) {
-        this.waitForQuota(chat);
-        return;
-      }
-      if (ended?.status === 'cancelled') {
-        // The user cancelled the turn: the pilot waits for them instead of opening the next step.
-        runs.pause(chatId);
-        this.leave(chat, runs.get(chatId));
-        return;
-      }
-      if (ended?.status === 'error') {
-        this.stop(chat, {
-          state: 'bloqueado',
-          blockedReason: 'otro',
-          detail: 'La sesión del agente terminó con error',
-        });
-        return;
-      }
-      last = {
-        result: 'idle',
-        answeredQuestion: questions.listByChat(chatId, 'answered').length > answeredBefore,
-      };
+      const settled = await this.settle(chat, fromSeq, answeredBefore);
+      if (settled === 'exit') return;
+      last = settled;
       this.drainQueue();
     }
+  }
+
+  /** Waits for the session to end and reads how it ended; 'exit' when the loop must stop. */
+  private async settle(
+    chat: Chat,
+    fromSeq: number,
+    answeredBefore: number,
+  ): Promise<LastSession | 'exit'> {
+    const { chats, runs, manager, questions } = this.deps;
+    await manager.waitForIdle(chat.id);
+    const ended = chats.findById(chat.id);
+    const events = chats.allEventsAfter(chat.id, fromSeq);
+    if (hitUsageLimit(events)) {
+      this.waitForQuota(chat);
+      return 'exit';
+    }
+    if (ended?.status === 'cancelled') {
+      // The user cancelled the turn: the pilot waits for them instead of opening the next step.
+      runs.pause(chat.id);
+      this.leave(chat, runs.get(chat.id));
+      return 'exit';
+    }
+    if (ended?.status === 'error') {
+      this.stop(chat, {
+        state: 'bloqueado',
+        blockedReason: 'otro',
+        detail: 'La sesión del agente terminó con error',
+      });
+      return 'exit';
+    }
+    this.drainQueue();
+    return {
+      result: 'idle',
+      answeredQuestion: questions.listByChat(chat.id, 'answered').length > answeredBefore,
+    };
+  }
+
+  /**
+   * After a restart: takes up again every run that was moving. A step that had an SDK session is
+   * resumed with `resume` and a short continuation prompt (no message from the user); a run between
+   * steps decides again from Kyro. Paused and switched-off runs stay as they are, and a run waiting
+   * for the usage limit keeps its `retry_at`.
+   */
+  resumeAll(): void {
+    const { runs, chats, sessions } = this.deps;
+    const interrupted = new Map(
+      chats
+        .list()
+        .map((chat) => [chat.id, sessions?.lastOpen(chat.id)] as const)
+        .filter(([, open]) => open !== undefined),
+    );
+    // Nothing of the old process is still running: its open sessions ended with the restart.
+    sessions?.closeOpen('interrupted');
+
+    for (const run of runs.listByStatus('waiting_quota')) {
+      const wait = Math.max(0, (run.retryAt ?? 0) - this.now());
+      this.schedule(() => {
+        try {
+          runs.retryAfterQuota(run.chatId);
+        } catch {
+          return; // Paused or switched off while waiting.
+        }
+        this.kick(run.chatId);
+      }, wait);
+    }
+    for (const run of runs.listByStatus('active')) {
+      const open = interrupted.get(run.chatId);
+      if (open !== undefined && open.step !== 'manual') {
+        if (run.sessionsInSprint >= this.max) {
+          const chat = chats.findById(run.chatId);
+          if (chat) {
+            this.stop(chat, {
+              state: 'bloqueado',
+              blockedReason: 'tope_de_sesiones',
+              detail: `El sprint llegó al tope de ${String(this.max)} sesiones`,
+            });
+          }
+          continue;
+        }
+        this.pendingResume.set(run.chatId, {
+          role: open.role,
+          step: open.step,
+          sprintN: open.sprintN,
+          policyVersion: open.policyVersion ?? POLICY_VERSION,
+        });
+      }
+      this.kick(run.chatId);
+    }
+    this.drainQueue();
+  }
+
+  /** Reopens the interrupted step in its SDK session; null when the loop must stop. */
+  private async resumeStep(
+    chat: Chat,
+    resume: PendingResume,
+    state: KyroScopeState | KyroWorkState,
+  ): Promise<{ last: LastSession; afterClose: AfterClose | null } | null> {
+    const { chats, runs, manager, questions } = this.deps;
+    const fromSeq = chats.lastSeq(chat.id);
+    const answeredBefore = questions.listByChat(chat.id, 'answered').length;
+    try {
+      manager.start(chat.id, CONTINUE_PROMPT, {
+        role: resume.role,
+        pilot: {
+          step: resume.step,
+          policyVersion: resume.policyVersion,
+          sprintN: resume.sprintN,
+        },
+      });
+    } catch (error) {
+      if (error instanceof SessionLimitError || error instanceof MaintenanceError) {
+        this.queue(chat);
+        this.pendingResume.set(chat.id, resume);
+        return null;
+      }
+      throw error;
+    }
+    runs.countSession(chat.id);
+    const settled = await this.settle(chat, fromSeq, answeredBefore);
+    if (settled === 'exit') return null;
+    // The QA check covers the whole step, so it counts from where the interrupted session began.
+    const afterClose =
+      resume.step === 'close' && state.kind === 'scope'
+        ? { closedBefore: state.sprint.closed ?? 0, fromSeq: this.stepStartSeq(chat.id) }
+        : null;
+    return { last: settled, afterClose };
+  }
+
+  /** Seq just before the latest `session_started` event of the chat. */
+  private stepStartSeq(chatId: number): number {
+    const started = this.deps.chats
+      .allEventsAfter(chatId, 0)
+      .filter((event) => event.type === 'session_started');
+    return Math.max(0, (started.at(-2)?.seq ?? 1) - 1);
   }
 
   private taskContext(

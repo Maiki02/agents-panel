@@ -81,6 +81,17 @@ export class AutopilotRunRepository {
     return row ? toRun(row) : undefined;
   }
 
+  /** A resumed step counts as one more session of the sprint (the restart cap depends on it). */
+  countSession(chatId: number): AutopilotRun {
+    this.require(chatId);
+    this.db
+      .prepare(
+        'UPDATE autopilot_runs SET sessions_in_sprint = sessions_in_sprint + 1, updated_at = ? WHERE chat_id = ?',
+      )
+      .run(this.now(), chatId);
+    return this.require(chatId);
+  }
+
   /** Runs in a status, oldest first (the pilot lists the queued ones when a session frees up). */
   listByStatus(status: AutopilotStatus): AutopilotRun[] {
     return (
