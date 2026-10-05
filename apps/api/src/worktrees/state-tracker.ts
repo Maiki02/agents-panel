@@ -25,6 +25,8 @@ export interface TurnObserver {
 
 /** After these the user resumed the work by sending a message: the agent is moving again. */
 const STOPPED: readonly WorktreeStateId[] = ['interrumpido', 'error'];
+/** Waits for a question or a permission: a restart cancels them, so a resume never goes back to one. */
+const QUESTION_WAITS: readonly WorktreeStateId[] = ['esperando_respuesta', 'esperando_permiso'];
 /** The state before the first turn of a scope or work. */
 const PREPARING: readonly WorktreeStateId[] = [
   'en_cola',
@@ -76,7 +78,7 @@ export class WorktreeStateTracker implements TurnObserver {
       });
     } else if (STOPPED.includes(current.state)) {
       this.states.transition(chat.id, {
-        state: current.previousState ?? 'planificando',
+        state: this.resumeState(chat, current.previousState),
         actor: 'user',
         reason: 'Retomó el trabajo con un mensaje',
         ...common,
@@ -85,6 +87,19 @@ export class WorktreeStateTracker implements TurnObserver {
       // Same state: only the role and model of the running session change.
       this.states.transition(chat.id, { ...this.keep(current), actor: 'agent', ...common });
     }
+  }
+
+  /** The state a stopped work goes back to: the one before the question it was waiting on, if any. */
+  private resumeState(chat: Chat, previous: WorktreeStateId | null): WorktreeStateId {
+    let state = previous;
+    if (state !== null && QUESTION_WAITS.includes(state)) {
+      const entry = this.states
+        .timeline(chat.id)
+        .reverse()
+        .find((transition) => transition.toState === state);
+      state = entry?.fromState ?? null;
+    }
+    return state === null || QUESTION_WAITS.includes(state) ? 'planificando' : state;
   }
 
   /** Reads Kyro after the turn: the next state is whatever the CLI reports. */

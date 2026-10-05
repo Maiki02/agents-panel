@@ -437,4 +437,31 @@ describe('WorktreeStateTracker', () => {
     expect(kinds).toContainEqual(['interrumpido', 'system']);
     expect(kinds).toContainEqual(['escribiendo_codigo', 'user']);
   });
+
+  it('resuming after a restart that cancelled a question never goes back to waiting for it', async () => {
+    const reader = fakeReader({ ok: true, state: scopeFrom('execute_task') });
+    const { states, manager, chat, tracker, chats } = await wire(reader);
+    tracker.created(chat);
+    manager.start(chat.id, 'go');
+    await manager.waitForIdle(chat.id);
+    const before = states.get(chat.id)?.state;
+    tracker.questionAsked(chat);
+    expect(states.get(chat.id)?.state).toBe('esperando_respuesta');
+    chats.setStatus(chat.id, 'running');
+    tracker.markInterrupted(chats.listRunning());
+    chats.setStatus(chat.id, 'interrupted');
+    tracker.turnStarted(chat, { role: 'executor', model: 'm' });
+    expect(states.get(chat.id)?.state).toBe(before);
+    expect(states.get(chat.id)?.state).not.toBe('esperando_respuesta');
+    expect(states.timeline(chat.id).at(-1)).toMatchObject({ actor: 'user' });
+  });
+
+  it('falls back to planificando when the state before the question is unknown', async () => {
+    const reader = fakeReader({ ok: true, state: scopeFrom('execute_task') });
+    const { states, tracker, chat } = await wire(reader);
+    states.transition(chat.id, { state: 'esperando_respuesta', actor: 'agent' });
+    states.transition(chat.id, { state: 'interrumpido', actor: 'system' });
+    tracker.turnStarted(chat, { role: 'executor', model: 'm' });
+    expect(states.get(chat.id)?.state).toBe('planificando');
+  });
 });
