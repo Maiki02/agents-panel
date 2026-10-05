@@ -49,7 +49,7 @@ Si el setup o la escritura de los `.env` fallan, el worktree no llega a existir:
 | `registrando_evidencia` | Registrando evidencia | A | `kyro record-evidence` en curso | `revisando_tarea` |
 | `revisando_tarea` | Revisando tarea | A | `kyro review` en curso; `nextAction = review_task` | `escribiendo_codigo` (siguiente tarea), `corrigiendo`, `qa` |
 | `esperando_permiso` | Pide permiso | Vos | `canUseTool` recibió una herramienta fuera de la lista permitida | estado anterior |
-| `esperando_respuesta` | Te hizo una pregunta | Vos | El agente usó `AskUserQuestion` | estado anterior |
+| `esperando_respuesta` | Te hizo una pregunta | Vos | Hay una fila de `pending_questions` con `status = pending` para el chat (ver abajo) | estado anterior |
 
 ### QA
 
@@ -112,6 +112,17 @@ stateDiagram-v2
   pr_lista --> mergeada --> limpiando --> archivado --> [*]
 ```
 
+### Pregunta pendiente (`esperando_respuesta`)
+
+Es una señal verificable, no una frase del agente: el panel solo la da por cierta si existe la fila.
+
+- **Fuente:** tabla `pending_questions` (migración 7): `chat_id`, `tool_use_id`, `questions` (JSON con las preguntas y sus opciones), `status` (`pending` · `answered` · `cancelled`), `answer`, `answered_by`, `created_at` y `answered_at`. Es única por chat y `tool_use_id`, y la base misma impide una respuesta sin `answered_by` ni `answered_at` (nadie responde por vos).
+- **Cuándo nace:** el agente usa `AskUserQuestion`; el hook `PreToolUse` la deja pasar y `canUseTool` guarda la fila, publica el evento `question_asked` y **espera sin límite de tiempo**. Nunca se contesta sola.
+- **Mientras espera:** el chat sigue en `running` (el turno no terminó) y la web muestra un único badge ámbar «Esperando tu respuesta» (tono `warn`: te toca a vos), más la tarjeta con un botón por opción y «Otra respuesta». `GET /api/chats/:id/questions` lista las preguntas del chat.
+- **Cómo sale:** `POST /api/chats/:id/questions/:qid/answer` guarda la respuesta y quién la dio, registra `question_answered` y se la devuelve al agente **en la misma sesión** (`updatedInput`), que sigue con ella. Volver a responder da 409.
+- **Si se cancela** (cancelar el trabajo, terminar el turno o reiniciar el panel) la fila pasa a `cancelled` y queda el evento `question_cancelled`. Tras un reinicio el chat queda `interrupted`; al reanudar con un mensaje, el agente vuelve a hacer la pregunta (con otro `tool_use_id`).
+- **Qué la distingue de `esperando_permiso`:** el permiso viene de `canUseTool` con una herramienta fuera de la lista (`permission_denied`); la pregunta viene de `AskUserQuestion` y tiene su propia tabla. En el MVP del permiso solo se registra la denegación.
+
 ## Cómo lo implementa el panel
 
 - **Fuente de verdad del estado:** tabla `worktree_state` en SQLite (estado, detalle, desde cuándo, estado previo). Cada cambio se guarda como evento y se manda por SSE.
@@ -120,7 +131,23 @@ stateDiagram-v2
 - **GitHub:** sondeo de `gh pr list` / `gh pr checks` cada pocos minutos para los estados de PR.
 - **Arranque del panel:** toda sesión que estaba activa pasa a `interrumpido`, y los builds en cola se vuelven a encolar.
 
-Pendiente: confirmar los nombres exactos de `nextAction` y los campos de `kyro status --json` en la VM.
+### Campos reales de Kyro (confirmados en la VM)
+
+Confirmados el 05/10/2026 con Kyro 6.1.0, capturando la salida real de un scope y un Work descartables en un repo temporal (`apps/api/test/fixtures/kyro/capture.sh`). Todos los `--json` imprimen `{ ok, command, data }`; con `ok: false` viene `error: { code, message }`. El lector tipado es `apps/api/src/kyro/state.ts` (`parseScopeState`, `parseWorkState`).
+
+**Scope.** Se combinan dos lecturas, que tienen que coincidir en `nextAction` (si no, el estado se movió entre las dos y se vuelve a leer):
+
+| Dato | De dónde sale |
+|---|---|
+| `nextAction`, `nextTaskId`, `status`, `openDebtCount`, `blockers[].reason` | `kyro context-pack --kyro-scope <s> --json` → `data.*` |
+| Sprint actual | `kyro status full --kyro-scope <s> --json` → `data.activeSprint.n` (`null` si no hay sprint activo) |
+| Tarea n/m | `data.taskSummary.verified` / `data.taskSummary.total` del mismo `status full` |
+| Reviews pendientes | `data.pendingReviewCount` del `status full` |
+| Total de sprints, sprints cerrados | **Ningún comando los imprime**: salen de `roadmap.plannedSprintCount` y `ledger.length` de `sprint.json` (lectura, nunca escritura) |
+
+`nextAction` de un scope que se observaron: `plan_sprint` (recién creado o con el sprint anterior cerrado), `clarify` (preguntas abiertas o marcadores `[NEEDS CLARIFICATION]`), `execute_task`, `review_task`, `qa_or_close`, `await_scope_completion` (hoja de ruta agotada, o sin tareas listas) y `done` (`status: completed`). **`close_sprint` existe en el esquema pero Kyro 6.1.0 nunca lo escribe**: tras `qa_or_close`, `kyro close-sprint` pasa directo a `plan_sprint` o `await_scope_completion`. Por eso el piloto decide el cierre desde `qa_or_close` y el parser igual lo acepta por si una versión futura lo emite. `init` tampoco se observa.
+
+**Work** (`kyro work status --work <slug> --json` → `data`): `work.{id,revision,state}` (`state`: `draft`, `active`, `closed`), `nextAction`, `nextTaskId`, `blockedReason` y `summary.{verified,disposed,pending,inProgress,blocked,awaitingReview,unresolved}` (listas de ids; tarea n/m = verificadas + descartadas sobre el total). `nextAction` de un Work: `plan_tasks`, `execute_task`, `review_task`, `resolve_blocker` (con `blockedReason`), `ready_to_close` y `done` (con `closure`). Toda escritura de un Work pide `--expect-revision` con el `revision` leído acá.
 
 ## Estado de sesión del MVP (etapa 4)
 
@@ -136,4 +163,4 @@ Antes de que exista el estado fino, cada chat guarda un **estado grueso de sesi�
 
 Un chat `running` rechaza nuevos mensajes con 409; y no puede haber más de 4 sesiones `running` a la vez (la quinta da 409).
 
-**Mapeo a los estados finos (etapa 5):** `running` pasa a ser cualquiera de los estados de Preparación/Planificación/Ejecución/QA según las señales de Kyro, git y `gh`; `idle` se mapea al estado en que quedó la fase (o `esperando_usuario` si el agente pidió algo); `interrupted` y `cancelled` equivalen a las transversales `interrumpido` y `cancelado`; `error` es la transversal `error`. La tabla `worktree_state` se agrega encima: `chats.status` sigue siendo el estado de la *sesión*, no del *worktree*.
+**Mapeo a los estados finos (etapa 5):** `running` pasa a ser cualquiera de los estados de Preparación/Planificación/Ejecución/QA según las señales de Kyro, git y `gh`; `idle` se mapea al estado en que quedó la fase; una pregunta pendiente (`pending_questions`) es `esperando_respuesta` y la sesión sigue `running` mientras espera (el turno no terminó); `interrupted` y `cancelled` equivalen a las transversales `interrumpido` y `cancelado`; `error` es la transversal `error`. La tabla `worktree_state` se agrega encima: `chats.status` sigue siendo el estado de la *sesión*, no del *worktree*.

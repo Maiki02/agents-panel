@@ -165,6 +165,25 @@ Si algún proyecto tiene cambios locales fuera de `.agents/kyro/`, esa raíz se 
 
 Para probarlo en desarrollo sin tocar el Kyro real de la VM, apuntar `PANEL_KYRO_UPDATE_SCRIPT` en `apps/api/.env` a un script propio (por ejemplo uno que imprima `KYRO_VERSION=9.9.9` y salga con 0 o con 1) y reiniciar la API. Mientras la corrida está `running`, crear un chat o mandar un mensaje responde 409. Para correr el script verdadero a mano: `bash scripts/vm/08-kyro-update.sh ~/proyectos/agents-panel` (ver `vm-setup.md`, paso 14).
 
+### Probar una pregunta del agente
+
+Para ver de punta a punta que el agente pregunta y que tu respuesta vuelve a su sesión (con la API y la web levantadas, sección 4):
+
+1. En un proyecto, **Nuevo chat → Pedido directo** y pedí, por ejemplo: «Usá AskUserQuestion una vez para preguntarme mi color favorito con las opciones Rojo y Azul y después decime qué elegí».
+2. En el chat aparece una tarjeta con un botón por opción y el campo **Otra respuesta**, el badge del encabezado dice **Esperando tu respuesta** (ámbar) y el chat sigue «en curso». Enviar queda deshabilitado, con el motivo al lado, hasta que elijas algo. No vence: podés dejarla abierta.
+3. Elegí una opción (o escribí en «Otra respuesta») y **Enviar**. La tarjeta pasa al historial como pregunta y respuesta y el agente sigue y cita lo que elegiste.
+4. Para ver el 409, mandá otra vez el POST de abajo: la pregunta ya está respondida.
+5. Para ver la cancelación: repetí el pedido y apretá **Cancelar** sin responder, la pregunta queda cancelada y el chat «Cancelado». Si en cambio reiniciás la API (`dev-panel.sh`) con la pregunta abierta, queda cancelada y el chat «Interrumpido»; al mandar un mensaje, el agente retoma y la vuelve a preguntar.
+
+Referencia de la API (piden sesión, CSRF y `Origin`):
+
+| Acción | Llamada | Respuestas |
+|---|---|---|
+| Listar | `GET /api/chats/:id/questions` | **200** lista de `{ id, toolUseId, questions, status, answer, answeredBy, createdAt, answeredAt }` (`status`: `pending`, `answered`, `cancelled`) |
+| Responder | `POST /api/chats/:id/questions/:qid/answer` `{ "answer": { "<texto de la pregunta>": { "selected": ["Azul"], "text": null } } }` | **200** la pregunta respondida, **400** si la opción no existe, falta una pregunta o no hay respuesta, **404** si el chat o la pregunta no existen o son de otro chat, **409** si ya fue respondida o cancelada |
+
+Hay una entrada por pregunta; cada una lleva `selected` (opciones elegidas, una sola si no es de selección múltiple) y/o `text` (hasta 2000 caracteres). Para repetir los spikes que confirmaron el método contra el SDK real (suscripción de la VM, sin tocar el repo): `npx tsx apps/api/scripts/spike-ask-question.ts` y `npx tsx apps/api/scripts/spike-forge-policy.ts` desde `apps/api`.
+
 ## 4. Levantar backend y frontend en la VM
 
 Lo más simple, desde cualquier carpeta de la VM: `bash ~/proyectos/agents-panel/scripts/dev-panel.sh`. Mata las sesiones `panel-api` y `panel-web` si existen, compila `packages/shared`, levanta la API y la web cada una en su sesión de tmux y espera a que `/api/health` responda. Sirve también para reiniciar después de cambiar código. A mano, lo mismo (hay que estar parado en el repo):

@@ -131,12 +131,12 @@ Los estados del proyecto son distintos de los estados de un worktree (ver [`esta
 
 | Fase | De dónde sale |
 | --- | --- |
-| Planificación | `kyro context-pack --json` (`nextAction`: `plan_sprint`, `clarify`) |
-| Ejecución | `nextAction`: `execute_task`, `review_task`; avance = tareas con review `pass` / total |
-| QA | `/kyro:qa`; `nextAction`: `close_sprint` |
+| Planificación | `kyro context-pack --json` (`nextAction`: `plan_sprint`, `clarify`; en un Work, `kyro work status --json`: `plan_tasks`) |
+| Ejecución | `nextAction`: `execute_task`, `review_task` (en un Work también `resolve_blocker`); avance = tareas con review `pass` / total |
+| QA y cierre | `/kyro:qa`; `nextAction`: `qa_or_close` (en un Work, `ready_to_close`). Después del cierre, `plan_sprint` o `await_scope_completion` |
 | PR a dev | `gh pr list --head feature-<scope> --json url,state,statusCheckRollup` |
 
-Pendiente: confirmar en la VM los campos exactos de `kyro status --json` y `kyro context-pack --json`.
+Campos confirmados en la VM con Kyro 6.1.0 (05/10/2026, scope `autopiloto-kyro`, T1.2). Las fixtures reales están en `apps/api/test/fixtures/kyro/` (se regeneran con `capture.sh`) y las lee `apps/api/src/kyro/state.ts`; ver el detalle en [`estados.md`](estados.md#campos-reales-de-kyro-confirmados-en-la-vm).
 
 ## Arquitectura
 
@@ -165,7 +165,7 @@ flowchart LR
 
 - **Backend Node + TypeScript** (Fastify). Se autentica con tu suscripción mediante `claude setup-token`.
 - **Una sesión por scope o work:** `query()` del SDK con `cwd` en el worktree y `settingSources: ['project', 'user']` (carga `CLAUDE.md`, `.claude/agents` y las skills, incluidas las `kyro-*`). `permissionMode: 'acceptEdits'` más una lista de comandos permitidos (git, gh, go, npm, kyro).
-- **Permisos y preguntas:** `canUseTool` manda al panel lo que no está permitido y espera tu respuesta.
+- **Permisos y preguntas:** las herramientas fuera de la lista se deniegan y quedan como evento `permission_denied` (aprobar con botones es de la etapa 5). Las **preguntas del agente** (`AskUserQuestion`) sí llegan al panel: se guardan en `pending_questions`, se responden desde la web con botones o texto libre y la respuesta vuelve a la misma sesión por `updatedInput` (detalle en la etapa 4; estado `esperando_respuesta` en [`estados.md`](estados.md)).
 - **Hooks** `PreToolUse` / `PostToolUse`: clasifican los comandos para el estado fino y hacen esperar los builds en el semáforo.
 - **Eventos:** cada mensaje del SDK se guarda en SQLite y se manda por SSE.
 - **Frontend Angular** (standalone + signals). Lo compila y sirve el backend.
@@ -230,6 +230,24 @@ Sesión: cookie `__Host-panel_session` (HttpOnly, Secure, SameSite=Strict, Path=
    - **Permisos del agente:** `acceptEdits` + `allowedTools` para `Bash(git|gh|npm|go|kyro)`; `canUseTool` niega lo demás (escritura solo dentro del worktree, lectura del worktree y `~/.agents`) y lo guarda como evento `permission_denied`. Nunca modo sin permisos. Aprobar con botones es de la etapa 5.
    - **Tope fijo de 4 sesiones** a la vez (la quinta da 409); el tope configurable es de la etapa 6.
    - **Kyro en la sesión:** el SDK no registra `/kyro:forge` ni `/kyro:work` en la VM (ver deuda), así que el primer mensaje manda al agente a leer la skill `kyro-forge` o `kyro-work` de `~/.agents/skills`. Instalar las skills para Claude (`kyro install --agent claude`) permitiría usar los comandos directos.
+   - **Preguntas del agente desde la web (05/10/2026, scope `autopiloto-kyro`, sprint 1 `preguntas-web`; plan en [`.agents/kyro/plan/2026-10-04-autopiloto-kyro.md`](../.agents/kyro/plan/2026-10-04-autopiloto-kyro.md)):** el agente puede preguntar y vos respondés desde el chat. `AskUserQuestion` pasa el hook `PreToolUse` sin decidir y `AgentManager` la resuelve en `canUseTool`: guarda la pregunta (`pending_questions`, migración 7), publica `question_asked`, espera **sin timeout ni respuesta automática** (L5) y devuelve la respuesta como `updatedInput` (método confirmado por el spike H1, abajo). Rutas `GET /api/chats/:id/questions` y `POST /api/chats/:id/questions/:qid/answer` (404 si la pregunta no es del chat, 409 si ya fue respondida o cancelada, 400 si no coincide con las opciones; `answered_by` es el usuario de la sesión). Las dos exigen sesión y CSRF y **la allowlist pública no cambia**. Cancelar el trabajo, terminar el turno o reiniciar el panel cancelan lo pendiente. La web muestra la tarjeta con un botón por opción y «Otra respuesta». Los spikes de abajo son el respaldo de estas decisiones; los campos reales de Kyro están en [`estados.md`](estados.md#campos-reales-de-kyro-confirmados-en-la-vm).
+   - **Spike H1 (05/10/2026, scope `autopiloto-kyro`, SDK 0.3.289):** `apps/api/scripts/spike-ask-question.ts` confirma en la VM que el agente puede preguntar con `AskUserQuestion` y que la respuesta vuelve a la misma sesión por **`updatedInput`** de `canUseTool` (`{ ...input, answers: { <texto de la pregunta>: <respuesta> } }`), con el hook `PreToolUse` dejando pasar la herramienta (devuelve `{}`, no deniega). La alternativa (denegar con `el usuario respondió: …`) también funciona, pero queda solo como respaldo: el método elegido es `updatedInput`. Además `model` en `query()` se respeta: `system:init` informó `claude-opus-5-5` y `claude-sonnet-5-5` según lo pedido.
+   - **Spike H2 (05/10/2026, scope `autopiloto-kyro`, SDK 0.3.289, modelo `claude-sonnet-5-5`):** `apps/api/scripts/spike-forge-policy.ts` abre en un repo temporal una sesión real con el primer prompt del panel (`buildInitialPrompt('scope', …)`: leer la skill `kyro-forge`), los permisos reales del panel (`acceptEdits` + `decide()`) y la política de abajo. **Resultado: confirmada.** En 15 turnos el agente leyó la skill y `forge.md`, pidió el `context-pack`, ejecutó la tarea (`hola.txt`), corrió la validación, registró evidencia con `kyro record-evidence`, hizo el review con `kyro review --verdict pass --yes` y se detuvo en `qa_or_close` (`context-pack` final) sin llamar nunca a `AskUserQuestion`. No se usó `kyro-sprint-executor` ni `bypassPermissions`.
+     - **Gates que preguntaron:** ninguno en el tramo ejecución → `qa_or_close`. Los gates de **QA, cierre de sprint, reglas globales y scope completo no se ejercitaron** (la política manda parar en `qa_or_close`): se prueban en el sprint 3 con el orquestador, y R16 sigue exigiendo que un gate no cubierto termine en pregunta.
+     - **Control sin política** (mismo prompt, sin el bloque de política): tampoco preguntó, pero ejecutó, registró la evidencia y **se detuvo en `review_task`** diciendo que faltaba el review. O sea, lo que la política agrega de verdad es la **autorización a hacer el review en la misma sesión** y la orden de **parar en `qa_or_close`** en lugar de ofrecer QA o cierre. Para el sprint 3: la política tiene que decir explícitamente quién hace el review.
+     - **Llamadas que la política de permisos del panel denegó** (el agente se adaptó solo, sin bloquearse): `cat ~/…` (la `~` no se admite en comandos de lectura), redirecciones (`>`, `2>&1` con otro destino) y `echo`. Conviene que la política le pida usar rutas absolutas y no encadenar con `echo`. Además el agente corrió `kyro repair integrity prepare` por su cuenta (es solo vista previa); la política del sprint 3 debe prohibir `kyro repair … apply` (R20: la reparación no se aplica sola).
+     - **Salidas de `context-pack` observadas:** `execute_task` al arrancar (sprint planificado con una tarea) y `qa_or_close` al terminar; con el control, `review_task` tras el `record-evidence`. Coinciden con las fixtures de `estados.md`.
+     - **Texto de política probado** (va como bloque al final del primer prompt; está en `POLICY_DRAFT` del script):
+
+       ```text
+       Autopilot policy (the user pre-approved the routine Kyro gates; follow it instead of asking):
+       - Work only on the next task that "kyro context-pack --kyro-scope <scope> --json" routes. Follow its nextAction.
+       - Execute the task, run its validations, record evidence with "kyro record-evidence" and review with "kyro review" through the CLI. Never edit sprint.json or any Kyro state by hand.
+       - Do NOT ask the user for confirmation at routine gates. Do not ask which task to do, whether to review, or whether to continue.
+       - When nextAction is qa_or_close: stop here and report it. Do not close the sprint and do not run QA in this session.
+       - Ask the user (AskUserQuestion) only for a material product decision, a cost, or when Kyro reports clarify or a blocker you cannot resolve. Never guess on those.
+       - Do not commit and do not push. Never use sudo, ssh, oci, tailscale or terraform.
+       ```
 5. **Estados y PRs.** Estado fino ([`estados.md`](estados.md)), stepper, PRs y checks, aprobaciones con botones.
 6. **Operación.** Tailscale Funnel, systemd, backup de SQLite, topes configurables, limpieza automática.
 7. **Después de la v1.** Notificaciones push (PWA), consumo por scope, Cloudflare si querés dominio propio, Judiciar.
@@ -251,4 +269,4 @@ Sesión: cookie `__Host-panel_session` (HttpOnly, Secure, SameSite=Strict, Path=
 - [x] Stack: todo TypeScript.
 - [x] Repo: `agents-panel`.
 - [x] Kyro en agents-panel: sí. Work para cambios chicos, Forge (scope) para cada etapa grande.
-- [ ] Revisar en la VM la salida JSON de `kyro status` y `kyro context-pack` para cerrar el mapeo de fases.
+- [x] Revisar en la VM la salida JSON de `kyro status`, `kyro context-pack` y `kyro work status` para cerrar el mapeo de fases (05/10/2026, ver `estados.md`).
