@@ -89,7 +89,7 @@ Lo que hace la web es `POST /api/projects`, que clona el repo en `PANEL_PROJECTS
 - **202**: el clon sigue en segundo plano y el proyecto está en `cloning`. **201**: la carpeta ya existía con ese origin y se adoptó (queda `ready`). **409**: el proyecto ya existe, o la carpeta existe con otro origin.
 - Seguir el estado con `GET /api/projects/:id` (`cloning`, `ready` o `error` con `statusDetail`). Si falló, `POST /api/projects/:id/retry`. Un chat sobre un proyecto que no está `ready` responde 409.
 - `GET /api/projects/:id` incluye `suggestedSetupCommand` (`bash scripts/panel-setup.sh`) cuando el repo trae ese script y el setup está vacío. No se aplica solo: se guarda con `PATCH /api/projects/:id` (`displayName`, `baseBranch`, `setupCommand`).
-- `hasKyro` indica si el repo trae `.agents/kyro/`; en ese caso se inicializa Kyro al quedar listo y, si falla, `kyroWarning` lo avisa sin revertir el proyecto.
+- `hasKyro` indica si el repo trae `.agents/kyro/`; en ese caso se inicializa Kyro al quedar listo y, si falla, `kyroWarning` lo avisa sin revertir el proyecto. Sin Kyro, crear un chat `work` o `scope` responde 409; `direct` se acepta siempre. Para agregarle Kyro, ver «Operar un proyecto».
 - Requiere `gh` autenticado en la VM (`gh auth status`) y al menos `PANEL_MIN_FREE_DISK_GB` GB libres.
 
 ### Una carpeta ya clonada (CLI)
@@ -135,6 +135,24 @@ Borrar (`DELETE /api/projects/:id/env`, body `{ "path": "backend/.env", "totp": 
 
 Si se cambia `PANEL_SECRET_KEY`, los `.env` guardados quedan con `readable: false` y crear un chat en ese proyecto responde 422 hasta volver a subirlos. Si el setup no crea la carpeta de algún `.env` (por ejemplo `backend/`), crear el chat también responde 422 («falta la carpeta backend para backend/.env») y no queda nada creado.
 
+### Operar un proyecto
+
+Desde la página del proyecto, **Configuración**:
+
+- **Repositorio → Traer cambios de GitHub:** actualiza el clon base de la VM (solo fast-forward), para que los worktrees nuevos partan de lo último que subiste. Si el clon tiene cambios locales o se desvió de GitHub no hace nada y lo explica.
+- **Repositorio → Inicializar Kyro** (solo si el proyecto no lo tiene): pide un código TOTP y crea la rama `chore/kyro-init` en su propio worktree (`~/wt/<proyecto>/kyro-init`) con un commit. Revisala, pusheala y mergeala a la rama base; mientras tanto el proyecto sigue sin Kyro. Las skills de Kyro no se copian al proyecto: son globales de la VM y el panel las enlaza en `~/.claude/skills` después de instalar. Para descartarla: `git worktree remove ~/wt/<proyecto>/kyro-init` y `git branch -D chore/kyro-init` en el clon.
+- **General → Borrar proyecto:** modal con el nombre del proyecto y un código TOTP. Borra el clon, los worktrees, los chats y los `.env` cifrados de la VM; no toca GitHub. Si hay trabajo sin commitear o sin pushear (en el clon, en un worktree o en un repo hijo), o una sesión corriendo, no borra nada y lista los motivos: commiteá y pusheá (o cancelá la sesión) y repetí. Una carpeta fuera de `PANEL_PROJECTS_DIR` se desregistra pero no se borra.
+
+Un proyecto sin Kyro solo ofrece **Pedido directo** al crear un chat (sin skill de Kyro); con Kyro ofrece Work, Scope y Pedido directo.
+
+Referencia de la API (todas piden sesión, CSRF y `Origin`):
+
+| Acción | Llamada | Respuestas |
+|---|---|---|
+| Traer cambios | `POST /api/projects/:id/pull` | **200** `{ status, before, after, commits, ahead, output }`, **409** (cambios locales, otra rama, divergencia, no listo), **502** (git falló) |
+| Inicializar Kyro | `POST /api/projects/:id/kyro-init` `{ "code": "123456" }` | **200** `{ branch, path, commit }`, **401** `invalid_totp`, **409**, **500** si `kyro install` falló (no queda nada) |
+| Borrar | `DELETE /api/projects/:id` `{ "name": "mi-proyecto", "code": "123456" }` | **200** `{ cloneRemoved }`, **400** nombre distinto, **401** `invalid_totp`, **409** `{ error, blockers, running }`, **500** borrado a medias (reintentable) |
+
 ### Actualizar Kyro
 
 Desde la web: menú **Versiones**. Muestra la versión instalada y la última publicada, y un icono de refresh (**Actualizar Kyro**) que abre el modal de código TOTP. Si hay sesiones corriendo (409 con la cantidad), el aviso aparece dentro del modal. Mientras actualiza, el icono gira y queda deshabilitado, la pantalla se refresca sola y el historial de corridas muestra la salida desplegable.
@@ -142,6 +160,8 @@ Desde la web: menú **Versiones**. Muestra la versión instalada y la última pu
 Referencia de la API:
 
 `POST /api/versions/kyro/update` con la sesión, el token CSRF y `{ "code": "123456" }` (un TOTP vigente que no se haya usado) corre `scripts/vm/08-kyro-update.sh` con las raíces de los proyectos listos que tienen Kyro. Responde **202** `{ "runId": 1 }`, **401** `{ "error": "invalid_totp" }`, o **409** si hay sesiones corriendo (`running` trae la cantidad) o ya hay una actualización en curso. `GET /api/versions` muestra la versión instalada y la última publicada (`null` sin red), y `GET /api/maintenance-runs?kind=kyro-update` el historial con la salida recortada.
+
+Si algún proyecto tiene cambios locales fuera de `.agents/kyro/`, esa raíz se saltea (el resto y la parte global se actualizan igual) y la corrida lo informa dentro de su detalle; limpiá esos cambios y actualizá de nuevo. Si el update deja `.agents/kyro/project.json` modificado, el proyecto muestra «Kyro actualizado en el clon: hay cambios por commitear»: se commitea con un work o con el botón Commit de un worktree, no a mano sobre el clon base.
 
 Para probarlo en desarrollo sin tocar el Kyro real de la VM, apuntar `PANEL_KYRO_UPDATE_SCRIPT` en `apps/api/.env` a un script propio (por ejemplo uno que imprima `KYRO_VERSION=9.9.9` y salga con 0 o con 1) y reiniciar la API. Mientras la corrida está `running`, crear un chat o mandar un mensaje responde 409. Para correr el script verdadero a mano: `bash scripts/vm/08-kyro-update.sh ~/proyectos/agents-panel` (ver `vm-setup.md`, paso 14).
 

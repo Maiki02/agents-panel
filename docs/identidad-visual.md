@@ -69,7 +69,8 @@ Las etiquetas son descriptivas y en español: «Esperando tu respuesta», «Prob
 ### Acciones
 
 - **Destructivas** (borrar, cancelar, descartar): botón `danger` y confirmación en un `Modal` que nombra lo que se borra.
-- **Con secreto o cambio global** (`.env`, actualizar Kyro): `TotpModal`.
+- **Con secreto o cambio global** (`.env`, actualizar Kyro, inicializar Kyro): `TotpModal`.
+- **Destructivas que además piden escribir el nombre** (borrar un proyecto): un `Modal` propio con el nombre y el código TOTP; si el servidor rechaza, lista los motivos dentro del modal sin vaciar el nombre.
 - **Largas** (pull, push, setup, clonado): el botón se deshabilita y muestra el `Icon` girando. El resultado aparece en línea al terminar; si toca varios repos o worktrees, va como tabla por elemento (escrito / omitido con motivo).
 - Una acción que no se puede hacer ahora (por ejemplo, con un agente corriendo) se muestra deshabilitada y con el motivo en el tooltip, en vez de esconderla.
 

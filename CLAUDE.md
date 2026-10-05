@@ -74,6 +74,9 @@ Los proyectos se dan de alta desde la web (**Proyectos → Nuevo proyecto**, con
 - Si necesita más de un paso (clonar repos hijos, copiar `.env`, instalar dependencias), el repo lleva `scripts/panel-setup.sh` y se registra con `"bash scripts/panel-setup.sh"`. Tiene que ser idempotente, con `set -euo pipefail`, LF, clonar desde GitHub (no desde la copia local) y copiar solo `.env` de desarrollo. Modelo: `scripts/panel-setup.sh` del repo `ventas`.
 - Los `.env` de desarrollo los pone el panel en cada worktree: se suben cifrados por proyecto (`/api/projects/:id/env`, con TOTP) y se escriben con modo 600 después del setup. Un `panel-setup.sh` puede seguir copiando el suyo; el panel escribe después y su versión gana. Detalle en `docs/plan.md` y `docs/panel-desarrollo.md`.
 
+- Un proyecto sin Kyro (sin `.agents/kyro/` en el repo) solo admite chats de tipo **Pedido directo**; para usar Work o Scope se inicializa desde la web (**Configuración → Repositorio → Inicializar Kyro**), que deja la rama `chore/kyro-init` para revisar, pushear y mergear a la rama base.
+- Borrar un proyecto desde la web nunca pierde trabajo: se rechaza si hay algo sin commitear o sin pushear (detalle en `docs/plan.md`).
+
 ## Seguridad del panel
 
 La URL es pública (Tailscale Funnel), así que el login es la única puerta:
