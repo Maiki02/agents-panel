@@ -1,4 +1,5 @@
-import type { ChatEvent } from '@agents-panel/shared';
+import type { AskedQuestion, ChatEvent, QuestionAnswer } from '@agents-panel/shared';
+import { formatAnswer } from './question-logic';
 
 /** What the chat screen renders. Everything here is plain text: nothing is ever injected as HTML. */
 export type ViewItem =
@@ -8,6 +9,14 @@ export type ViewItem =
   | { kind: 'tool_result'; seq: number; text: string; isError: boolean }
   | { kind: 'denied'; seq: number; tool: string; reason: string }
   | { kind: 'result'; seq: number; ok: boolean; text: string }
+  | { kind: 'question'; seq: number; questionId: number; questions: AskedQuestion[] }
+  | {
+      kind: 'answer';
+      seq: number;
+      questionId: number;
+      lines: { question: string; answer: string }[];
+    }
+  | { kind: 'question_cancelled'; seq: number; questionId: number }
   | { kind: 'error'; seq: number; text: string }
   | { kind: 'log'; seq: number; text: string };
 
@@ -21,6 +30,10 @@ function asObject(value: unknown): Json {
 
 function asString(value: unknown): string {
   return typeof value === 'string' ? value : '';
+}
+
+function asNumber(value: unknown): number {
+  return typeof value === 'number' ? value : 0;
 }
 
 function clip(text: string): string {
@@ -59,7 +72,8 @@ export function toViewItems(event: ChatEvent): ViewItem[] {
           const text = asString(block['text']);
           return text.trim() === '' ? [] : [{ kind: 'assistant', seq, text }];
         }
-        if (block['type'] === 'tool_use') {
+        // The question card shows what AskUserQuestion asked; the raw tool call would repeat it.
+        if (block['type'] === 'tool_use' && block['name'] !== 'AskUserQuestion') {
           return [
             {
               kind: 'tool',
@@ -92,6 +106,38 @@ export function toViewItems(event: ChatEvent): ViewItem[] {
         },
       ];
 
+    case 'question_asked': {
+      const questions = payload['questions'];
+      return Array.isArray(questions)
+        ? [
+            {
+              kind: 'question',
+              seq,
+              questionId: asNumber(payload['questionId']),
+              questions: questions as AskedQuestion[],
+            },
+          ]
+        : [];
+    }
+
+    case 'question_answered': {
+      const answer = asObject(payload['answer']) as QuestionAnswer;
+      return [
+        {
+          kind: 'answer',
+          seq,
+          questionId: asNumber(payload['questionId']),
+          lines: Object.entries(answer).map(([question, item]) => ({
+            question,
+            answer: formatAnswer(item),
+          })),
+        },
+      ];
+    }
+
+    case 'question_cancelled':
+      return [{ kind: 'question_cancelled', seq, questionId: asNumber(payload['questionId']) }];
+
     case 'error':
       return [{ kind: 'error', seq, text: asString(payload['message']) }];
 
@@ -114,4 +160,16 @@ export function toViewItems(event: ChatEvent): ViewItem[] {
 /** True for events after which the server updates the chat status. */
 export function endsTurn(event: ChatEvent): boolean {
   return event.type.startsWith('result:') || event.type === 'error';
+}
+
+/** Ids of the questions the agent is still waiting on: asked, and not answered or cancelled since. */
+export function pendingQuestionIds(items: readonly ViewItem[]): number[] {
+  const closed = new Set(
+    items
+      .filter((item) => item.kind === 'answer' || item.kind === 'question_cancelled')
+      .map((item) => (item as { questionId: number }).questionId),
+  );
+  return items.flatMap((item) =>
+    item.kind === 'question' && !closed.has(item.questionId) ? [item.questionId] : [],
+  );
 }

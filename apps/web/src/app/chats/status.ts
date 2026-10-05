@@ -34,3 +34,16 @@ export function hasRunning(chats: readonly Pick<Chat, 'status'>[]): boolean {
 export function chatSubtitle(chat: Pick<Chat, 'kind' | 'branch'>): string {
   return `${chat.kind === 'direct' ? 'directo' : chat.kind} · ${chat.branch}`;
 }
+
+/**
+ * The single badge of a chat. While the agent waits for an answer it is the user's turn, so the
+ * label says so (amber) instead of the session status.
+ */
+export function chatBadge(
+  status: ChatStatus,
+  waitingForAnswer: boolean,
+): { label: string; tone: BadgeTone } {
+  return waitingForAnswer && status === 'running'
+    ? { label: 'Esperando tu respuesta', tone: 'warn' }
+    : { label: statusLabel(status), tone: statusTone(status) };
+}

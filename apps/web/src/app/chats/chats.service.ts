@@ -1,6 +1,13 @@
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
-import type { Chat, ChatEvent, ChatKind, Project } from '@agents-panel/shared';
+import type {
+  Chat,
+  ChatEvent,
+  ChatKind,
+  PendingQuestion,
+  Project,
+  QuestionAnswer,
+} from '@agents-panel/shared';
 import { firstValueFrom } from 'rxjs';
 
 export interface NewChatInput {
@@ -63,6 +70,20 @@ export class ChatsService {
 
   send(id: number, text: string): Promise<unknown> {
     return firstValueFrom(this.http.post(`/api/chats/${String(id)}/messages`, { text }));
+  }
+
+  /** Answers a question the agent is waiting on; 409 when it was already answered or cancelled. */
+  answerQuestion(
+    chatId: number,
+    questionId: number,
+    body: { answer: QuestionAnswer },
+  ): Promise<PendingQuestion> {
+    return firstValueFrom(
+      this.http.post<PendingQuestion>(
+        `/api/chats/${String(chatId)}/questions/${String(questionId)}/answer`,
+        body,
+      ),
+    );
   }
 
   cancel(id: number): Promise<unknown> {

@@ -1,6 +1,6 @@
 import type { ChatEvent } from '@agents-panel/shared';
 import { describe, expect, it } from 'vitest';
-import { endsTurn, toViewItems } from './event-view';
+import { endsTurn, pendingQuestionIds, toViewItems } from './event-view';
 
 const ev = (type: string, payload: unknown, seq = 1): ChatEvent => ({
   id: seq,
@@ -75,5 +75,74 @@ describe('toViewItems', () => {
     expect(endsTurn(ev('result:success', {}))).toBe(true);
     expect(endsTurn(ev('error', {}))).toBe(true);
     expect(endsTurn(ev('assistant', {}))).toBe(false);
+  });
+});
+
+describe('question events', () => {
+  const questions = [
+    {
+      question: '¿Color?',
+      header: 'Color',
+      options: [
+        { label: 'Rojo', description: '' },
+        { label: 'Azul', description: '' },
+      ],
+      multiSelect: false,
+    },
+  ];
+  const asked = (seq: number, questionId: number) =>
+    ev('question_asked', { questionId, toolUseId: `t${String(questionId)}`, questions }, seq);
+
+  it('shows the question and the answer in the history', () => {
+    expect(toViewItems(asked(1, 7))).toEqual([
+      { kind: 'question', seq: 1, questionId: 7, questions },
+    ]);
+    expect(
+      toViewItems(
+        ev(
+          'question_answered',
+          {
+            questionId: 7,
+            answer: { '¿Color?': { selected: ['Azul'], text: null } },
+            answeredBy: 1,
+          },
+          2,
+        ),
+      ),
+    ).toEqual([
+      { kind: 'answer', seq: 2, questionId: 7, lines: [{ question: '¿Color?', answer: 'Azul' }] },
+    ]);
+    expect(toViewItems(ev('question_cancelled', { questionId: 7 }, 3))).toEqual([
+      { kind: 'question_cancelled', seq: 3, questionId: 7 },
+    ]);
+  });
+
+  it('ignores a question_asked without questions', () => {
+    expect(toViewItems(ev('question_asked', { questionId: 1 }))).toEqual([]);
+  });
+
+  it('hides the raw AskUserQuestion tool call but keeps other tools', () => {
+    const items = toViewItems(
+      ev('assistant', {
+        message: {
+          content: [
+            { type: 'tool_use', name: 'AskUserQuestion', input: { questions: [] } },
+            { type: 'tool_use', name: 'Bash', input: { command: 'ls' } },
+          ],
+        },
+      }),
+    );
+    expect(items.map((i) => i.kind)).toEqual(['tool']);
+  });
+
+  it('keeps a question pending until it is answered or cancelled', () => {
+    const view = (events: ChatEvent[]) => pendingQuestionIds(events.flatMap(toViewItems));
+    expect(view([asked(1, 1)])).toEqual([1]);
+    expect(
+      view([asked(1, 1), ev('question_answered', { questionId: 1, answer: {}, answeredBy: 1 }, 2)]),
+    ).toEqual([]);
+    expect(
+      view([asked(1, 1), ev('question_cancelled', { questionId: 1 }, 2), asked(3, 2)]),
+    ).toEqual([2]);
   });
 });

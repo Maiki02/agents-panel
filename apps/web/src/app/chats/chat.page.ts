@@ -4,28 +4,30 @@ import {
   DestroyRef,
   ElementRef,
   effect,
+  computed,
   inject,
   input,
   signal,
   viewChild,
 } from '@angular/core';
-import type { Chat, ChatEvent } from '@agents-panel/shared';
+import type { Chat, ChatEvent, QuestionAnswer } from '@agents-panel/shared';
 import { ChatStreamService, type StreamHandle } from './chat-stream.service';
 import { ChatsService, apiErrorMessage } from './chats.service';
-import { endsTurn, toViewItems, type ViewItem } from './event-view';
-import { statusLabel, statusTone } from './status';
+import { endsTurn, pendingQuestionIds, toViewItems, type ViewItem } from './event-view';
+import { QuestionCard } from './question-card';
+import { chatBadge } from './status';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
 
 @Component({
   selector: 'app-chat',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [Button, Badge],
+  imports: [Button, Badge, QuestionCard],
   template: `
     @if (chat(); as c) {
       <header class="chat-head">
         <h1>{{ c.title }}</h1>
-        <app-badge [tone]="tone(c.status)">{{ label(c.status) }}</app-badge>
+        <app-badge [tone]="badge().tone">{{ badge().label }}</app-badge>
         @if (c.status === 'running') {
           <button appButton variant="danger" type="button" (click)="cancel()">Cancelar</button>
         }
@@ -74,6 +76,31 @@ import { Badge } from '../ui/badge';
             <div class="msg result" [class.bad]="!item.ok">
               {{ item.ok ? 'Terminó' : 'Terminó con error' }}{{ item.text ? ': ' + item.text : '' }}
             </div>
+          }
+          @case ('question') {
+            @if (pending().includes(item.questionId)) {
+              <app-question-card
+                [questions]="item.questions"
+                [busy]="submitted().includes(item.questionId)"
+                (answered)="answer(item.questionId, $event)"
+              />
+            } @else {
+              <div class="msg assistant">
+                @for (q of item.questions; track q.question) {
+                  <div>{{ q.question }}</div>
+                }
+              </div>
+            }
+          }
+          @case ('answer') {
+            <div class="msg user">
+              @for (line of item.lines; track line.question) {
+                <div>{{ line.answer }}</div>
+              }
+            </div>
+          }
+          @case ('question_cancelled') {
+            <div class="msg log">La pregunta se canceló sin respuesta.</div>
           }
           @case ('error') {
             <div class="msg denied" role="alert">Error: {{ item.text }}</div>
@@ -125,6 +152,13 @@ export class ChatPage {
   protected readonly connected = signal(true);
   protected readonly draft = signal('');
   protected readonly sending = signal(false);
+  /** Questions whose answer was sent and is not confirmed by the stream yet. */
+  protected readonly submitted = signal<number[]>([]);
+  protected readonly pending = computed(() => pendingQuestionIds(this.items()));
+  protected readonly badge = computed(() => {
+    const status = this.chat()?.status ?? 'idle';
+    return chatBadge(status, this.pending().length > 0);
+  });
 
   constructor() {
     inject(DestroyRef).onDestroy(() => {
@@ -138,9 +172,6 @@ export class ChatPage {
       void this.restart(Number(this.chatId()));
     });
   }
-
-  protected label = statusLabel;
-  protected tone = statusTone;
 
   protected text(event: Event): string {
     return (event.target as HTMLTextAreaElement).value;
@@ -158,6 +189,7 @@ export class ChatPage {
     this.error.set(null);
     this.connected.set(true);
     this.draft.set('');
+    this.submitted.set([]);
     if (!Number.isInteger(id) || id < 1) {
       this.error.set('Chat no encontrado.');
       return;
@@ -224,6 +256,18 @@ export class ChatPage {
       this.error.set(apiErrorMessage(cause));
     } finally {
       this.sending.set(false);
+    }
+  }
+
+  protected async answer(questionId: number, body: { answer: QuestionAnswer }): Promise<void> {
+    if (this.submitted().includes(questionId)) return;
+    this.submitted.update((ids) => [...ids, questionId]);
+    this.error.set(null);
+    try {
+      await this.service.answerQuestion(this.current, questionId, body);
+    } catch (cause) {
+      this.submitted.update((ids) => ids.filter((id) => id !== questionId));
+      this.error.set(apiErrorMessage(cause));
     }
   }
 

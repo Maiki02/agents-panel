@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { chatSubtitle, hasRunning, statusTone } from './status';
+import { chatBadge, chatSubtitle, hasRunning, statusTone } from './status';
 
 describe('chat status helpers', () => {
   it('polls only while some chat is running', () => {
@@ -23,5 +23,18 @@ describe('chat status helpers', () => {
     expect(statusTone('idle')).toBe('ok');
     expect(statusTone('error')).toBe('danger');
     expect(statusTone('interrupted')).toBe('warn');
+  });
+});
+
+describe('chatBadge', () => {
+  it("says it is the user's turn (amber) while the agent waits for an answer", () => {
+    expect(chatBadge('running', true)).toEqual({ label: 'Esperando tu respuesta', tone: 'warn' });
+  });
+
+  it('falls back to the session status otherwise', () => {
+    expect(chatBadge('running', false)).toEqual({ label: 'En curso', tone: 'accent' });
+    expect(chatBadge('idle', false).label).toBe('En espera');
+    // A pending question of a chat that is no longer running does not change its badge.
+    expect(chatBadge('cancelled', true).label).toBe('Cancelado');
   });
 });
