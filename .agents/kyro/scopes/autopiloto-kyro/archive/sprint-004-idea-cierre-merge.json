@@ -1,0 +1,1041 @@
+{
+  "n": 4,
+  "slug": "idea-cierre-merge",
+  "title": "Idea con aprobación y cierre con merge",
+  "objective": "Que un trabajo empiece como Idea desde la web, espere la aprobación del plan y, aprobado, el piloto lo lleve solo hasta la PR: push tras cada cierre de sprint, cierre del scope o work (preguntando una sola vez si queda deuda), traer la base, resolver conflictos, validar, buscar secretos y abrir la PR con la merge-dev del proyecto o con el merge genérico.",
+  "status": "complete",
+  "phases": [
+    {
+      "id": "P1",
+      "title": "Base del piloto antes del cierre automático (debt-6, debt-7)",
+      "objective": "El piloto solo da por bueno un cierre de sprint con QA aprobado verificable, y no frena por una carrera con un mensaje del usuario.",
+      "status": "done",
+      "tasks": [
+        {
+          "id": "T1.1",
+          "title": "Veredicto de kyro-qa verificable antes de aceptar un cierre (debt-6)",
+          "description": "Hoy el piloto solo comprueba que la sesión de cierre invocó la skill kyro-qa (usedSkill en autopilot.ts). kyro-qa es de solo lectura y su veredicto (APPROVED, APPROVED WITH NOTES, CHANGES REQUIRED, REJECTED) queda solo en el texto del agente, que el piloto no lee (R7). Cambiar la cláusula qa_or_close/close_sprint de policy.ts: la sesión de cierre guarda el informe de QA en .agents/kyro/qa/<scope>/sprint-<n>.md, con una primera línea exacta 'Verdict: <VEREDICTO>', antes de correr kyro close-sprint. Subir POLICY_VERSION a 2. En autopilot.ts, después de un paso close que cerró el sprint, leer ese archivo del worktree (ruta fija, sin seguir symlinks, dentro del worktree) y parsear la línea: si falta, no se puede leer o el veredicto no es APPROVED ni APPROVED WITH NOTES, frenar con un BlockedReason nuevo 'qa_sin_aprobar' y el detalle (veredicto leído o 'sin informe'). Se mantiene el freno qa_sin_correr. Resolver debt-6 con kyro debt resolve al terminar.",
+          "files_to_touch": [
+            "apps/api/src/pilot/policy.ts",
+            "apps/api/src/pilot/autopilot.ts",
+            "packages/shared/src/index.ts",
+            "apps/api/test/pilot-policy.test.ts",
+            "apps/api/test/pilot-autopilot.test.ts"
+          ],
+          "context": "debt-6 (medium), salida del QA del sprint 3. R8: ningún gate de calidad se saltea. R7: el paso se decide por señales verificables; un archivo con formato fijo escrito por la sesión es la señal, no el texto del chat. kyro-qa no escribe artefactos del scope (commands/qa.md), por eso el informe va fuera de .agents/kyro/scopes/. Verificar que kyro doctor --artifacts no se queje de .agents/kyro/qa/. El test de cobertura de gates de pilot-policy.test.ts tiene que seguir pasando con la versión 2.",
+          "acceptance_criteria": [
+            "La política de cierre (versión 2) pide escribir .agents/kyro/qa/<scope>/sprint-<n>.md con 'Verdict: …' en la primera línea antes de kyro close-sprint, y el test de cobertura de gates lo comprueba.",
+            "Con un runner y un Kyro falsos: un cierre con informe APPROVED o APPROVED WITH NOTES sigue; uno con CHANGES REQUIRED, REJECTED, sin archivo o con la primera línea mal formada frena con qa_sin_aprobar y el detalle visible en el Timeline.",
+            "Una ruta de informe que es symlink o sale del worktree se trata como 'sin informe'.",
+            "debt-6 queda resuelta en Kyro."
+          ],
+          "depends_on": [],
+          "scenario_refs": [
+            "S35"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "POLICY_VERSION 2 pide el informe .agents/kyro/qa/<scope>/sprint-<n>.md con 'Verdict:' en la primera línea; el piloto lo lee tras el cierre (qa-report.ts, sin symlinks ni salir del worktree) y frena con qa_sin_aprobar",
+            "validation": [
+              "vitest run (apps/api): 860 passed",
+              "tsc --noEmit y eslint de src/pilot y los tests: sin errores"
+            ],
+            "files_changed": [
+              "apps/api/src/pilot/qa-report.ts",
+              "apps/api/src/pilot/policy.ts",
+              "apps/api/src/pilot/autopilot.ts",
+              "packages/shared/src/index.ts",
+              "apps/api/test/pilot-policy.test.ts",
+              "apps/api/test/pilot-autopilot.test.ts",
+              "docs/estados.md",
+              "docs/plan.md"
+            ],
+            "notes": "kyro doctor --artifacts pasa; .agents/kyro/qa/ aún no existe, no hay chequeo propio de esa carpeta",
+            "by": "maker-agent",
+            "recordedAt": "2026-10-05T20:17:46.212Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "La política de cierre (versión 2) pide escribir .agents/kyro/qa/<scope>/sprint-<n>.md con 'Verdict: …' en la primera línea antes de kyro close-sprint, y el test de cobertura de gates lo comprueba.",
+              "Con un runner y un Kyro falsos: un cierre con informe APPROVED o APPROVED WITH NOTES sigue; uno con CHANGES REQUIRED, REJECTED, sin archivo o con la primera línea mal formada frena con qa_sin_aprobar y el detalle visible en el Timeline.",
+              "Una ruta de informe que es symlink o sale del worktree se trata como 'sin informe'.",
+              "debt-6 queda resuelta en Kyro."
+            ],
+            "findings": [],
+            "by": "checker-agent",
+            "reviewedAt": "2026-10-05T20:17:48.034Z",
+            "requestDigest": "28688893cf282d9fa956db15aec6c2c07328668de2121f900703d2ba54631071",
+            "reviewedMaterialDigest": "942d161a24ae7efcf91d9ba624a3a926a7fcb869a1db592a5e326eddf8519302"
+          }
+        },
+        {
+          "id": "T1.2",
+          "title": "Reintentar cuando el usuario manda un mensaje entre waitForIdle y start (debt-7)",
+          "description": "En autopilot.ts, si manager.start tira AlreadyRunningError (el usuario mandó un mensaje entre waitForIdle y start), el piloto no frena ni se cae a crashed: vuelve a waitForIdle y decide de nuevo desde Kyro, sin contar la sesión. Igual en resumeStep. Con un tope de reintentos seguidos (por ejemplo 3) que, si se pasa, frena con 'otro' y el motivo. Resolver debt-7.",
+          "files_to_touch": [
+            "apps/api/src/pilot/autopilot.ts",
+            "apps/api/test/pilot-autopilot.test.ts"
+          ],
+          "context": "debt-7 (low). El turno manual del usuario gana; el piloto espera a que termine. No contar la sesión que no se abrió (sessionsInSprint) ni guardar un fingerprint de un paso que no corrió.",
+          "acceptance_criteria": [
+            "Test con runner falso: un start que tira AlreadyRunningError una vez termina con el paso abierto después del turno del usuario, sin freno y con sessionsInSprint sin el intento fallido.",
+            "Tras 3 AlreadyRunningError seguidos el piloto frena con 'otro' y un motivo legible.",
+            "debt-7 queda resuelta en Kyro."
+          ],
+          "depends_on": [],
+          "scenario_refs": [
+            "S38"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "Si manager.start tira AlreadyRunningError el piloto espera el turno del usuario y decide de nuevo desde Kyro, sin contar la sesión; tras 3 seguidos frena con 'otro'. Igual en resumeStep (devuelve 'busy').",
+            "validation": [
+              "vitest run (apps/api): 862 passed, con dos tests nuevos de debt-7",
+              "tsc --noEmit y eslint sin errores"
+            ],
+            "files_changed": [
+              "apps/api/src/pilot/autopilot.ts",
+              "apps/api/test/pilot-autopilot.test.ts"
+            ],
+            "by": "maker-agent",
+            "recordedAt": "2026-10-05T20:19:45.000Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "Test con runner falso: un start que tira AlreadyRunningError una vez termina con el paso abierto después del turno del usuario, sin freno y con sessionsInSprint sin el intento fallido.",
+              "Tras 3 AlreadyRunningError seguidos el piloto frena con 'otro' y un motivo legible.",
+              "debt-7 queda resuelta en Kyro."
+            ],
+            "findings": [],
+            "by": "checker-agent",
+            "reviewedAt": "2026-10-05T20:19:45.266Z",
+            "requestDigest": "ada10c83e9d36c4cbed300836ddb69772baebae1b00b929d8106aec6e81090e9",
+            "reviewedMaterialDigest": "01d991e4f3d294c788e7c0451da8eb90c1bd7a8eeae2fd05b2177002321ff0f9"
+          }
+        }
+      ]
+    },
+    {
+      "id": "P2",
+      "title": "Chat de tipo Idea con aprobación del plan (R17)",
+      "objective": "Un chat Idea madura el plan con el modelo pensante, queda esperando la aprobación y, aprobado, se convierte en scope o work en el mismo worktree con el piloto prendido.",
+      "status": "done",
+      "tasks": [
+        {
+          "id": "T2.1",
+          "title": "Tipo de chat idea: base, creación y primer turno con kyro-idea",
+          "description": "Sumar 'idea' a ChatKind (packages/shared) y a la restricción CHECK de chats.kind con una migración nueva que reconstruye la tabla (mismo patrón que chats_kind_direct). ChatService.create acepta kind 'idea': exige proyecto con Kyro y sin autopilot en el body (400: el piloto se prende al aprobar), crea el worktree y arranca el primer turno con el modelo pensante, la skill kyro-idea por ruta (como buildInitialPrompt) y un bloque nuevo de política 'idea' en policy.ts: confirmar sin preguntar el docType y la ruta que kyro-idea infiere (son rutina), usar AskUserQuestion solo para huecos materiales, no crear scope ni work (lo hace el panel al aprobar) y terminar el turno cuando el documento quedó escrito y verificado. Estado del trabajo: madurando_idea.",
+          "files_to_touch": [
+            "packages/shared/src/index.ts",
+            "apps/api/src/db/migrations.ts",
+            "apps/api/src/chats/service.ts",
+            "apps/api/src/chats/routes.ts",
+            "apps/api/src/pilot/policy.ts",
+            "apps/api/src/worktrees/state-tracker.ts",
+            "apps/api/test/chats.test.ts",
+            "apps/api/test/pilot-policy.test.ts",
+            "apps/api/test/db.test.ts"
+          ],
+          "context": "R17, R3 (la idea va con el pensante), R10 (nunca bypassPermissions), R24 (POST /api/chats ya exige sesión y CSRF; no se agrega ruta pública). kyro-idea (commands/idea.md): es pre-scope, escribe un único documento en .agents/kyro/{docType}/{fecha}-{slug}.md y antes de escribir pide confirmar docType y ruta; esa confirmación es la que la política pre-aprueba. La migración preserva los chats existentes y sus ids (test de migración sobre una base con scope, work y direct). El bloque 'idea' entra en el test de cobertura de gates.",
+          "acceptance_criteria": [
+            "POST /api/chats con kind idea crea worktree y chat, arranca un turno con role thinker y el prompt nombra la skill kyro-idea y la política 'idea'; con autopilot: true da 400 y sin Kyro da 409, sin dejar worktree.",
+            "La migración nueva admite kind 'idea', conserva las filas existentes y su test pasa sobre una base con los tres tipos anteriores.",
+            "El estado del trabajo arranca en madurando_idea con actor user."
+          ],
+          "depends_on": [],
+          "scenario_refs": [
+            "S18"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "ChatKind idea: migración 13 que reconstruye chats, create con kyro-idea + política 'idea' + pensante, 400 con autopilot, 409 sin Kyro, estado madurando_idea con actor user; el piloto rechaza ideas hasta aprobar",
+            "validation": [
+              "vitest run (apps/api): 868 passed (migración 13 sobre scope/work/direct, create idea, tracker, política)",
+              "npm run typecheck (shared, api, web) y eslint sin errores"
+            ],
+            "files_changed": [
+              "packages/shared/src/index.ts",
+              "apps/api/src/db/migrations.ts",
+              "apps/api/src/chats/service.ts",
+              "apps/api/src/chats/routes.ts",
+              "apps/api/src/pilot/policy.ts",
+              "apps/api/src/pilot/routes.ts",
+              "apps/api/src/worktrees/state-tracker.ts",
+              "apps/api/test/chats.test.ts",
+              "apps/api/test/pilot-policy.test.ts",
+              "apps/api/test/db.test.ts",
+              "apps/api/test/worktree-state.test.ts"
+            ],
+            "by": "maker-agent",
+            "recordedAt": "2026-10-05T20:25:27.456Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "POST /api/chats con kind idea crea worktree y chat, arranca un turno con role thinker y el prompt nombra la skill kyro-idea y la política 'idea'; con autopilot: true da 400 y sin Kyro da 409, sin dejar worktree.",
+              "La migración nueva admite kind 'idea', conserva las filas existentes y su test pasa sobre una base con los tres tipos anteriores.",
+              "El estado del trabajo arranca en madurando_idea con actor user."
+            ],
+            "findings": [],
+            "by": "checker-agent",
+            "reviewedAt": "2026-10-05T20:25:27.739Z",
+            "requestDigest": "ce39611e285767df30f3b3df6093e935e4643ba470a15b887c72cefb1aa0209f",
+            "reviewedMaterialDigest": "003b81e0e64d59b91b49561e8b9ed6bd3819f069e0130ab4f43433af389cbc61"
+          }
+        },
+        {
+          "id": "T2.2",
+          "title": "Detección del plan escrito y estado esperando_aprobacion_plan",
+          "description": "Después de cada turno de un chat idea, el tracker busca el documento de kyro-idea en el worktree: archivos .md nuevos o cambiados respecto de la base bajo .agents/kyro/<docType>/ (excluyendo scopes/, work/, trace/, qa/ y los archivos de configuración), por git status --porcelain y execFile, nunca por el texto del agente. Si hay exactamente uno, la sesión quedó idle y no hay pregunta pendiente, el trabajo pasa a esperando_aprobacion_plan con la ruta guardada (columna o tabla nueva en la misma migración de T2.1 o una siguiente) y en el detalle de la transición. Si hay varios, queda bloqueado con un motivo claro. Si no hay ninguno, queda en madurando_idea esperando al usuario. GET /api/chats/:id/idea devuelve la ruta, el estado y el contenido del documento (solo si la ruta está dentro del worktree, sin symlinks, hasta un tamaño máximo).",
+          "files_to_touch": [
+            "apps/api/src/worktrees/state-tracker.ts",
+            "apps/api/src/chats/idea.ts",
+            "apps/api/src/chats/routes.ts",
+            "apps/api/src/db/migrations.ts",
+            "packages/shared/src/index.ts",
+            "apps/api/test/idea.test.ts"
+          ],
+          "context": "R17, R4 (estado fino con Timeline), R7 (señales verificables: git y eventos del SDK). R24: la ruta nueva exige sesión; todo git por execFile con argv. La lectura del documento valida la ruta igual que los comandos de lectura con ruta validada de permissions.ts (nada fuera del worktree).",
+          "acceptance_criteria": [
+            "Con un worktree de prueba: un turno que deja un documento en .agents/kyro/plan/ pasa el trabajo a esperando_aprobacion_plan con la ruta; sin documento queda en madurando_idea; con dos queda bloqueado con motivo.",
+            "Un turno que termina con una pregunta pendiente no pasa a esperando_aprobacion_plan.",
+            "GET /api/chats/:id/idea devuelve ruta y contenido; sin sesión da 401; una ruta con symlink hacia afuera no se lee."
+          ],
+          "depends_on": [
+            "T2.1"
+          ],
+          "scenario_refs": [
+            "S18"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "El tracker detecta por git el documento de kyro-idea: uno solo -> esperando_aprobacion_plan con ruta; ninguno -> madurando_idea; varios -> bloqueado; con pregunta pendiente no avanza. GET /api/chats/:id/idea devuelve ruta, estado y contenido sin symlinks ni salir del worktree.",
+            "validation": [
+              "vitest run (apps/api): 881 passed, incluye test/idea.test.ts (13 casos)",
+              "npm run typecheck y eslint sin errores"
+            ],
+            "files_changed": [
+              "apps/api/src/chats/idea.ts",
+              "apps/api/src/worktrees/state-tracker.ts",
+              "apps/api/src/chats/routes.ts",
+              "apps/api/src/app.ts",
+              "packages/shared/src/index.ts",
+              "apps/api/test/idea.test.ts"
+            ],
+            "notes": "No hizo falta migración: la ruta queda en detail y data.path de la transición y GET /idea la recalcula desde git.",
+            "by": "maker-agent",
+            "recordedAt": "2026-10-05T20:31:46.943Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "Con un worktree de prueba: un turno que deja un documento en .agents/kyro/plan/ pasa el trabajo a esperando_aprobacion_plan con la ruta; sin documento queda en madurando_idea; con dos queda bloqueado con motivo.",
+              "Un turno que termina con una pregunta pendiente no pasa a esperando_aprobacion_plan.",
+              "GET /api/chats/:id/idea devuelve ruta y contenido; sin sesión da 401; una ruta con symlink hacia afuera no se lee."
+            ],
+            "findings": [],
+            "by": "checker-agent",
+            "reviewedAt": "2026-10-05T20:31:47.227Z",
+            "requestDigest": "f9036c3ab7eb825017f26b2f7a180b1be6a86b92a50623f59dceffc13e352301",
+            "reviewedMaterialDigest": "f8720ef9b77bbcfa8f180d7017d0dd7876018b220e585d7ad2e705cab5899dad"
+          }
+        },
+        {
+          "id": "T2.3",
+          "title": "Acciones de aprobación: aprobar como scope, aprobar como work o pedir cambios",
+          "description": "POST /api/chats/:id/idea con { action: 'approve_scope' | 'approve_work' | 'request_changes', text? }, solo desde esperando_aprobacion_plan (si no, 409). approve_work: el panel corre kyro work create --id <slug> --from <ruta> --by <usuario> --json por execFile en el worktree; si sale bien, chats.kind pasa a 'work', se crea el autopilot_run activo y el piloto arranca (plan_tasks con el pensante). approve_scope: chats.kind pasa a 'scope', se crea el run activo y el piloto abre un paso nuevo 'init' con el pensante: prompt con kyro-forge en modo INIT referenciando el documento (seedbed-init-mapping) para el scope <slug>, con la política de plan; después sigue el bucle normal (plan_sprint del sprint 1). request_changes: exige text, manda el texto del usuario como turno nuevo en la misma sesión (pensante) y el trabajo vuelve a madurando_idea. Cada decisión queda en el Timeline con actor user, el usuario que la tomó y la ruta del plan. decideNextStep y readScope cubren el scope sin sprint.json todavía (paso init).",
+          "files_to_touch": [
+            "apps/api/src/chats/idea.ts",
+            "apps/api/src/chats/routes.ts",
+            "apps/api/src/chats/repo.ts",
+            "apps/api/src/kyro/reader.ts",
+            "apps/api/src/pilot/decide.ts",
+            "apps/api/src/pilot/prompts.ts",
+            "apps/api/src/pilot/autopilot.ts",
+            "packages/shared/src/index.ts",
+            "apps/api/test/idea.test.ts",
+            "apps/api/test/pilot-decide.test.ts",
+            "apps/api/test/pilot-prompts.test.ts"
+          ],
+          "context": "R17, R6 (una sesión por paso, el plan con el pensante), R2 (la decisión guarda quién la dio), R24 (sesión y CSRF, test 401 y 403; kyro por execFile con argv). kyro work create --help: 'kyro work create --id <slug> --from <brief-or-idea> [--by <actor>]'. Kyro no se modifica; la política sigue diciendo que el agente nunca corre scope complete. Si kyro work create falla, el chat sigue siendo idea y el trabajo queda bloqueado con el error de Kyro.",
+          "acceptance_criteria": [
+            "approve_work corre kyro work create con argv exacto (test con runner falso), cambia el kind a work, crea el run activo y el piloto abre la primera sesión con role thinker.",
+            "approve_scope cambia el kind a scope y el piloto abre un paso init con el pensante cuyo prompt nombra kyro-forge y la ruta del documento; con un Kyro falso que después reporta plan_sprint, el bucle sigue solo.",
+            "request_changes sin text da 400; con text manda el turno a la misma sesión y el estado vuelve a madurando_idea.",
+            "Cualquier acción fuera de esperando_aprobacion_plan da 409; sin CSRF da 403 y sin sesión 401. Cada decisión queda en el Timeline con actor user y el id del usuario."
+          ],
+          "depends_on": [
+            "T2.2"
+          ],
+          "scenario_refs": [
+            "S18",
+            "S37"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "POST /api/chats/:id/idea: approve_work corre kyro work create con argv exacto y pasa el chat a work con piloto; approve_scope pasa a scope y el piloto abre un paso init (migración 14, seed_path, buildInitPrompt con kyro-forge y la ruta); request_changes manda el texto al pensante en la misma sesión; 409 fuera de esperando_aprobacion_plan, 400 sin texto, 401/403; cada decisión en el Timeline con actor user",
+            "validation": [
+              "vitest run (apps/api): 893 passed (idea-approval, autopilot init, decide, prompts, db)",
+              "npm run typecheck y eslint sin errores"
+            ],
+            "files_changed": [
+              "apps/api/src/chats/idea-actions.ts",
+              "apps/api/src/chats/routes.ts",
+              "apps/api/src/chats/repo.ts",
+              "apps/api/src/pilot/decide.ts",
+              "apps/api/src/pilot/prompts.ts",
+              "apps/api/src/pilot/autopilot.ts",
+              "apps/api/src/pilot/runs-repo.ts",
+              "apps/api/src/db/migrations.ts",
+              "packages/shared/src/index.ts",
+              "apps/api/test/idea-approval.test.ts",
+              "apps/api/test/pilot-autopilot.test.ts",
+              "apps/api/test/pilot-decide.test.ts",
+              "apps/api/test/pilot-prompts.test.ts"
+            ],
+            "notes": "El init va por needsScopeInit (decide.ts) en autopilot.ts en vez de por readScope; apps/api/src/kyro/reader.ts no cambió. Nota: tests nuevos en idea-approval.test.ts, no idea.test.ts.",
+            "by": "maker-agent",
+            "recordedAt": "2026-10-05T20:40:31.149Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "approve_work corre kyro work create con argv exacto (test con runner falso), cambia el kind a work, crea el run activo y el piloto abre la primera sesión con role thinker.",
+              "approve_scope cambia el kind a scope y el piloto abre un paso init con el pensante cuyo prompt nombra kyro-forge y la ruta del documento; con un Kyro falso que después reporta plan_sprint, el bucle sigue solo.",
+              "request_changes sin text da 400; con text manda el turno a la misma sesión y el estado vuelve a madurando_idea.",
+              "Cualquier acción fuera de esperando_aprobacion_plan da 409; sin CSRF da 403 y sin sesión 401. Cada decisión queda en el Timeline con actor user y el id del usuario."
+            ],
+            "findings": [],
+            "by": "checker-agent",
+            "reviewedAt": "2026-10-05T20:40:31.417Z",
+            "requestDigest": "31b95bd8992ae5f12608985e5fc6b1f11642f3119d06e6b5e07bf9143f25cbdf",
+            "reviewedMaterialDigest": "64de4ba45a50ffaa270453241435e1217cc888030da55981c8c9aff31a462972"
+          }
+        }
+      ]
+    },
+    {
+      "id": "P3",
+      "title": "Cierre del scope o work (R18)",
+      "objective": "Al terminar Kyro, el panel completa el scope o cierra el work solo si no hay deuda abierta, y si la hay pregunta una sola vez con la lista.",
+      "status": "done",
+      "tasks": [
+        {
+          "id": "T3.1",
+          "title": "Completar el scope o cerrar el work desde el panel",
+          "description": "decideNextStep: await_scope_completion sin sprint abierto da una decisión nueva { kind: 'complete' } si openDebt es 0, y si no, stop en esperando_aprobacion_cierre con la lista de deuda abierta (id, título, prioridad) en los datos de la transición. Un work en ready_to_close da { kind: 'complete' }. Para completar, el panel (no el agente) corre por execFile kyro scope complete --kyro-scope <scope> --yes o kyro work close --work <slug> --outcome completed --reason <motivo> --expect-revision <n> --by pilot --yes, y commitea solo los cambios de .agents/kyro/ con un Conventional Commit (chore(kyro): completar scope <scope> / cerrar work <slug>). Después el run pasa a la fase de merge (T4.5). Métodos nuevos en KyroReader: completeScope, closeWork y la lectura de la deuda abierta.",
+          "files_to_touch": [
+            "apps/api/src/pilot/decide.ts",
+            "apps/api/src/pilot/autopilot.ts",
+            "apps/api/src/kyro/reader.ts",
+            "apps/api/src/kyro/state.ts",
+            "apps/api/test/pilot-decide.test.ts",
+            "apps/api/test/pilot-autopilot.test.ts",
+            "apps/api/test/kyro-reader.test.ts"
+          ],
+          "context": "R18, R12 (se commitea al cerrar; esto es el cierre del scope), R8 (Kyro dueño de sus escrituras: solo por CLI), R20 (deuda abierta al final es un freno). La política sigue prohibiendo al agente scope complete y --accept-open-debt. Kyro 6.1.0: kyro scope complete sin --yes es preview. El commit usa git add -- .agents/kyro y nunca -A.",
+          "acceptance_criteria": [
+            "Sin deuda abierta: con Kyro falso en await_scope_completion el panel corre kyro scope complete con --yes (argv exacto), commitea solo .agents/kyro y pasa a la fase de merge sin preguntar.",
+            "Con deuda abierta: el trabajo frena una sola vez en esperando_aprobacion_cierre con la lista de deuda en el Timeline y no corre scope complete.",
+            "Un work en ready_to_close corre kyro work close --outcome completed con la revisión esperada y pasa a la fase de merge."
+          ],
+          "depends_on": [
+            "T1.1"
+          ],
+          "scenario_refs": [
+            "S19"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "decideNextStep da 'complete' sin deuda (scope) o en ready_to_close (work), y stop en esperando_aprobacion_cierre con la deuda en el Timeline si hay; el panel corre kyro scope complete --yes / work close por execFile (argv exacto en test) y commitea solo .agents/kyro (git-ops.ts, probado con repo real)",
+            "validation": [
+              "vitest run (apps/api): 905 passed (decide, autopilot completion, kyro-reader, pilot-git)",
+              "npm run typecheck y eslint sin errores"
+            ],
+            "files_changed": [
+              "apps/api/src/pilot/decide.ts",
+              "apps/api/src/pilot/autopilot.ts",
+              "apps/api/src/pilot/git-ops.ts",
+              "apps/api/src/kyro/reader.ts",
+              "apps/api/src/kyro/state.ts",
+              "apps/api/src/worktrees/state-repo.ts",
+              "apps/api/src/worktrees/state-tracker.ts",
+              "apps/api/test/pilot-decide.test.ts",
+              "apps/api/test/pilot-autopilot.test.ts",
+              "apps/api/test/kyro-reader.test.ts",
+              "apps/api/test/pilot-git.test.ts"
+            ],
+            "notes": "La lectura de deuda abierta es parseOpenDebt sobre el sprint.json que readScope ya lee (no hay 'kyro debt list'); el commit vive en git-ops.ts, no en reader.ts.",
+            "by": "maker-agent",
+            "recordedAt": "2026-10-05T20:51:12.352Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "Sin deuda abierta: con Kyro falso en await_scope_completion el panel corre kyro scope complete con --yes (argv exacto), commitea solo .agents/kyro y pasa a la fase de merge sin preguntar.",
+              "Con deuda abierta: el trabajo frena una sola vez en esperando_aprobacion_cierre con la lista de deuda en el Timeline y no corre scope complete.",
+              "Un work en ready_to_close corre kyro work close --outcome completed con la revisión esperada y pasa a la fase de merge."
+            ],
+            "findings": [],
+            "by": "checker-agent",
+            "reviewedAt": "2026-10-05T20:51:12.626Z",
+            "requestDigest": "0a7c3be14f80c8ae67ffd66e0937246a487197d429bbc1d29655ba85cf731efd",
+            "reviewedMaterialDigest": "f81a957840e6d19b07bccdd1bfe82f2e08445903e1de0997f0dfe90d7ea0a723"
+          }
+        },
+        {
+          "id": "T3.2",
+          "title": "Completar aceptando la deuda con OK explícito",
+          "description": "Acción nueva en POST /api/chats/:id/autopilot: { action: 'accept_debt', reason } solo desde esperando_aprobacion_cierre (si no, 409; reason obligatorio, 400). El panel corre kyro scope complete --kyro-scope <scope> --accept-open-debt --reason <reason> --yes, commitea .agents/kyro, registra en el Timeline quién aceptó, el motivo y la lista de deuda aceptada, y retoma el piloto en la fase de merge. No vuelve a preguntar por la misma deuda.",
+          "files_to_touch": [
+            "apps/api/src/pilot/routes.ts",
+            "apps/api/src/pilot/autopilot.ts",
+            "apps/api/src/pilot/runs-repo.ts",
+            "packages/shared/src/index.ts",
+            "apps/api/test/pilot-runs.test.ts",
+            "apps/api/test/pilot-autopilot.test.ts"
+          ],
+          "context": "R18 (con deuda pregunta una sola vez y solo con OK explícito completa), R2 (quién la dio), R24 (sesión y CSRF). Forge: la aceptación de deuda nunca se infiere ni cambia el estado de la deuda; el motivo es el del usuario.",
+          "acceptance_criteria": [
+            "accept_debt con reason corre scope complete con --accept-open-debt y ese reason (argv exacto), queda en el Timeline con el usuario y la lista, y el piloto pasa a la fase de merge.",
+            "Sin reason da 400, fuera de esperando_aprobacion_cierre da 409, sin CSRF 403 y sin sesión 401.",
+            "Después de aceptar, el piloto no vuelve a frenar por deuda abierta en ese trabajo."
+          ],
+          "depends_on": [
+            "T3.1"
+          ],
+          "scenario_refs": [
+            "S19"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "accept_debt en POST /api/chats/:id/autopilot: solo desde esperando_aprobacion_cierre, reason obligatorio; corre scope complete --accept-open-debt --reason --yes, commitea .agents/kyro, registra usuario, motivo y deuda en el Timeline y retoma el piloto",
+            "validation": [
+              "vitest run (apps/api): todo verde, incluye pilot-accept-debt.test.ts (4 casos: ok, 400/409, 409 work/401/403, 422 y git)",
+              "tsc --noEmit y eslint sin errores"
+            ],
+            "files_changed": [
+              "apps/api/src/pilot/accept-debt.ts",
+              "apps/api/src/pilot/routes.ts",
+              "apps/api/src/app.ts",
+              "packages/shared/src/index.ts",
+              "apps/api/test/pilot-accept-debt.test.ts",
+              "apps/api/test/helpers.ts"
+            ],
+            "by": "maker-agent",
+            "recordedAt": "2026-10-05T20:54:37.317Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "accept_debt con reason corre scope complete con --accept-open-debt y ese reason (argv exacto), queda en el Timeline con el usuario y la lista, y el piloto pasa a la fase de merge.",
+              "Sin reason da 400, fuera de esperando_aprobacion_cierre da 409, sin CSRF 403 y sin sesión 401.",
+              "Después de aceptar, el piloto no vuelve a frenar por deuda abierta en ese trabajo."
+            ],
+            "findings": [],
+            "by": "checker-agent",
+            "reviewedAt": "2026-10-05T20:54:37.584Z",
+            "requestDigest": "342b9e26f3bee5590c74b944802e135be8b080a1325e7458f223968779c8dd37",
+            "reviewedMaterialDigest": "0d65e3ad610574e942a2c39db4bb60e3555680377af0bd5789103179da30f52b"
+          }
+        }
+      ]
+    },
+    {
+      "id": "P4",
+      "title": "Push, traer la base, validar y abrir la PR (R12, R13, R14, R20)",
+      "objective": "El piloto pushea tras cada cierre de sprint y al final deja la PR lista con la merge-dev del proyecto o con el merge genérico, frenando por conflicto de lógica, build roto o secretos.",
+      "status": "done",
+      "tasks": [
+        {
+          "id": "T4.1",
+          "title": "Validación del proyecto: validate_command",
+          "description": "Columna opcional projects.validate_command (migración nueva), igual que setup_command: se edita por PATCH /api/projects/:id (validateCommand, string o null, maxLength 500) y se muestra en GET. Se parte con splitCommand y corre sin shell por execFile en el worktree, con timeout configurable (por defecto 15 minutos) y salida recortada guardada en el evento. El campo de la web queda para el sprint 5.",
+          "files_to_touch": [
+            "apps/api/src/db/migrations.ts",
+            "apps/api/src/projects/repo.ts",
+            "apps/api/src/projects/routes.ts",
+            "apps/api/src/worktrees/create.ts",
+            "packages/shared/src/index.ts",
+            "apps/api/test/projects.test.ts"
+          ],
+          "context": "Decisión del usuario al planificar el sprint 4: la validación post-merge del merge genérico usa un comando por proyecto. R24: execFile con argv, sin shell; PATCH ya exige sesión y CSRF. Mismas reglas que setup_command (CLAUDE.md, 'Proyectos registrados en el panel').",
+          "acceptance_criteria": [
+            "PATCH /api/projects/:id guarda y borra validateCommand; un valor de más de 500 caracteres da 400.",
+            "Un helper runValidation(worktree, command) corre el comando sin shell (test: un comando con ';' o '&&' no ejecuta el segundo) y devuelve exit code y salida recortada.",
+            "La migración conserva los proyectos existentes con validate_command NULL."
+          ],
+          "depends_on": [],
+          "scenario_refs": [
+            "S34"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "projects.validate_command (migración 15) editable por PATCH/GET con validateCommand (<=500, comillas validadas); runValidation corre el comando sin shell por execFile en el worktree con timeout configurable (15 min por defecto) y devuelve passed/failed/timeout/skipped con la salida recortada",
+            "validation": [
+              "vitest run (apps/api): 918 passed, incluye validate.test.ts",
+              "npm run typecheck y eslint sin errores"
+            ],
+            "files_changed": [
+              "apps/api/src/worktrees/validate.ts",
+              "apps/api/src/db/migrations.ts",
+              "apps/api/src/projects/repo.ts",
+              "apps/api/src/projects/service.ts",
+              "apps/api/src/projects/routes.ts",
+              "apps/api/src/config.ts",
+              "packages/shared/src/index.ts",
+              "apps/api/test/validate.test.ts",
+              "apps/api/test/db.test.ts",
+              "apps/api/.env.example"
+            ],
+            "by": "maker-agent",
+            "recordedAt": "2026-10-05T20:57:25.419Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "PATCH /api/projects/:id guarda y borra validateCommand; un valor de más de 500 caracteres da 400.",
+              "Un helper runValidation(worktree, command) corre el comando sin shell (test: un comando con ';' o '&&' no ejecuta el segundo) y devuelve exit code y salida recortada.",
+              "La migración conserva los proyectos existentes con validate_command NULL."
+            ],
+            "findings": [],
+            "by": "checker-agent",
+            "reviewedAt": "2026-10-05T20:57:25.688Z",
+            "requestDigest": "d0555529530618f29567f431748c03e2419a9c84a0c33e523237cd98d92b7e12",
+            "reviewedMaterialDigest": "242e713e4e9eedb0331dcfd40c4571a05c98f39d2f7aa298060236cd19e810b7"
+          }
+        },
+        {
+          "id": "T4.2",
+          "title": "Push de la rama después de cada cierre de sprint",
+          "description": "Después de un paso close que cerró el sprint, el panel comprueba que HEAD tiene un commit nuevo en la rama del worktree y que la rama base local no cambió, y pushea con git push -u origin <rama> por execFile (nunca --force, --force-with-lease ni +refspec; test sobre el argv). Si el push falla, frena con blockedReason 'git' y la salida recortada. En un work, lo mismo después de kyro work close. Un worktree sin remoto frena con 'git'.",
+          "files_to_touch": [
+            "apps/api/src/pilot/git-ops.ts",
+            "apps/api/src/pilot/autopilot.ts",
+            "apps/api/test/pilot-git-ops.test.ts",
+            "apps/api/test/pilot-autopilot.test.ts"
+          ],
+          "context": "R12, memoria del usuario: la IA puede pushear la rama de su worktree en cualquier repo, nunca --force. CLAUDE.md: nunca push --force ni rebase de ramas ya pusheadas. Los tests usan repos git reales en un TMPDIR propio (test/global-setup.ts) con un remoto bare local.",
+          "acceptance_criteria": [
+            "Con un repo de prueba y un remoto bare: tras un cierre con commit, la rama queda en el remoto, la base del remoto no cambia y el argv no tiene --force.",
+            "Si el push es rechazado (remoto adelantado), el trabajo queda bloqueado con 'git' y el motivo, sin reintentar con --force."
+          ],
+          "depends_on": [],
+          "scenario_refs": [
+            "S13"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "Tras un close que cerró el sprint el panel verifica commit nuevo en HEAD y base local intacta y hace git push -u origin <rama> por execFile (pushArgs rechaza force/refspec/opciones); también tras completar scope o cerrar work y al aceptar deuda; push rechazado o sin remoto frena con git y la salida",
+            "validation": [
+              "vitest run (apps/api): 926 passed, con repo real y remoto bare en pilot-git-ops.test.ts (push ok, base del remoto intacta, rechazo por remoto adelantado, sin remoto, argv sin force)",
+              "tsc --noEmit y eslint sin errores"
+            ],
+            "files_changed": [
+              "apps/api/src/pilot/git-ops.ts",
+              "apps/api/src/pilot/autopilot.ts",
+              "apps/api/src/pilot/accept-debt.ts",
+              "apps/api/src/app.ts",
+              "apps/api/test/pilot-git-ops.test.ts",
+              "apps/api/test/pilot-autopilot.test.ts",
+              "apps/api/test/pilot-accept-debt.test.ts"
+            ],
+            "notes": "pilot-git.test.ts pasó a llamarse pilot-git-ops.test.ts (nombre de la tarea).",
+            "by": "maker-agent",
+            "recordedAt": "2026-10-05T21:01:49.762Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "Con un repo de prueba y un remoto bare: tras un cierre con commit, la rama queda en el remoto, la base del remoto no cambia y el argv no tiene --force.",
+              "Si el push es rechazado (remoto adelantado), el trabajo queda bloqueado con 'git' y el motivo, sin reintentar con --force."
+            ],
+            "findings": [],
+            "by": "checker-agent",
+            "reviewedAt": "2026-10-05T21:01:50.032Z",
+            "requestDigest": "dc62596bfc1d9ce288c0a4d842bec18c38e4cdaf04eafa753228115d73410e03",
+            "reviewedMaterialDigest": "2600919a541b7d08048d1492232b852446f7c7f60383acae0dc6ad9bff76cd66"
+          }
+        },
+        {
+          "id": "T4.3",
+          "title": "Búsqueda de secretos en el diff",
+          "description": "Función pura scanSecrets(diff) sobre las líneas agregadas de git diff origin/<base>...HEAD (más lo pendiente sin commitear): nombres de archivo (.env y .env.* salvo .env.example, *.pem, *.key, id_rsa*, id_ed25519*, credentials.json) y patrones de contenido (BEGIN ... PRIVATE KEY, ghp_ / github_pat_, sk-ant-, AKIA[0-9A-Z]{16}, xox[abpr]-). Devuelve archivo y tipo, nunca el valor. El merge (genérico y de merge-dev) la corre antes del push final y frena con blockedReason nuevo 'secretos' listando solo archivos y tipos.",
+          "files_to_touch": [
+            "apps/api/src/pilot/secrets.ts",
+            "packages/shared/src/index.ts",
+            "apps/api/test/pilot-secrets.test.ts"
+          ],
+          "context": "R20 (secretos en el diff es un freno), CLAUDE.md 'Secretos': nunca se commitean .env ni credenciales; los secretos no se pegan en docs ni en logs. Los fixtures de test usan valores falsos con el formato correcto, armados por concatenación para que el propio escaneo del repo no los marque.",
+          "acceptance_criteria": [
+            "Detecta un .env agregado, un .pem, una clave privada en un .ts y un token ghp_; no marca .env.example ni líneas borradas.",
+            "El resultado y el detalle del freno nunca contienen el valor del secreto (test que busca el valor en la salida)."
+          ],
+          "depends_on": [],
+          "scenario_refs": [
+            "S33"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "scanSecrets(diff) pura sobre líneas agregadas y nombres de archivo (.env/.pem/.key/id_rsa/id_ed25519/credentials.json, claves privadas, ghp_/github_pat_/sk-ant-/AKIA/xox) que devuelve solo archivo y tipo; scanWorktreeSecrets une diff contra origin/<base>, lo pendiente y archivos sin trackear; blockedReason secretos agregado",
+            "validation": [
+              "vitest run (apps/api): 937 passed, incluye pilot-secrets.test.ts (no marca .env.example ni líneas borradas; el valor nunca aparece en la salida)",
+              "tsc --noEmit y eslint sin errores"
+            ],
+            "files_changed": [
+              "apps/api/src/pilot/secrets.ts",
+              "packages/shared/src/index.ts",
+              "apps/api/test/pilot-secrets.test.ts"
+            ],
+            "by": "maker-agent",
+            "recordedAt": "2026-10-05T21:04:40.926Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "Detecta un .env agregado, un .pem, una clave privada en un .ts y un token ghp_; no marca .env.example ni líneas borradas.",
+              "El resultado y el detalle del freno nunca contienen el valor del secreto (test que busca el valor en la salida)."
+            ],
+            "findings": [],
+            "by": "checker-agent",
+            "reviewedAt": "2026-10-05T21:04:41.197Z",
+            "requestDigest": "1d62de601eeaebf77ee71ca1551bb393c324ed5803d98622097a6c1ba9f2c230",
+            "reviewedMaterialDigest": "8e643128846df8898d674aaf739affa2d4c58313db69b929ada2eb450ae1b10a"
+          }
+        },
+        {
+          "id": "T4.4",
+          "title": "Merge genérico: traer la base, conflictos, validación y PR",
+          "description": "Módulo de merge genérico (git-ops.ts) para proyectos sin merge-dev, con estados del Timeline: trayendo_dev → (resolviendo_conflictos) → validando_post_merge → abriendo_pr → pr_lista. Pasos: commitear lo pendiente si hay (excepto si scanSecrets lo marca), git pull --no-rebase origin <base> por execFile. Si quedan rutas sin mergear (git diff --name-only --diff-filter=U), el piloto abre una sesión 'merge' con el ejecutor y un bloque nuevo de política 'merge': resolver los conflictos mecánicos (lockfiles, imports, docs, formato), git add y git commit --no-edit; si un hunk tiene lógica de negocio de los dos lados, preguntar con AskUserQuestion mostrando los dos lados y esperar; nunca git merge --abort, push, rebase ni --force. Al terminar la sesión el panel verifica que no hay rutas sin mergear ni MERGE_HEAD; si no, frena con 'conflicto'. Si el pull trajo commits y el proyecto tiene validate_command, lo corre; si falla, frena con 'build_roto' (sin PR). Después scanSecrets, push y PR: reusar la PR abierta de esa rama (gh pr list --head <rama> --base <base> --state open --json url) o gh pr create --base <base> --head <rama> --title --body-file con el objetivo del scope y los sprints cerrados. La URL de la PR queda en el run y en el Timeline.",
+          "files_to_touch": [
+            "apps/api/src/pilot/git-ops.ts",
+            "apps/api/src/pilot/merge.ts",
+            "apps/api/src/pilot/policy.ts",
+            "apps/api/src/pilot/prompts.ts",
+            "packages/shared/src/index.ts",
+            "apps/api/test/pilot-merge.test.ts",
+            "apps/api/test/pilot-policy.test.ts"
+          ],
+          "context": "R13 (git pull --no-rebase; conflictos en la rama; si hay lógica de los dos lados el piloto frena: la pregunta es el freno), R14 (merge genérico hacia la base_branch registrada), R20 (conflicto de lógica, build roto, secretos), R12 (nunca --force ni push a la base). Decisiones del usuario al planificar: el agente resuelve lo mecánico y pregunta si es lógica; la validación es validate_command. gh y git por execFile con argv; gh se inyecta para tests (no se llama a GitHub en los tests). Mergear la PR está fuera de alcance.",
+          "acceptance_criteria": [
+            "Con repos de prueba (remoto bare) y gh falso: base adelantada sin conflicto → merge, validación, push y gh pr create con --base <base>; estado final pr_lista con la URL.",
+            "Con conflicto: se abre la sesión 'merge' con role executor; si al terminar quedan rutas sin mergear o MERGE_HEAD, frena con 'conflicto'; si la sesión pregunta, el trabajo queda esperando_respuesta.",
+            "validate_command que falla después de traer cambios frena con 'build_roto' y no abre PR; sin validate_command se anota en el Timeline que no hubo validación.",
+            "Si ya existe una PR abierta de la rama no se crea otra.",
+            "Ningún argv de git tiene --force, rebase ni un push a la rama base (test)."
+          ],
+          "depends_on": [
+            "T4.1",
+            "T4.2",
+            "T4.3"
+          ],
+          "scenario_refs": [
+            "S14",
+            "S15",
+            "S33",
+            "S34"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "runGenericMerge: commit de lo pendiente (sin secretos), git pull --no-rebase, sesión merge del ejecutor sobre los conflictos con verificación de rutas sin mergear y MERGE_HEAD (conflicto), validate_command tras traer cambios (build_roto), scanWorktreeSecrets (secretos), push de la rama y PR reutilizada o creada con gh --body-file; bloque de política merge, buildMergePrompt, migración 16 con phase y pr_urls",
+            "validation": [
+              "vitest run (apps/api): todo verde, pilot-merge.test.ts con repos reales y remoto bare y gh falso (13+ casos, incluye argv sin force/rebase y push solo de la rama)",
+              "npm run typecheck y eslint sin errores"
+            ],
+            "files_changed": [
+              "apps/api/src/pilot/merge.ts",
+              "apps/api/src/pilot/git-ops.ts",
+              "apps/api/src/pilot/github-cli.ts",
+              "apps/api/src/pilot/policy.ts",
+              "apps/api/src/pilot/prompts.ts",
+              "apps/api/src/pilot/runs-repo.ts",
+              "apps/api/src/db/migrations.ts",
+              "packages/shared/src/index.ts",
+              "apps/api/test/pilot-merge.test.ts",
+              "apps/api/test/pilot-policy.test.ts",
+              "apps/api/test/pilot-runs.test.ts",
+              "apps/api/test/db.test.ts"
+            ],
+            "notes": "La sesión 'merge' se abre desde el bucle en T4.5; aquí el módulo recibe resolveConflicts como dependencia. Migración 16 (no 15) porque 15 es validate_command.",
+            "by": "maker-agent",
+            "recordedAt": "2026-10-05T21:13:27.933Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "Con repos de prueba (remoto bare) y gh falso: base adelantada sin conflicto → merge, validación, push y gh pr create con --base <base>; estado final pr_lista con la URL.",
+              "Con conflicto: se abre la sesión 'merge' con role executor; si al terminar quedan rutas sin mergear o MERGE_HEAD, frena con 'conflicto'; si la sesión pregunta, el trabajo queda esperando_respuesta.",
+              "validate_command que falla después de traer cambios frena con 'build_roto' y no abre PR; sin validate_command se anota en el Timeline que no hubo validación.",
+              "Si ya existe una PR abierta de la rama no se crea otra.",
+              "Ningún argv de git tiene --force, rebase ni un push a la rama base (test)."
+            ],
+            "findings": [],
+            "by": "checker-agent",
+            "reviewedAt": "2026-10-05T21:13:28.220Z",
+            "requestDigest": "b75325e1a5417ddabcb200b370c70aeae282e25d396538213e8c1c81e0cb693e",
+            "reviewedMaterialDigest": "adfb810a14b4ead3712ae1b0ac25c3c566c1b2bf015ae2c7da3ffd0541f4abe5"
+          }
+        },
+        {
+          "id": "T4.5",
+          "title": "Fase de merge en el bucle: merge-dev del proyecto o merge genérico, y retoma",
+          "description": "Después de completar el scope o cerrar el work (T3.1, T3.2), el run pasa a una fase 'merge' guardada en autopilot_runs (columna nueva phase y pr_urls, migración) para que un reinicio la retome. Si el worktree tiene .claude/skills/merge-dev/SKILL.md, el piloto abre una sesión 'merge_dev' con el ejecutor: prompt que lee esa skill para el scope, más el bloque de política 'merge' (no mergear PRs, no --force, preguntas por AskUserQuestion). Antes de terminar la fase corre scanSecrets sobre la raíz y sobre cada repo hijo (carpetas de primer nivel con .git). Señal de éxito: la rama de la raíz quedó en origin/<base> (git merge-base --is-ancestor) o hay una PR abierta de la rama, y se juntan las PR abiertas de la raíz y de los repos hijos con gh pr list. Sin ninguna señal, frena con 'merge_sin_pr'. Si no hay merge-dev, corre el merge genérico de T4.4. Al reiniciar el panel, un run en fase merge la retoma de forma idempotente (traer la base de nuevo es seguro, la PR se reusa).",
+          "files_to_touch": [
+            "apps/api/src/pilot/autopilot.ts",
+            "apps/api/src/pilot/merge.ts",
+            "apps/api/src/pilot/runs-repo.ts",
+            "apps/api/src/pilot/prompts.ts",
+            "apps/api/src/db/migrations.ts",
+            "packages/shared/src/index.ts",
+            "apps/api/test/pilot-autopilot.test.ts",
+            "apps/api/test/pilot-merge.test.ts",
+            "apps/api/test/pilot-runs.test.ts"
+          ],
+          "context": "R14 (lo propio de cada proyecto vive en su repo: ventas trae merge-dev en .claude/skills/merge-dev, que mergea la raíz a main y abre PR en fe-ventas y be-ventas), R12 (push directo a la base solo lo que hace la merge-dev del proyecto), R15 (sobrevive a reinicios), R7 (éxito por git y gh, no por el texto). La versión de be-ventas (R19) es del sprint 6.",
+          "acceptance_criteria": [
+            "Proyecto con merge-dev: el piloto abre una sesión merge_dev con el ejecutor cuyo prompt nombra la ruta de la skill; con gh falso que reporta PRs en repos hijos, el trabajo queda pr_lista con las URLs.",
+            "Proyecto sin merge-dev: corre el merge genérico y queda pr_lista.",
+            "Una sesión merge_dev sin PR ni rama mergeada frena con merge_sin_pr; con secretos en un repo hijo frena con 'secretos'.",
+            "Reinicio en fase merge: resumeAll retoma la fase y no se crea una segunda PR."
+          ],
+          "depends_on": [
+            "T3.1",
+            "T4.4"
+          ],
+          "scenario_refs": [
+            "S15",
+            "S19",
+            "S36"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "Tras completar scope/work el run pasa a phase merge (persistida, migración 16): merge-dev del proyecto (sesión merge_dev del ejecutor con la skill y política merge_dev) o merge genérico; scanWorktreeSecrets sobre raíz e hijos; señal de éxito por is-ancestor o PR abierta (raíz e hijos, gh pr list); sin señal frena merge_sin_pr; PR URLs en el run y el Timeline; un reinicio retoma la fase",
+            "validation": [
+              "vitest run (apps/api): 964 passed (autopilot merge phase: PR con objetivo y sprints, conflictos, conflicto, secretos, reinicio, merge-dev con PR/ancestor/merge_sin_pr; merge-phase con repos hijos)",
+              "npm run typecheck y eslint sin errores"
+            ],
+            "files_changed": [
+              "apps/api/src/pilot/merge-phase.ts",
+              "apps/api/src/pilot/autopilot.ts",
+              "apps/api/src/pilot/accept-debt.ts",
+              "apps/api/src/pilot/git-ops.ts",
+              "apps/api/src/pilot/policy.ts",
+              "apps/api/src/pilot/prompts.ts",
+              "apps/api/src/pilot/secrets.ts",
+              "apps/api/src/kyro/reader.ts",
+              "apps/api/src/kyro/state.ts",
+              "apps/api/src/app.ts",
+              "apps/api/test/pilot-autopilot.test.ts",
+              "apps/api/test/pilot-merge.test.ts",
+              "apps/api/test/pilot-accept-debt.test.ts"
+            ],
+            "notes": "La columna phase y pr_urls ya existían desde T4.4 (migración 16); aquí se usan.",
+            "by": "maker-agent",
+            "recordedAt": "2026-10-05T21:23:08.720Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "Proyecto con merge-dev: el piloto abre una sesión merge_dev con el ejecutor cuyo prompt nombra la ruta de la skill; con gh falso que reporta PRs en repos hijos, el trabajo queda pr_lista con las URLs.",
+              "Proyecto sin merge-dev: corre el merge genérico y queda pr_lista.",
+              "Una sesión merge_dev sin PR ni rama mergeada frena con merge_sin_pr; con secretos en un repo hijo frena con 'secretos'.",
+              "Reinicio en fase merge: resumeAll retoma la fase y no se crea una segunda PR."
+            ],
+            "findings": [],
+            "by": "checker-agent",
+            "reviewedAt": "2026-10-05T21:23:08.989Z",
+            "requestDigest": "138a1952e2db602ec9842f409cbc5d6cfa8ff4148a9362d84150291f6374e5a9",
+            "reviewedMaterialDigest": "23e0facdb2d42bb61ade5a844d26d9f3862432cca70b0e8edea3fdd17570c7c1"
+          }
+        }
+      ]
+    },
+    {
+      "id": "P5",
+      "title": "Web mínima de las acciones",
+      "objective": "La Idea, la aprobación del plan, la aceptación de deuda y el link de la PR se usan desde la web; el Timeline y el push quedan para el sprint 5.",
+      "status": "done",
+      "tasks": [
+        {
+          "id": "T5.1",
+          "title": "Tipo Idea en Nuevo chat",
+          "description": "En chat-kinds.ts y new-chat.form.ts sumar el tipo Idea (solo con Kyro en el proyecto, como scope y work), con su descripción y sin el interruptor de piloto (se prende al aprobar). La sidebar muestra el estado del trabajo como para scope y work.",
+          "files_to_touch": [
+            "apps/web/src/app/chats/chat-kinds.ts",
+            "apps/web/src/app/chats/new-chat.form.ts",
+            "apps/web/src/app/chats/chat-kinds.spec.ts",
+            "apps/web/src/app/chats/new-chat.form.spec.ts",
+            "apps/web/src/app/chats/status.ts"
+          ],
+          "context": "R17, R25 (identidad visual: un solo badge por entidad, color por quién actúa; docs/identidad-visual.md), R5 (etiquetas en español). Angular standalone con signals.",
+          "acceptance_criteria": [
+            "Nuevo chat ofrece Idea solo si el proyecto tiene Kyro, y al crearlo no manda autopilot (spec).",
+            "Las etiquetas Madurando idea y Esperando aprobación del plan se muestran con el tono de quién actúa (ámbar cuando le toca al usuario) (spec)."
+          ],
+          "depends_on": [
+            "T2.1"
+          ],
+          "scenario_refs": [
+            "S18"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "La web ofrece Idea solo con Kyro, con descripción por tipo y sin mandar autopilot (newChatInput); GET /api/chats y /:id traen workState y la sidebar muestra un solo badge con la etiqueta del estado y el tono de quién actúa (ámbar en esperando_aprobacion_plan, acento en madurando_idea)",
+            "validation": [
+              "vitest run apps/web: 173 passed (chat-kinds, status, work-state); apps/api: 965 passed",
+              "npm run typecheck, lint y format:check sin errores"
+            ],
+            "files_changed": [
+              "apps/web/src/app/chats/chat-kinds.ts",
+              "apps/web/src/app/chats/new-chat.form.ts",
+              "apps/web/src/app/chats/status.ts",
+              "apps/web/src/app/chats/work-state.ts",
+              "apps/web/src/app/chats/chat-sidebar.ts",
+              "apps/web/src/app/chats/chat-kinds.spec.ts",
+              "apps/web/src/app/chats/status.spec.ts",
+              "apps/web/src/app/chats/work-state.spec.ts",
+              "apps/api/src/chats/routes.ts",
+              "packages/shared/src/index.ts",
+              "apps/api/test/worktree-state.test.ts"
+            ],
+            "notes": "La web no mostraba el estado fino de ningún trabajo: se agregó workState a la API del chat y work-state.ts con las etiquetas de todo el catálogo. new-chat.form.spec.ts no cambió: la lógica se prueba en chat-kinds.spec.ts (el repo no usa TestBed).",
+            "by": "maker-agent",
+            "recordedAt": "2026-10-05T21:28:53.675Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "Nuevo chat ofrece Idea solo si el proyecto tiene Kyro, y al crearlo no manda autopilot (spec).",
+              "Las etiquetas Madurando idea y Esperando aprobación del plan se muestran con el tono de quién actúa (ámbar cuando le toca al usuario) (spec)."
+            ],
+            "findings": [],
+            "by": "checker-agent",
+            "reviewedAt": "2026-10-05T21:28:53.950Z",
+            "requestDigest": "c9850a806b0ea53745c812cf3a5c20424fbfddaccb55c93435136268272bae6c",
+            "reviewedMaterialDigest": "19034b015c31a0d3a284a3d6f453965dbbee75c8c8545a0ebb97d936b9c63c7e"
+          }
+        },
+        {
+          "id": "T5.2",
+          "title": "Barra de aprobación del plan, aceptación de deuda y link de la PR",
+          "description": "En chat.page: con el trabajo en esperando_aprobacion_plan, una tarjeta muestra el plan (GET /api/chats/:id/idea, Markdown renderizado sin HTML crudo) con tres acciones: Aprobar como scope, Aprobar como work y Pedir cambios (con un textarea obligatorio). En esperando_aprobacion_cierre, una tarjeta con la lista de deuda abierta y la acción Completar aceptando la deuda (con motivo obligatorio). En pr_lista, el link (o los links) de la PR. Acciones deshabilitadas con el motivo mientras corren.",
+          "files_to_touch": [
+            "apps/web/src/app/chats/chat.page.ts",
+            "apps/web/src/app/chats/idea-approval.card.ts",
+            "apps/web/src/app/chats/debt-approval.card.ts",
+            "apps/web/src/app/chats/chats.service.ts",
+            "apps/web/src/app/chats/approval-logic.ts",
+            "apps/web/src/app/chats/approval-logic.spec.ts"
+          ],
+          "context": "R17, R18, R25 (acciones deshabilitadas con motivo, un solo badge por entidad), R24 (las llamadas pasan por el interceptor de CSRF). El Markdown del plan viene del repo: se renderiza sin HTML crudo para no inyectar nada en la página.",
+          "acceptance_criteria": [
+            "La lógica de qué tarjeta y qué acciones se muestran según el estado está en approval-logic.ts y tiene spec.",
+            "Pedir cambios y Completar aceptando la deuda no se pueden enviar sin texto (spec).",
+            "El plan se renderiza sin HTML crudo: un <script> en el documento se muestra como texto (spec)."
+          ],
+          "depends_on": [
+            "T2.3",
+            "T3.2",
+            "T5.1"
+          ],
+          "scenario_refs": [
+            "S18",
+            "S19"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "chat.page muestra la tarjeta del plan (Markdown como datos, sin HTML crudo) con Aprobar como scope/work y Pedir cambios con texto obligatorio, la tarjeta de deuda con Completar aceptando la deuda con motivo obligatorio y los links de la PR en pr_lista; approval-logic.ts decide tarjeta y acciones con motivo de deshabilitado",
+            "validation": [
+              "vitest run apps/web: 187 passed (approval-logic.spec.ts: tarjeta por estado, acciones, texto obligatorio, <script> como texto)",
+              "ng build, lint y format:check sin errores; npm run typecheck sin errores"
+            ],
+            "files_changed": [
+              "apps/web/src/app/chats/chat.page.ts",
+              "apps/web/src/app/chats/idea-approval.card.ts",
+              "apps/web/src/app/chats/debt-approval.card.ts",
+              "apps/web/src/app/chats/chats.service.ts",
+              "apps/web/src/app/chats/approval-logic.ts",
+              "apps/web/src/app/chats/approval-logic.spec.ts",
+              "apps/web/src/styles/components.css"
+            ],
+            "by": "maker-agent",
+            "recordedAt": "2026-10-05T21:33:21.762Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "La lógica de qué tarjeta y qué acciones se muestran según el estado está en approval-logic.ts y tiene spec.",
+              "Pedir cambios y Completar aceptando la deuda no se pueden enviar sin texto (spec).",
+              "El plan se renderiza sin HTML crudo: un <script> en el documento se muestra como texto (spec)."
+            ],
+            "findings": [],
+            "by": "checker-agent",
+            "reviewedAt": "2026-10-05T21:33:22.050Z",
+            "requestDigest": "965c4491fc61ca4cb64271150dbcc542e41b67d3c437133be94392a6edafc0ae",
+            "reviewedMaterialDigest": "d01543a987ed4931dcb168294691e998d1bb30fb0559f2ba1862609b904a6e50"
+          }
+        }
+      ]
+    },
+    {
+      "id": "P6",
+      "title": "Docs y verificación",
+      "objective": "Los docs describen la Idea, el cierre y el merge, y el sprint pasa todos los gates.",
+      "status": "done",
+      "tasks": [
+        {
+          "id": "T6.1",
+          "title": "docs: Idea, cierre, merge, estados y cómo probarlo",
+          "description": "docs/plan.md: chat Idea y sus tres acciones, cierre del scope o work por el panel, push tras cada cierre, merge genérico y merge-dev, validate_command, secretos, política versión 2 y lo que queda para los sprints 5 y 6. docs/estados.md: kind idea, estados madurando_idea y esperando_aprobacion_plan con su detección, fase merge (trayendo_dev, resolviendo_conflictos, validando_post_merge, abriendo_pr, pr_lista) y motivos nuevos (qa_sin_aprobar, conflicto, build_roto, secretos, merge_sin_pr). docs/panel-desarrollo.md: cómo probar una Idea y un cierre con merge contra un repo de prueba sin tocar repos reales. CLAUDE.md: validate_command en 'Proyectos registrados en el panel'.",
+          "files_to_touch": [
+            "docs/plan.md",
+            "docs/estados.md",
+            "docs/panel-desarrollo.md",
+            "CLAUDE.md"
+          ],
+          "context": "R26 (los docs quedan al día en el mismo cambio). Docs en español, sin secretos. No hay cambios en la VM en este sprint: no se toca docs/vm-setup.md salvo que aparezca uno.",
+          "acceptance_criteria": [
+            "Cada estado y motivo nuevo de packages/shared aparece en docs/estados.md con cómo se detecta.",
+            "docs/plan.md deja de decir que push, pull, PR y frenos de merge son del sprint 4 y los describe.",
+            "docs/panel-desarrollo.md tiene los pasos para probar Idea → aprobación y cierre → PR."
+          ],
+          "depends_on": [
+            "T1.1",
+            "T1.2",
+            "T2.3",
+            "T3.2",
+            "T4.5",
+            "T5.2"
+          ],
+          "scenario_refs": [],
+          "status": "done",
+          "evidence": {
+            "summary": "docs al día: plan.md (resumen del sprint 4 y lo que queda para los sprints 5 y 6, sin la frase de que push/PR/merge son del sprint 4), estados.md (idea, aprobación, cierre, fase de merge, motivos nuevos y tablas del piloto), panel-desarrollo.md (cómo probar Idea → aprobación → cierre → PR con un repo de prueba) y CLAUDE.md (validate_command)",
+            "validation": [
+              "prettier --check docs CLAUDE.md sin errores",
+              "cada motivo nuevo de BLOCKED_REASONS (qa_sin_aprobar, secretos, conflicto, build_roto, merge_sin_pr) aparece en docs/estados.md con su señal"
+            ],
+            "files_changed": [
+              "docs/plan.md",
+              "docs/estados.md",
+              "docs/panel-desarrollo.md",
+              "CLAUDE.md"
+            ],
+            "notes": "Sin cambios en la VM en este sprint: docs/vm-setup.md no se toca.",
+            "by": "maker-agent",
+            "recordedAt": "2026-10-05T21:34:24.343Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "Cada estado y motivo nuevo de packages/shared aparece en docs/estados.md con cómo se detecta.",
+              "docs/plan.md deja de decir que push, pull, PR y frenos de merge son del sprint 4 y los describe.",
+              "docs/panel-desarrollo.md tiene los pasos para probar Idea → aprobación y cierre → PR."
+            ],
+            "findings": [],
+            "by": "checker-agent",
+            "reviewedAt": "2026-10-05T21:34:24.625Z",
+            "requestDigest": "d219d9d9d410ad7b544a757f63caefdef2a476c68ae73dd1b5fe8740b3dd7196",
+            "reviewedMaterialDigest": "eb0b753ad05dd8a918dde64f89a3946c38d2819fc8ccc49143224bf40f88efd2"
+          }
+        },
+        {
+          "id": "T6.2",
+          "title": "Verificación automática del sprint",
+          "description": "Correr typecheck, lint, format:check, test y build del repo. Greps: ningún bypassPermissions ni allowDangerouslySkipPermissions; ningún --force, --force-with-lease ni rebase en apps/api/src; todo comando externo nuevo por execFile con argv; ninguna ruta pública nueva (apps/api/src/http y la allowlist del guard sin cambios). Comprobar que /tmp queda igual antes y después de los tests. kyro analyze sin CRITICAL ni HIGH.",
+          "files_to_touch": [],
+          "context": "R8, R10, R12, R24. Tarea de verificación sin escenario propio: cubre los gates del sprint. Los tests usan su propio TMPDIR (test/global-setup.ts).",
+          "acceptance_criteria": [
+            "npm run typecheck, lint, format:check, test y build salen con 0.",
+            "Los greps de bypassPermissions, --force/rebase y exec( sin execFile no dan hallazgos nuevos, y apps/api/src/http no cambió.",
+            "kyro analyze --kyro-scope autopiloto-kyro sin CRITICAL ni HIGH."
+          ],
+          "depends_on": [
+            "T6.1"
+          ],
+          "scenario_refs": [],
+          "status": "done",
+          "evidence": {
+            "summary": "Verificación automática del sprint 4: typecheck, lint, format:check, test y build en verde; greps de seguridad sin hallazgos nuevos; /tmp igual antes y después de los tests; kyro analyze sin CRITICAL ni HIGH",
+            "validation": [
+              "npm run typecheck && lint && format:check && test && build: exit 0 (api 965 passed, web 187 passed, ng build ok)",
+              "grep bypassPermissions/allowDangerouslySkipPermissions en apps/api/src: ninguno (solo tests y scripts de spike ya existentes)",
+              "grep --force/force-with-lease/rebase en apps/api/src: solo la lista de denegados de permissions.ts, el texto de la política que lo prohíbe, comentarios y git worktree remove --force de la limpieza ya existente; ningún push ni rebase forzado",
+              "comandos externos nuevos (git, gh, kyro, validate_command) por execFile con argv; sin exec con shell",
+              "git diff de apps/api/src/http y apps/api/src/auth vacío; las rutas public: true siguen siendo /api/health y los pasos de login",
+              "/tmp idéntico antes y después de npm test (diff vacío)",
+              "kyro analyze: CRITICAL=0 HIGH=0 MEDIUM=5 (escenarios sin cobertura S6, S20, S22, S23 y T6.1 sin scenario_refs)"
+            ],
+            "files_changed": [],
+            "notes": "El 'ERROR: ... no es un directorio con .agents/kyro/' del log de tests es la salida esperada de un test del CLI.",
+            "by": "maker-agent",
+            "recordedAt": "2026-10-05T21:37:01.645Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "npm run typecheck, lint, format:check, test y build salen con 0.",
+              "Los greps de bypassPermissions, --force/rebase y exec( sin execFile no dan hallazgos nuevos, y apps/api/src/http no cambió.",
+              "kyro analyze --kyro-scope autopiloto-kyro sin CRITICAL ni HIGH."
+            ],
+            "findings": [],
+            "by": "checker-agent",
+            "reviewedAt": "2026-10-05T21:37:01.911Z",
+            "requestDigest": "6f687de179fe9272325225a34b530687d2cb4343b94c8dbc3da33dd48462c89a",
+            "reviewedMaterialDigest": "195e74fd8017ad0ec614c56feccfe5d4508610746f3325792f3d06cd0fabd484"
+          }
+        }
+      ]
+    }
+  ],
+  "emergentTasks": [
+    {
+      "id": "E1",
+      "title": "accept_debt: comprobar el run del piloto antes de completar el scope (QA E1)",
+      "description": "En apps/api/src/pilot/accept-debt.ts, antes de correr kyro scope complete, commit y push, comprobar que el chat tiene run del piloto; si no, 409 sin efectos. Test que lo cubra.",
+      "files_to_touch": [],
+      "context": "",
+      "acceptance_criteria": [
+        "Un scope sin run en esperando_aprobacion_cierre recibe 409 en accept_debt y no corre kyro scope complete, commit ni push",
+        "El test de pilot-accept-debt.test.ts lo comprueba y toda la suite sigue verde"
+      ],
+      "depends_on": [],
+      "scenario_refs": [],
+      "status": "done",
+      "evidence": {
+        "summary": "accept_debt comprueba el run del piloto antes de tocar Kyro: sin run responde 409 sin scope complete, commit ni push",
+        "validation": [
+          "vitest run apps/api: 966 passed (test nuevo en pilot-accept-debt.test.ts)",
+          "tsc y eslint sin errores"
+        ],
+        "files_changed": [
+          "apps/api/src/pilot/accept-debt.ts",
+          "apps/api/test/pilot-accept-debt.test.ts"
+        ],
+        "by": "maker-agent",
+        "recordedAt": "2026-10-05T21:39:50.865Z"
+      },
+      "verdict": {
+        "result": "pass",
+        "checked_criteria": [
+          "Un scope sin run en esperando_aprobacion_cierre recibe 409 en accept_debt y no corre kyro scope complete, commit ni push",
+          "El test de pilot-accept-debt.test.ts lo comprueba y toda la suite sigue verde"
+        ],
+        "findings": [],
+        "by": "checker-agent",
+        "reviewedAt": "2026-10-05T21:39:51.138Z",
+        "requestDigest": "bb11d3bc4385163a71fbf90a198da0f726011f9f6420c9d3411ae4fbe2a01de8",
+        "reviewedMaterialDigest": "959e488e759f2f4e9d2fef9aef74904389c0469cef87887573c340353f7a71a9"
+      }
+    }
+  ],
+  "definitionOfDone": [
+    "Todas las tareas terminadas con evidencia y veredicto pass",
+    "typecheck, lint, format:check, test y build en verde; kyro analyze sin CRITICAL ni HIGH",
+    "QA del sprint con kyro-qa APPROVED o APPROVED WITH NOTES",
+    "debt-6 y debt-7 resueltas; debt-1 y debt-5 siguen con target 6",
+    "Docs al día: plan.md, estados.md, panel-desarrollo.md y CLAUDE.md"
+  ]
+}

@@ -394,6 +394,48 @@
         "given": "la base de Bash sin extras del proyecto",
         "when": "el agente intenta npm exec -c, npm x, git -c core.sshCommand, git config alias con !, go generate o GIT_SSH_COMMAND=… git push",
         "then": "cada intento se deniega con permission_denied y npm test, git push y go test siguen permitidos"
+      },
+      {
+        "id": "S33",
+        "requirement": "R20",
+        "given": "un trabajo en la fase de merge cuyo diff contra la base agrega un .env o una clave privada",
+        "when": "el piloto busca secretos antes del push final",
+        "then": "frena con el motivo secretos listando archivos y tipos, sin el valor, y no pushea ni abre PR"
+      },
+      {
+        "id": "S34",
+        "requirement": "R20",
+        "given": "un proyecto con validate_command y una base adelantada que rompe el build",
+        "when": "el merge genérico trae la base y valida",
+        "then": "el trabajo frena con build_roto y la salida recortada, y no se abre la PR"
+      },
+      {
+        "id": "S35",
+        "requirement": "R8",
+        "given": "una sesión de cierre que cerró el sprint con un informe de QA CHANGES REQUIRED o sin informe",
+        "when": "el piloto verifica el cierre",
+        "then": "frena con qa_sin_aprobar y el veredicto leído, y no sigue al próximo sprint"
+      },
+      {
+        "id": "S36",
+        "requirement": "R15",
+        "given": "un piloto en la fase de merge con una PR ya abierta",
+        "when": "el panel se reinicia",
+        "then": "el piloto retoma la fase de merge y no abre una segunda PR"
+      },
+      {
+        "id": "S37",
+        "requirement": "R17",
+        "given": "un chat Idea esperando la aprobación del plan",
+        "when": "el usuario pide cambios con un texto",
+        "then": "el texto llega a la misma sesión con el modelo pensante, el trabajo vuelve a madurando_idea y la decisión queda con quién la tomó"
+      },
+      {
+        "id": "S38",
+        "requirement": "R6",
+        "given": "un piloto activo y un mensaje del usuario que entra entre waitForIdle y start",
+        "when": "start tira AlreadyRunningError",
+        "then": "el piloto espera a que termine el turno del usuario y abre el paso sin frenar ni contar la sesión fallida"
       }
     ],
     "nonGoals": [
@@ -446,7 +488,7 @@
         "n": 4,
         "slug": "idea-cierre-merge",
         "title": "Idea con aprobación y cierre con merge",
-        "state": "planned"
+        "state": "closed"
       },
       {
         "n": 5,
@@ -500,13 +542,23 @@
       "snapshot": "archive/sprint-003-orquestador-politica.json",
       "checkpoint": "archive/sprint-003-orquestador-politica.checkpoint.json",
       "checkpointSha256": "e761c56de72c282a28d2e950f4e6983f583143ac20b7e65bdd7f8e97ba0110cd"
+    },
+    {
+      "n": 4,
+      "slug": "idea-cierre-merge",
+      "outcome": "shipped",
+      "closedAt": "2026-10-05",
+      "archive": "archive/sprint-004-idea-cierre-merge.md",
+      "snapshot": "archive/sprint-004-idea-cierre-merge.json",
+      "checkpoint": "archive/sprint-004-idea-cierre-merge.checkpoint.json",
+      "checkpointSha256": "9e31c367c85a2117c9a68585124c85528e443cf792119f521e6c7eb3d132c7a2"
     }
   ],
   "previousSprint": {
-    "n": 3,
-    "slug": "orquestador-politica",
+    "n": 4,
+    "slug": "idea-cierre-merge",
     "outcome": "shipped",
-    "summary": "Un scope o work con piloto activo avanza solo de sesión en sesión (plan con el pensante, ejecución y cierre con el ejecutor) decidiendo cada paso por señales de Kyro y del SDK, con la política de gates inyectada, QA y analyze verificados antes de cerrar, frenos con motivo y retoma tras reinicio, probado con runner y Kyro falsos."
+    "summary": "Que un trabajo empiece como Idea desde la web, espere la aprobación del plan y, aprobado, el piloto lo lleve solo hasta la PR: push tras cada cierre de sprint, cierre del scope o work (preguntando una sola vez si queda deuda), traer la base, resolver conflictos, validar, buscar secretos y abrir la PR con la merge-dev del proyecto o con el merge genérico."
   },
   "activeSprint": null,
   "debt": [
@@ -560,25 +612,25 @@
       "title": "Verificar el veredicto de kyro-qa (APPROVED / APPROVED WITH NOTES) además de que la sesión de cierre invocó la skill",
       "origin": 3,
       "priority": "medium",
-      "status": "open",
+      "status": "resolved",
       "targetSprint": 6,
-      "note": "QA del sprint 3: hoy solo se comprueba el tool_use de kyro-qa"
+      "note": "T1.1: informe de QA verificable, política v2 y freno qa_sin_aprobar"
     },
     {
       "id": "debt-7",
       "title": "AlreadyRunningError si el usuario manda un mensaje entre waitForIdle y start: el piloto debe reintentar en vez de frenar con otro",
       "origin": 3,
       "priority": "low",
-      "status": "open",
+      "status": "resolved",
       "targetSprint": 6,
-      "note": "QA del sprint 3: condición de carrera menor"
+      "note": "T1.2: reintento ante AlreadyRunningError con tope de 3"
     }
   ],
   "handoff": {
     "nextAction": "plan_sprint",
     "nextTaskId": null,
     "blockers": [],
-    "note": "Sprint 3 (orquestador-politica) closed as shipped. Scope remains open for planning.",
+    "note": "Sprint 4 (idea-cierre-merge) closed as shipped. Scope remains open for planning.",
     "lastUpdated": "2026-10-05"
   },
   "author": {
