@@ -970,7 +970,7 @@
         "id": "P4",
         "title": "Docs y verificación",
         "objective": "Los docs describen el piloto real y el sprint pasa todos los gates automáticos.",
-        "status": "pending",
+        "status": "active",
         "tasks": [
           {
             "id": "T4.1",
@@ -995,9 +995,35 @@
             "scenario_refs": [
               "S27"
             ],
-            "status": "pending",
-            "evidence": null,
-            "verdict": null
+            "status": "done",
+            "evidence": {
+              "summary": "docs: plan.md registra la D3 actualizada (sesión de cierre separada, analyze del panel, prompt armado por el panel), la retoma tras reinicio y lo que falta; estados.md lista cada estado y motivo que escribe el piloto con su señal y actor pilot, la tabla autopilot_runs y actualiza los motivos y los estados todavía no detectados; panel-desarrollo.md suma «Probar el piloto automático (por la API)» con la nota de tmux hasta tener systemd. .env.example ya traía PILOT_MAX_SESSIONS_PER_SPRINT (T3.1).",
+              "validation": [
+                "revisión de los tres docs contra el código: estados, motivos, rutas y variables coinciden con apps/api/src/pilot y packages/shared",
+                "git diff --stat: solo docs"
+              ],
+              "files_changed": [
+                "docs/plan.md",
+                "docs/estados.md",
+                "docs/panel-desarrollo.md",
+                "apps/api/.env.example"
+              ],
+              "by": "maker",
+              "recordedAt": "2026-10-05T19:54:20.632Z"
+            },
+            "verdict": {
+              "result": "pass",
+              "checked_criteria": [
+                "plan.md describe el piloto como quedó implementado y registra el cambio de D3.",
+                "estados.md lista cada estado y motivo que escribe el piloto con su señal y el actor pilot.",
+                "panel-desarrollo.md tiene los pasos para activar y probar el piloto por la API."
+              ],
+              "findings": [],
+              "by": "checker",
+              "reviewedAt": "2026-10-05T19:54:20.886Z",
+              "requestDigest": "3814e96511a20c27c1e888f05b1c00776f0cc3e4b9693529f2cfa4f60bb8b083",
+              "reviewedMaterialDigest": "4743ace3c18de24f0df1b3272b04bbc267e2899af19b728a30e402932e653ff6"
+            }
           },
           {
             "id": "T4.2",
@@ -1091,10 +1117,10 @@
   ],
   "handoff": {
     "nextAction": "execute_task",
-    "nextTaskId": "T4.1",
+    "nextTaskId": "T4.2",
     "blockers": [],
-    "note": "Task T3.5 passed checker review.",
-    "lastUpdated": "2026-10-05T19:53:35.087Z"
+    "note": "Task T4.1 passed checker review.",
+    "lastUpdated": "2026-10-05T19:54:20.886Z"
   },
   "author": {
     "name": "Maiki02",
