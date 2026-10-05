@@ -15,6 +15,14 @@ interface RunRow {
   finished_at: number | null;
 }
 
+const SKIPPED_RE = /^KYRO_SKIPPED=(.+)$/gm;
+
+/** Roots the script reported as skipped (`KYRO_SKIPPED=<root>` lines). */
+export function skippedRoots(output: string | null): string[] {
+  if (output === null) return [];
+  return [...output.matchAll(SKIPPED_RE)].map((match) => (match[1] ?? '').trim());
+}
+
 function toRun(row: RunRow): MaintenanceRun {
   return {
     id: row.id,
@@ -23,6 +31,7 @@ function toRun(row: RunRow): MaintenanceRun {
     toVersion: row.to_version,
     status: row.status,
     output: row.output,
+    skipped: skippedRoots(row.output),
     startedAt: row.started_at,
     finishedAt: row.finished_at,
   };

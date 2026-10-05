@@ -7,6 +7,7 @@ import {
   ProjectNotFoundError,
   type ProjectRepository,
 } from './repo.js';
+import { kyroPendingCommit } from './git.js';
 import type { ProjectService } from './service.js';
 
 export const idParams = {
@@ -76,7 +77,7 @@ export function registerProjectRoutes(
 ): void {
   const { projects, service } = deps;
 
-  app.get('/api/projects', () => projects.list());
+  app.get('/api/projects', () => Promise.all(projects.list().map(withKyroState)));
 
   app.post<{ Body: AddBody }>(
     '/api/projects',
@@ -126,6 +127,12 @@ export function registerProjectRoutes(
   );
 }
 
+/** Adds `kyroPendingCommit` to a project that has Kyro (the only ones that can have it). */
+async function withKyroState(project: Project): Promise<Project> {
+  if (!project.hasKyro || project.status !== 'ready') return project;
+  return { ...project, kyroPendingCommit: await kyroPendingCommit(project.repoPath) };
+}
+
 /** `suggestedSetupCommand` is only offered while the project has no explicit setup command. */
 async function withSuggestion(
   service: ProjectService,
@@ -135,5 +142,5 @@ async function withSuggestion(
     project.setupCommand === null && project.status === 'ready'
       ? await service.suggestedSetup(project)
       : null;
-  return { ...project, suggestedSetupCommand };
+  return { ...(await withKyroState(project)), suggestedSetupCommand };
 }

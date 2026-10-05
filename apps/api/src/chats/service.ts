@@ -29,7 +29,7 @@ export class ChatError extends Error {
   }
 }
 
-const FLOW_SKILL: Record<ChatKind, { skill: string; command: string }> = {
+const FLOW_SKILL: Record<Exclude<ChatKind, 'direct'>, { skill: string; command: string }> = {
   scope: { skill: 'kyro-forge', command: '/kyro:forge' },
   work: { skill: 'kyro-work', command: '/kyro:work' },
 };
@@ -41,6 +41,8 @@ const FLOW_SKILL: Record<ChatKind, { skill: string; command: string }> = {
  * would load.
  */
 export function buildInitialPrompt(kind: ChatKind, request: string, home = homedir()): string {
+  // A direct request carries no Kyro flow: the agent gets the user's words as they are.
+  if (kind === 'direct') return request;
   const { skill, command } = FLOW_SKILL[kind];
   const skillPath = join(home, '.agents', 'skills', skill, 'SKILL.md');
   return [
@@ -80,6 +82,13 @@ export class ChatService {
     // A clone still running (or failed) means an incomplete repo: no worktree, no chat.
     if (project.status !== 'ready') {
       throw new ChatError(`El proyecto todavía no está listo: ${project.status}`, 409);
+    }
+    // Without Kyro in the repo the scope and work flows have nothing to run on.
+    if (input.kind !== 'direct' && !project.hasKyro) {
+      throw new ChatError(
+        'El proyecto no tiene Kyro: solo admite pedidos directos. Inicializá Kyro para usar scope y work.',
+        409,
+      );
     }
     try {
       validateSlug(input.slug);

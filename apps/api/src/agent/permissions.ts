@@ -47,7 +47,33 @@ function deny(message: string): PermissionDecision {
 /** Read-only text filters, allowed only after a pipe (never as the start of a command). */
 const PIPE_FILTERS = ['head', 'tail', 'grep', 'wc', 'sort', 'uniq', 'cut'];
 
-export function checkBash(command: string): PermissionDecision {
+/**
+ * Read-only commands allowed as the start of a command, so an agent without Kyro can look around.
+ * Every argument that is not a flag must resolve inside the worktree.
+ */
+const READ_COMMANDS = ['ls', 'cat', 'head', 'tail', 'wc', 'grep', 'pwd'];
+
+function checkReadArgs(stage: string, cwd: string): PermissionDecision {
+  if (/[$~*?[{]/.test(stage))
+    return deny('Variables, ~ and globs are not allowed in read commands');
+  for (const raw of stage.split(/\s+/).slice(1)) {
+    // A quoting layer around the whole token is harmless, but quotes or backslashes inside it
+    // change what bash resolves (`\/etc/x`, `""../../x`), so the path checked would not be the path read.
+    const arg = raw.replace(/^["']/, '').replace(/["']$/, '');
+    if (/["'\\]/.test(arg)) return deny('Quotes and backslashes inside a path are not allowed');
+    if (arg === '') continue;
+    if (arg.startsWith('-')) {
+      // Options that carry a path (--file=/etc/x) would skip the check below.
+      if (/[/=]/.test(arg)) return deny('Options with a path or value are not allowed');
+      continue;
+    }
+    if (!isInside(cwd, arg, cwd))
+      return deny(`Reading outside the worktree is not allowed: ${arg.slice(0, 80)}`);
+  }
+  return { behavior: 'allow' };
+}
+
+export function checkBash(command: string, cwd?: string): PermissionDecision {
   if (/\$\(|`|<\(|>\(/.test(command)) return deny('Command substitution is not allowed');
   const withoutSafeRedirects = command.replace(/\d?>\s*&\d|\d?>\s*\/dev\/null/g, '');
   if (/[<>]/.test(withoutSafeRedirects)) return deny('Redirection is not allowed');
@@ -59,6 +85,11 @@ export function checkBash(command: string): PermissionDecision {
       if (stage === '') continue;
       const [first = ''] = stage.split(/\s+/);
       if (index === 0 && first === 'cd') continue;
+      if (index === 0 && cwd !== undefined && READ_COMMANDS.includes(first)) {
+        const verdict = checkReadArgs(stage, cwd);
+        if (verdict.behavior === 'deny') return verdict;
+        continue;
+      }
       const allowed =
         (ALLOWED_BASH_COMMANDS as readonly string[]).includes(first) ||
         (index > 0 && PIPE_FILTERS.includes(first));
@@ -85,7 +116,9 @@ export function decide(
 
   if (toolName === 'Bash') {
     const command = input['command'];
-    return typeof command === 'string' ? checkBash(command) : deny('Bash needs a command');
+    return typeof command === 'string'
+      ? checkBash(command, policy.cwd)
+      : deny('Bash needs a command');
   }
 
   const readKey = READ_TOOLS[toolName];

@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { FastifyInstance } from 'fastify';
@@ -29,6 +29,7 @@ export function makeApp(
       | 'manager'
       | 'kyroVersions'
       | 'kyroScriptRunner'
+      | 'kyroInstaller'
     >
   > = {},
 ): {
@@ -57,6 +58,7 @@ export function makeApp(
     ...(extra.manager ? { manager: extra.manager } : {}),
     ...(extra.kyroVersions ? { kyroVersions: extra.kyroVersions } : {}),
     ...(extra.kyroScriptRunner ? { kyroScriptRunner: extra.kyroScriptRunner } : {}),
+    ...(extra.kyroInstaller ? { kyroInstaller: extra.kyroInstaller } : {}),
   });
   return { app, db, worktreesDir, projectsDir };
 }
@@ -82,6 +84,13 @@ export function makeGitRepo(): string {
   git('add', '.');
   git('commit', '-q', '-m', 'init');
   return dir;
+}
+
+/** A repo that ships `.agents/kyro/`, so the scope and work flows are allowed on it. */
+export function makeKyroRepo(): string {
+  const repo = makeGitRepo();
+  mkdirSync(join(repo, '.agents', 'kyro'), { recursive: true });
+  return repo;
 }
 
 export function mutatingHeaders(cookie: string, csrfToken: string): Record<string, string> {

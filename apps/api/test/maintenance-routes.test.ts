@@ -10,7 +10,7 @@ import type { ScriptResult, ScriptRunner } from '../src/maintenance/updater.js';
 import { KyroVersions, type Exec } from '../src/maintenance/versions.js';
 import { ProjectRepository } from '../src/projects/repo.js';
 import { FakeRunner } from './fake-runner.js';
-import { ORIGIN, PASSWORD, TEST_ENV, makeApp, makeGitRepo, mutatingHeaders } from './helpers.js';
+import { ORIGIN, PASSWORD, TEST_ENV, makeApp, makeKyroRepo, mutatingHeaders } from './helpers.js';
 
 let app: FastifyInstance | undefined;
 afterEach(async () => {
@@ -178,7 +178,7 @@ describe('POST /api/versions/kyro/update', () => {
     const { server, db, headers, update, totp, rows, script } = await setup({ agent });
     const project = await new ProjectRepository(db).add({
       name: 'demo',
-      repoPath: makeGitRepo(),
+      repoPath: makeKyroRepo(),
       baseBranch: 'main',
     });
     const chat = await server.inject({
@@ -215,7 +215,7 @@ describe('POST /api/versions/kyro/update', () => {
     });
     const project = await new ProjectRepository(db).add({
       name: 'demo',
-      repoPath: makeGitRepo(),
+      repoPath: makeKyroRepo(),
       baseBranch: 'main',
     });
     expect((await update({ code: totp() })).statusCode).toBe(202);

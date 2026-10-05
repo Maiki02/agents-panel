@@ -19,6 +19,13 @@ export interface WorktreeResult {
   branch: string;
 }
 
+export interface WorktreeOptions {
+  /** Branch to create; defaults to feature/<slug>. */
+  branch?: string;
+  /** Skips the project's setup command (a worktree that only commits files needs no dependencies). */
+  skipSetup?: boolean;
+}
+
 export type WorktreeLog = (type: string, payload: Record<string, unknown>) => void;
 
 export function validateSlug(slug: string): void {
@@ -105,10 +112,11 @@ export async function createWorktree(
   slug: string,
   worktreesDir: string,
   log: WorktreeLog = () => undefined,
+  options: WorktreeOptions = {},
 ): Promise<WorktreeResult> {
   validateSlug(slug);
   const path = join(worktreesDir, project.name, slug);
-  const branch = `feature/${slug}`;
+  const branch = options.branch ?? `feature/${slug}`;
 
   if (await branchExists(project.repoPath, branch)) {
     throw new WorktreeError(`Branch already exists: ${branch}`);
@@ -125,7 +133,7 @@ export async function createWorktree(
       log,
       'git worktree add',
     );
-    if (project.setupCommand) {
+    if (project.setupCommand && !options.skipSetup) {
       const [file, ...args] = splitCommand(project.setupCommand);
       if (file) await run(file, args, path, log, 'setup');
     }

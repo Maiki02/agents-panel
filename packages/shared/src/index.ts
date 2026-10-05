@@ -27,6 +27,8 @@ export interface Project {
   hasKyro: boolean;
   /** Set when a ready project could not initialize Kyro (the project stays usable). */
   kyroWarning: string | null;
+  /** Kyro's files in the base clone are modified (e.g. after an update): they need a commit. */
+  kyroPendingCommit?: boolean;
 }
 
 /** Metadata of a project's development .env; the content never leaves the API. */
@@ -49,7 +51,7 @@ export interface EnvApplyResult {
 }
 
 /** A Kyro scope (big stage) or work (small change); each one owns one worktree. */
-export type ChatKind = 'scope' | 'work';
+export type ChatKind = 'scope' | 'work' | 'direct';
 
 /** Coarse session state; see docs/estados.md. */
 export type ChatStatus = 'running' | 'idle' | 'error' | 'interrupted' | 'cancelled';
@@ -90,6 +92,8 @@ export interface MaintenanceRun {
   status: MaintenanceStatus;
   /** Last 16 KB of the script output; null while running. */
   output: string | null;
+  /** Project roots the update skipped because they had local changes outside .agents/kyro/. */
+  skipped: string[];
   startedAt: number;
   finishedAt: number | null;
 }
@@ -98,4 +102,30 @@ export interface MaintenanceRun {
 export interface KyroVersionInfo {
   installed: string | null;
   latest: string | null;
+}
+
+/** Result of bringing `origin/<base>` into a project's base clone (POST /api/projects/:id/pull). */
+export interface PullResult {
+  status: 'up_to_date' | 'updated';
+  before: string;
+  after: string;
+  /** Commits brought from origin. */
+  commits: number;
+  /** Local commits origin does not have (kept untouched). */
+  ahead: number;
+  output: string;
+}
+
+/** The branch POST /api/projects/:id/kyro-init leaves committed and unpushed. */
+export interface KyroBranchResult {
+  branch: string;
+  path: string;
+  commit: string;
+}
+
+/** Work that deleting a project would lose (409 body of DELETE /api/projects/:id). */
+export interface DeleteBlocker {
+  path: string;
+  kind: 'uncommitted' | 'unpushed';
+  detail: string;
 }

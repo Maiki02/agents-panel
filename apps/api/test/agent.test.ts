@@ -160,6 +160,42 @@ describe('permission policy', () => {
     expect(verdict('Bash', { command: 'npm test 2>&1 | tail -5' })).toBe('allow');
   });
 
+  it('lets read commands start a command only on paths inside the worktree', () => {
+    const bash = (command: string) => verdict('Bash', { command });
+    expect(bash('ls')).toBe('allow');
+    expect(bash('ls -la src')).toBe('allow');
+    expect(bash('cat README.md | head -20')).toBe('allow');
+    expect(bash('grep -rn "foo bar" src && wc -l package.json')).toBe('allow');
+    expect(bash('cat /tmp/wt/a/src/x.ts')).toBe('allow');
+    expect(bash('cat /etc/passwd')).toBe('deny');
+    expect(bash('ls ..')).toBe('deny');
+    expect(bash('cat ../other/secret')).toBe('deny');
+    expect(bash('cat ~/.ssh/id_ed25519')).toBe('deny');
+    expect(bash('cat $HOME/.env')).toBe('deny');
+    expect(bash('cat *')).toBe('deny');
+    expect(bash('ls src; rm -rf src')).toBe('deny');
+    expect(bash('cat README.md > out.txt')).toBe('deny');
+    expect(bash('find . -delete')).toBe('deny');
+  });
+
+  it('cannot be evaded with quoting or backslashes, which bash resolves differently', () => {
+    const bash = (command: string) => verdict('Bash', { command });
+    // Each of these reads outside the worktree in a real bash (QA finding).
+    for (const evasion of [
+      'cat \\/etc/passwd',
+      'cat ""../../etc/passwd',
+      "cat ''/etc/passwd",
+      'cat ."."/../../etc/passwd',
+      'cat --file=/etc/passwd',
+      'grep --file=/etc/shadow -r x .',
+    ]) {
+      expect(bash(evasion), evasion).toBe('deny');
+    }
+    expect(bash('ls -la src')).toBe('allow');
+    expect(bash('grep -rn "foo bar" src')).toBe('allow');
+    expect(bash('cat "README.md"')).toBe('allow');
+  });
+
   it('confines writes to the worktree and reads to it plus the Kyro roots', () => {
     expect(verdict('Edit', { file_path: '/tmp/wt/a/src/x.ts' })).toBe('allow');
     expect(verdict('Edit', { file_path: '/tmp/wt/a/../b/x.ts' })).toBe('deny');

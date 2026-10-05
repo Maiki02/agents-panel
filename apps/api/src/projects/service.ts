@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { access, mkdir, realpath, rm, statfs } from 'node:fs/promises';
 import { join, relative, resolve, sep } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import type { Project } from '@agents-panel/shared';
 import type { Config } from '../config.js';
@@ -41,7 +42,27 @@ export const kyroInstall: KyroInitializer = async (repoPath) => {
   await execFileAsync('kyro', ['install', '--scope', 'workspace', '--init-workspace', '--yes'], {
     cwd: repoPath,
   });
+  await linkKyroSkills();
 };
+
+/** `scripts/vm/06-kyro-skills.sh`: the repo's own script, two levels above apps/api. */
+export const KYRO_SKILLS_SCRIPT = fileURLToPath(
+  new URL('../../../../scripts/vm/06-kyro-skills.sh', import.meta.url),
+);
+
+/**
+ * `kyro install` refreshes the global skills in ~/.agents/skills, which Claude Code does not read;
+ * the script links them into ~/.claude/skills (idempotent, global to the VM, not per project).
+ * Best effort: the skills are already linked from earlier runs, so a failure here must not undo
+ * an install that worked.
+ */
+export async function linkKyroSkills(script = KYRO_SKILLS_SCRIPT): Promise<void> {
+  try {
+    await execFileAsync('bash', [script]);
+  } catch {
+    // Already-linked skills keep working; the update script reports this step on its own.
+  }
+}
 
 export const diskFreeBytes: FreeSpace = async (path) => {
   const stats = await statfs(path);

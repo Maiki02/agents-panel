@@ -14,7 +14,7 @@ import { loadConfig } from '../src/config.js';
 import { openDatabase } from '../src/db/index.js';
 import { ProjectRepository } from '../src/projects/repo.js';
 import { FakeRunner } from './fake-runner.js';
-import { PASSWORD, TEST_ENV, makeGitRepo, mutatingHeaders } from './helpers.js';
+import { PASSWORD, TEST_ENV, makeGitRepo, makeKyroRepo, mutatingHeaders } from './helpers.js';
 
 let app: FastifyInstance | undefined;
 afterEach(async () => {
@@ -25,7 +25,7 @@ const SENTINEL = 'S3NT1NEL_E2E_SECRET_c0ffee42';
 
 /** A repo whose committed .gitignore ignores /.env* (and nothing under config/). */
 function ignoredRepo(): string {
-  const repo = makeGitRepo();
+  const repo = makeKyroRepo();
   writeFileSync(join(repo, '.gitignore'), '/.env*\n');
   execFileSync('git', ['-C', repo, 'add', '.gitignore']);
   execFileSync('git', [

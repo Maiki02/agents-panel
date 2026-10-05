@@ -47,7 +47,7 @@ describe('migrations', () => {
       'INSERT INTO projects (name, repo_path, base_branch, setup_command, created_at) VALUES (?, ?, ?, ?, ?)',
     ).run('novagent', '/home/ubuntu/proyectos/novagent', 'dev', 'bash scripts/panel-setup.sh', 1);
     expect(runMigrations(db, migrations.slice(0, 4))).toEqual([4]);
-    expect(runMigrations(db)).toEqual([5]);
+    expect(runMigrations(db)).toEqual([5, 6]);
     const row = db.prepare('SELECT * FROM projects').get();
     expect(row).toMatchObject({
       name: 'novagent',
@@ -72,10 +72,41 @@ describe('migrations', () => {
     insert.run('b', '/b', 'dev', null);
     insert.run('c', '/c', 'dev', 'https://github.com/o/c');
     insert.run('d', '/d', 'dev', 'https://github.com/o/d');
-    expect(runMigrations(db)).toEqual([5]);
+    expect(runMigrations(db)).toEqual([5, 6]);
     expect(runMigrations(db)).toEqual([]);
     expect(() => insert.run('e', '/e', 'dev', 'https://github.com/O/C')).toThrow(/UNIQUE/);
     expect(db.prepare('SELECT count(*) AS n FROM projects').get()).toEqual({ n: 4 });
+  });
+
+  it('rebuilds chats for the direct kind keeping chats and their events', () => {
+    const db = new DatabaseSync(':memory:');
+    db.exec('PRAGMA foreign_keys = ON');
+    runMigrations(db, migrations.slice(0, 5));
+    db.prepare(
+      "INSERT INTO projects (name, repo_path, base_branch, created_at) VALUES ('p', '/x', 'dev', 1)",
+    ).run();
+    db.prepare(
+      "INSERT INTO chats (project_id, kind, slug, title, worktree_path, branch, status, created_at, updated_at) VALUES (1, 'work', 's', 't', '/w', 'b', 'idle', 1, 1)",
+    ).run();
+    db.prepare(
+      "INSERT INTO chat_events (chat_id, seq, type, payload, created_at) VALUES (1, 1, 'x', '{}', 1)",
+    ).run();
+    expect(runMigrations(db)).toEqual([6]);
+    expect(db.prepare('SELECT kind, slug FROM chats').all()).toEqual([{ kind: 'work', slug: 's' }]);
+    expect(db.prepare('SELECT count(*) AS n FROM chat_events').get()).toEqual({ n: 1 });
+    expect(db.prepare('PRAGMA foreign_keys').get()).toEqual({ foreign_keys: 1 });
+    db.prepare(
+      "INSERT INTO chats (project_id, kind, slug, title, worktree_path, branch, status, created_at, updated_at) VALUES (1, 'direct', 'd', 't', '/w2', 'b2', 'idle', 1, 1)",
+    ).run();
+    expect(() =>
+      db
+        .prepare(
+          "INSERT INTO chats (project_id, kind, slug, title, worktree_path, branch, status, created_at, updated_at) VALUES (1, 'otro', 'e', 't', '/w3', 'b3', 'idle', 1, 1)",
+        )
+        .run(),
+    ).toThrow(/CHECK/);
+    db.prepare('DELETE FROM chats WHERE id = 1').run();
+    expect(db.prepare('SELECT count(*) AS n FROM chat_events').get()).toEqual({ n: 0 });
   });
 
   it('fails with a clear message, and deletes nothing, when repo_url is already duplicated', () => {

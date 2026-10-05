@@ -6,6 +6,11 @@ export interface Migration {
   readonly sql: string;
   /** Runs inside the transaction before `sql`; throw to abort with a clear message. */
   readonly check?: (db: DatabaseSync) => void;
+  /**
+   * Rebuilds a table other tables point to: foreign keys are switched off outside the transaction
+   * (the pragma is a no-op inside one), checked before commit and switched back on.
+   */
+  readonly rebuildsTable?: boolean;
 }
 
 export const migrations: readonly Migration[] = [
@@ -154,6 +159,32 @@ export const migrations: readonly Migration[] = [
     },
     sql: 'CREATE UNIQUE INDEX projects_repo_url_unique ON projects(lower(repo_url)) WHERE repo_url IS NOT NULL;',
   },
+  {
+    version: 6,
+    name: 'chats_kind_direct',
+    // SQLite cannot alter a CHECK, so chats is rebuilt; chat_events keeps pointing at it by name.
+    rebuildsTable: true,
+    sql: `
+      CREATE TABLE chats_new (
+        id INTEGER PRIMARY KEY,
+        project_id INTEGER NOT NULL REFERENCES projects(id),
+        kind TEXT NOT NULL CHECK (kind IN ('scope', 'work', 'direct')),
+        slug TEXT NOT NULL,
+        title TEXT NOT NULL,
+        worktree_path TEXT NOT NULL,
+        branch TEXT NOT NULL,
+        sdk_session_id TEXT,
+        status TEXT NOT NULL CHECK (status IN ('running', 'idle', 'error', 'interrupted', 'cancelled')),
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        UNIQUE (project_id, slug)
+      );
+      INSERT INTO chats_new SELECT id, project_id, kind, slug, title, worktree_path, branch,
+        sdk_session_id, status, created_at, updated_at FROM chats;
+      DROP TABLE chats;
+      ALTER TABLE chats_new RENAME TO chats;
+    `,
+  },
 ];
 
 /** Applies pending migrations in order, each in its own transaction. Safe to run repeatedly. */
@@ -170,10 +201,14 @@ export function runMigrations(db: DatabaseSync, list: readonly Migration[] = mig
   const ran: number[] = [];
   for (const migration of [...list].sort((a, b) => a.version - b.version)) {
     if (applied.has(migration.version)) continue;
+    if (migration.rebuildsTable) db.exec('PRAGMA foreign_keys = OFF');
     db.exec('BEGIN');
     try {
       migration.check?.(db);
       db.exec(migration.sql);
+      if (migration.rebuildsTable && db.prepare('PRAGMA foreign_key_check').all().length > 0) {
+        throw new Error(`La migración ${String(migration.version)} dejó claves foráneas rotas`);
+      }
       db.prepare('INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)').run(
         migration.version,
         migration.name,
@@ -183,6 +218,8 @@ export function runMigrations(db: DatabaseSync, list: readonly Migration[] = mig
     } catch (error) {
       db.exec('ROLLBACK');
       throw error;
+    } finally {
+      if (migration.rebuildsTable) db.exec('PRAGMA foreign_keys = ON');
     }
     ran.push(migration.version);
   }

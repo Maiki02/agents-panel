@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, lstatSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AgentManager } from '../src/agent/manager.js';
@@ -16,7 +16,7 @@ import { openDatabase, type Db } from '../src/db/index.js';
 import { EnvFileRepository } from '../src/env-files/repo.js';
 import { ProjectRepository } from '../src/projects/repo.js';
 import { FakeRunner } from './fake-runner.js';
-import { PASSWORD, TEST_ENV, makeApp, makeGitRepo, mutatingHeaders } from './helpers.js';
+import { PASSWORD, TEST_ENV, makeApp, makeKyroRepo, mutatingHeaders } from './helpers.js';
 
 let apps: FastifyInstance[] = [];
 afterEach(async () => {
@@ -40,7 +40,7 @@ async function boot(runner = new FakeRunner(), db = openDatabase(':memory:')) {
   const projects = new ProjectRepository(made.db);
   const project =
     projects.list()[0] ??
-    (await projects.add({ name: 'demo', repoPath: makeGitRepo(), baseBranch: 'main' }));
+    (await projects.add({ name: 'demo', repoPath: makeKyroRepo(), baseBranch: 'main' }));
   const post = (url: string, payload?: object) =>
     made.app.inject({ method: 'POST', url, headers, ...(payload ? { payload } : {}) });
   const get = (url: string) => made.app.inject({ url, headers });
@@ -58,7 +58,7 @@ async function bootTwoProjects() {
   const booted = await boot();
   const other = await new ProjectRepository(booted.db).add({
     name: 'other',
-    repoPath: makeGitRepo(),
+    repoPath: makeKyroRepo(),
     baseBranch: 'main',
   });
   return { ...booted, made: { other } };
@@ -416,7 +416,7 @@ describe('create rollback', () => {
     const projects = new ProjectRepository(db);
     const project = await projects.add({
       name: 'demo',
-      repoPath: makeGitRepo(),
+      repoPath: makeKyroRepo(),
       baseBranch: 'main',
     });
     const chats = new ChatRepository(db);
@@ -451,7 +451,7 @@ describe('create with .env files', () => {
   /** A project whose committed .gitignore ignores the .env files, with the given setup. */
   async function envSetup(setupCommand?: string) {
     const db: Db = openDatabase(':memory:');
-    const repoPath = makeGitRepo();
+    const repoPath = makeKyroRepo();
     const git = (...args: string[]) =>
       execFileSync('git', ['-C', repoPath, '-c', 'user.name=t', '-c', 'user.email=t@t', ...args]);
     writeFileSync(join(repoPath, '.gitignore'), '/.env*\nbackend/.env\n');
@@ -535,7 +535,55 @@ describe('create with .env files', () => {
   });
 });
 
+describe('create on a project without Kyro', () => {
+  it.each(['scope', 'work'] as const)(
+    'answers 409 to %s and creates no worktree, chat or session',
+    async (kind) => {
+      const { runner, project, post, get, db, worktreesDir } = await boot();
+      rmSync(join(project.repoPath, '.agents'), { recursive: true });
+      const res = await post('/api/chats', {
+        projectId: project.id,
+        kind,
+        slug: 'fix-a',
+        prompt: 'hola',
+      });
+      expect(res.statusCode).toBe(409);
+      expect(res.json<{ error: string }>().error).toContain('no tiene Kyro');
+      expect((await get('/api/chats')).json<Chat[]>()).toEqual([]);
+      expect(db.prepare('SELECT COUNT(*) AS n FROM chat_events').get()).toEqual({ n: 0 });
+      expect(existsSync(join(worktreesDir, project.name))).toBe(false);
+      expect(runner.calls).toHaveLength(0);
+    },
+  );
+
+  it.each([true, false])(
+    'accepts a direct request (project with Kyro: %s) and sends the prompt without Kyro skills',
+    async (withKyro) => {
+      const { runner, project, post, get, waitIdle } = await boot();
+      if (!withKyro) rmSync(join(project.repoPath, '.agents'), { recursive: true });
+      const res = await post('/api/chats', {
+        projectId: project.id,
+        kind: 'direct',
+        slug: 'ajuste',
+        prompt: 'Cambiá el título del README',
+      });
+      expect(res.statusCode).toBe(201);
+      const chat = res.json<Chat>();
+      expect(chat.kind).toBe('direct');
+      await waitIdle(chat.id);
+      expect((await get(`/api/chats/${String(chat.id)}`)).json<Chat>().kind).toBe('direct');
+      expect(runner.calls).toHaveLength(1);
+      expect(JSON.stringify(runner.calls[0])).toContain('Cambiá el título del README');
+      expect(JSON.stringify(runner.calls[0])).not.toMatch(/kyro|\.agents/i);
+    },
+  );
+});
+
 describe('buildInitialPrompt', () => {
+  it('sends a direct request as it is, without Kyro skills', () => {
+    expect(buildInitialPrompt('direct', 'Do X', '/home/u')).toBe('Do X');
+  });
+
   it('points the agent at the installed Kyro skill for the chosen flow', () => {
     expect(buildInitialPrompt('scope', 'Do X', '/home/u')).toContain(
       '/home/u/.agents/skills/kyro-forge/SKILL.md',

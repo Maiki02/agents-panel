@@ -14,8 +14,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { openDatabase } from '../src/db/index.js';
 import { ProjectConflictError, ProjectError, ProjectRepository } from '../src/projects/repo.js';
 import {
+  KYRO_SKILLS_SCRIPT,
   ProjectService,
   deriveProjectName,
+  linkKyroSkills,
   type Cloner,
   type KyroInitializer,
 } from '../src/projects/service.js';
@@ -489,5 +491,16 @@ describe('Kyro initialization', () => {
     const project = await service.add({ repo: 'o/r' });
     expect(kyroInit).toHaveBeenCalledWith(dir);
     expect(project).toMatchObject({ status: 'ready', hasKyro: true });
+  });
+});
+
+describe('linkKyroSkills', () => {
+  it('points at the repo script, which exists', () => {
+    expect(KYRO_SKILLS_SCRIPT.endsWith('/scripts/vm/06-kyro-skills.sh')).toBe(true);
+    expect(existsSync(KYRO_SKILLS_SCRIPT)).toBe(true);
+  });
+
+  it('never throws, even when the script is missing', async () => {
+    await expect(linkKyroSkills('/nonexistent/06-kyro-skills.sh')).resolves.toBeUndefined();
   });
 });

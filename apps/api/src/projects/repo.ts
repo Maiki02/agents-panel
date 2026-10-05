@@ -74,6 +74,23 @@ export class ProjectRepository {
     private readonly now: () => number = Date.now,
   ) {}
 
+  /**
+   * Removes the project with its chats (events cascade) and encrypted .env files in one
+   * transaction. Files on disk are the caller's business.
+   */
+  deleteWithDependents(id: number): void {
+    this.db.exec('BEGIN');
+    try {
+      this.db.prepare('DELETE FROM project_env_files WHERE project_id = ?').run(id);
+      this.db.prepare('DELETE FROM chats WHERE project_id = ?').run(id);
+      this.db.prepare('DELETE FROM projects WHERE id = ?').run(id);
+      this.db.exec('COMMIT');
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
+    }
+  }
+
   list(): Project[] {
     return (
       this.db.prepare('SELECT * FROM projects ORDER BY name').all() as unknown as ProjectRow[]

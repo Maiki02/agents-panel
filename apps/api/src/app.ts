@@ -32,6 +32,13 @@ import { EnvFileRepository } from './env-files/repo.js';
 import { registerEnvFileRoutes } from './env-files/routes.js';
 import { ProjectRepository } from './projects/repo.js';
 import { ProjectService } from './projects/service.js';
+import { KyroBranchService } from './projects/kyro-branch.js';
+import type { KyroInitializer } from './projects/service.js';
+import { registerKyroBranchRoutes } from './projects/kyro-branch-routes.js';
+import { ProjectDeleter } from './projects/delete.js';
+import { registerDeleteRoutes } from './projects/delete-routes.js';
+import { PullService } from './projects/pull.js';
+import { registerPullRoutes } from './projects/pull-routes.js';
 import { registerProjectRoutes } from './projects/routes.js';
 import { UserRepository } from './auth/users.js';
 import type { Config } from './config.js';
@@ -66,6 +73,8 @@ export interface AppDeps {
   kyroVersions?: KyroVersions;
   /** Runs the Kyro update script; tests inject a fake instead of touching the VM. */
   kyroScriptRunner?: ScriptRunner;
+  /** Replaces `kyro install` for the Kyro init branch (tests). */
+  kyroInstaller?: KyroInitializer;
   /** Clones and registers projects; tests inject one with a fake cloner and wait on whenIdle(). */
   projectService?: ProjectService;
 }
@@ -152,8 +161,23 @@ export function buildApp(deps: AppDeps, options: FastifyServerOptions = {}): Fas
   });
 
   registerProjectRoutes(app, { projects, service: projectService });
+  registerPullRoutes(app, { service: new PullService({ projects, manager }) });
   const reauth = new ReauthVerifier({ users, secondFactor, audit, now });
   // A plugin, like the auth routes, so the per-route rate limit applies.
+  const kyroBranch = new KyroBranchService({
+    projects,
+    worktreesDir: deps.config.worktreesDir,
+    kyroLock,
+    manager,
+    ...(deps.kyroInstaller ? { installer: deps.kyroInstaller } : {}),
+  });
+  const projectDeleter = new ProjectDeleter({ projects, chats, manager, config: deps.config });
+  void app.register((instance) => {
+    registerDeleteRoutes(instance, { deleter: projectDeleter, reauth });
+  });
+  void app.register((instance) => {
+    registerKyroBranchRoutes(instance, { service: kyroBranch, reauth });
+  });
   void app.register((instance) => {
     registerEnvFileRoutes(instance, { projects, envFiles, reauth, chats });
   });

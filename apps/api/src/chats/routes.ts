@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import type { ChatKind } from '@agents-panel/shared';
 import { onlyKeys } from '../http/only-keys.js';
 import { ChatError, type ChatService } from './service.js';
 import type { ChatRepository } from './repo.js';
@@ -15,7 +16,7 @@ const createBody = {
   additionalProperties: false,
   properties: {
     projectId: { type: 'integer', minimum: 1 },
-    kind: { enum: ['scope', 'work'] },
+    kind: { enum: ['scope', 'work', 'direct'] },
     slug: { type: 'string', minLength: 1, maxLength: 50 },
     prompt: { type: 'string', minLength: 1, maxLength: 20000 },
   },
@@ -41,7 +42,7 @@ export function registerChatRoutes(
     return reply.send(error);
   });
 
-  app.post<{ Body: { projectId: number; kind: 'scope' | 'work'; slug: string; prompt: string } }>(
+  app.post<{ Body: { projectId: number; kind: ChatKind; slug: string; prompt: string } }>(
     '/api/chats',
     // Unknown fields are refused, not silently dropped by ajv.
     { schema: { body: createBody }, preValidation: onlyKeys(Object.keys(createBody.properties)) },
