@@ -226,3 +226,90 @@ describe('validateProjectPermissions', () => {
     );
   });
 });
+
+describe('arguments of the base commands that run other commands', () => {
+  it.each([
+    'npm exec -c tailscale',
+    'npm x sudo',
+    'npm explore x -- ssh',
+    'npm edit x',
+    'npm --prefix . exec sudo',
+    'npm --script-shell=/bin/sh test',
+    'npm test --script-shell /bin/sh',
+    'npm config set script-shell /bin/sh',
+    'git -c core.sshCommand=ssh push',
+    'git -ccore.sshCommand=ssh push',
+    'git --config-env=a=b status',
+    'git --exec-path=/tmp status',
+    'git -C . -c core.pager=sudo log',
+    "git config alias.x '!sudo'",
+    'git config core.sshCommand ssh',
+    'git config --add core.hooksPath /tmp',
+    'git config --get --add core.editor vi',
+    'git config user.name x',
+    'git push --receive-pack=ssh origin',
+    'git fetch --upload-pack=ssh origin',
+    'git fetch ext::sh',
+    'git rebase -x sudo main',
+    'git submodule foreach sudo id',
+    'git bisect run sudo',
+    'git filter-branch --tree-filter x',
+    'go generate ./...',
+    'go -C . generate ./...',
+    'go build -toolexec=ssh ./...',
+    'go test -exec ssh ./...',
+    'go vet -vettool=/tmp/x ./...',
+    'go env -w GOFLAGS=-toolexec=ssh',
+    'GIT_SSH_COMMAND=ssh git push',
+    'GOFLAGS=-toolexec=ssh go build',
+  ])('denies %j', (command) => {
+    expect(verdict(command)).toBe('deny');
+  });
+
+  it('explains the denial so the agent can adapt', () => {
+    const result = checkBash('npm exec -c tailscale', cwd, extras());
+    expect(result).toMatchObject({ behavior: 'deny' });
+    expect(JSON.stringify(result)).toContain('npm run, test or ci');
+  });
+
+  it.each([
+    'npm ci',
+    'npm install',
+    'npm test',
+    'npm test -- exec',
+    'npm run build',
+    'npm run build --workspace apps/api',
+    'git status',
+    'git diff --stat',
+    'git log --oneline -5',
+    'git add -A',
+    'git commit -m x',
+    'git push',
+    'git push -u origin feat/x',
+    'git pull --no-rebase origin main',
+    'git fetch origin',
+    'git checkout -b x',
+    'git switch main',
+    'git branch -a',
+    'git worktree list',
+    'git -C apps/api status',
+    'git rebase main',
+    'git config --get user.name',
+    'git config --list',
+    'git config -l',
+    'go build ./...',
+    'go test ./...',
+    'go vet ./...',
+    'go run .',
+    'go env GOPATH',
+    'gh pr create --fill',
+    'kyro status',
+  ])('keeps allowing %j', (command) => {
+    expect(verdict(command)).toBe('allow');
+  });
+
+  it('applies the rules to every stage of a chain', () => {
+    expect(verdict('git status && npm exec sudo')).toBe('deny');
+    expect(verdict('git status | head -3')).toBe('allow');
+  });
+});

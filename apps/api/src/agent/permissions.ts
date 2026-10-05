@@ -267,6 +267,104 @@ export function validateProjectPermissions(input: {
   return { commands: [...new Set(input.commands)], hosts: [...new Set(hosts)] };
 }
 
+/** Arguments of a stage without the quoting layer around each token. */
+function stageArgs(stage: string): string[] {
+  return stage
+    .split(/\s+/)
+    .slice(1)
+    .map((raw) => raw.replace(/^["']+/, '').replace(/["']+$/, ''))
+    .filter((arg) => arg !== '');
+}
+
+const NPM_RUNNING_SUBCOMMANDS = new Set(['exec', 'x', 'explore', 'edit']);
+
+/** `npm exec`, `npm x`, `npm explore` and `npm edit` run an arbitrary command; so does a custom script shell. */
+function checkNpm(args: string[]): PermissionDecision {
+  // After `--` the words belong to the script, not to npm.
+  const own = args.slice(0, args.includes('--') ? args.indexOf('--') : undefined);
+  for (const arg of own) {
+    if (NPM_RUNNING_SUBCOMMANDS.has(arg)) {
+      return deny(`npm ${arg} runs arbitrary commands and is not allowed; use npm run, test or ci`);
+    }
+    if (/script[-_]shell/i.test(arg)) return deny('npm script-shell is not allowed');
+  }
+  return { behavior: 'allow' };
+}
+
+const GIT_CONFIG_READ_FLAGS = new Set(['--get', '--get-all', '--get-regexp', '--list', '-l']);
+const GIT_CONFIG_READ_WORDS = new Set(['get', 'list']);
+/** Long options of fetch, pull, push and clone that name a program to run on the other side. */
+const GIT_PROGRAM_OPTION_RE = /^--(upload-pack|receive-pack|exec|upload-archive)(=|$)/;
+/** Global options that take their value as the next word. */
+const GIT_GLOBAL_WITH_VALUE = new Set(['-C', '--git-dir', '--work-tree', '--namespace']);
+
+/**
+ * `git -c`, `--config-env`, `--exec-path`, any config write, `--upload-pack` and `ext::` URLs turn
+ * into `core.sshCommand`, hooks, aliases with `!` or a program run by git. `git config` is read-only.
+ */
+function checkGit(args: string[]): PermissionDecision {
+  let index = 0;
+  for (; index < args.length; index++) {
+    const arg = args[index] ?? '';
+    if (!arg.startsWith('-')) break;
+    if (arg.startsWith('-c') || /^--(config-env|exec-path)/.test(arg)) {
+      return deny(`git ${arg.slice(0, 20)} can run commands and is not allowed`);
+    }
+    if (GIT_GLOBAL_WITH_VALUE.has(arg)) index++;
+  }
+  const subcommand = args[index] ?? '';
+  const rest = args.slice(index + 1);
+  if (subcommand === 'config') {
+    const reads =
+      rest.some((arg) => GIT_CONFIG_READ_FLAGS.has(arg)) ||
+      GIT_CONFIG_READ_WORDS.has(rest[0] ?? '');
+    const writes = rest.some((arg) =>
+      /^(--(add|replace-all|unset|unset-all|edit|file|blob|rename-section|remove-section|set)|-e|-f)(=|$)/.test(
+        arg,
+      ),
+    );
+    if (!reads || writes) {
+      return deny('git config is read-only here: use --get, --get-all, --get-regexp or --list');
+    }
+  }
+  if (['rebase', 'bisect', 'submodule', 'filter-branch'].includes(subcommand)) {
+    const runs =
+      subcommand === 'filter-branch' ||
+      rest.some((arg) => arg === '--exec' || arg === '-x' || arg.startsWith('--exec=')) ||
+      (subcommand === 'bisect' && rest[0] === 'run') ||
+      (subcommand === 'submodule' && rest.includes('foreach'));
+    if (runs) return deny(`git ${subcommand} would run arbitrary commands and is not allowed`);
+  }
+  for (const arg of rest) {
+    if (GIT_PROGRAM_OPTION_RE.test(arg) || arg.startsWith('ext::')) {
+      return deny(`git option runs a program and is not allowed: ${arg.slice(0, 30)}`);
+    }
+  }
+  return { behavior: 'allow' };
+}
+
+/** `go generate` runs commands from comments; -exec, -toolexec and -vettool name a program to run; `go env -w` can persist them. */
+function checkGo(args: string[]): PermissionDecision {
+  if (args.includes('generate'))
+    return deny('go generate runs arbitrary commands and is not allowed');
+  if (args.includes('env') && args.some((arg) => arg === '-w' || arg === '-u')) {
+    return deny('go env -w and -u change the Go environment and are not allowed');
+  }
+  const flag = args.find((arg) => /^--?(exec|toolexec|vettool)(=|$)/.test(arg));
+  if (flag !== undefined) return deny(`go ${flag.slice(0, 20)} runs a program and is not allowed`);
+  if (args.some((arg) => arg.includes('toolexec'))) return deny('go -toolexec is not allowed');
+  return { behavior: 'allow' };
+}
+
+/** Rules by argument for the base commands that can run other commands. */
+function checkBaseArgs(first: string, stage: string): PermissionDecision {
+  const args = stageArgs(stage);
+  if (first === 'npm') return checkNpm(args);
+  if (first === 'git') return checkGit(args);
+  if (first === 'go') return checkGo(args);
+  return { behavior: 'allow' };
+}
+
 export function checkBash(
   command: string,
   cwd?: string,
@@ -303,6 +401,10 @@ export function checkBash(
         extras.commands.includes(first) ||
         (index > 0 && PIPE_FILTERS.includes(first));
       if (!allowed) return deny(`Bash command not allowed: ${first.slice(0, 40)}`);
+      if ((ALLOWED_BASH_COMMANDS as readonly string[]).includes(first)) {
+        const verdict = checkBaseArgs(first, stage);
+        if (verdict.behavior === 'deny') return verdict;
+      }
     }
   }
   return { behavior: 'allow' };
