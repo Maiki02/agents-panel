@@ -4,7 +4,13 @@ import type { ChatKind, Project } from '@agents-panel/shared';
 import { ChatsService, apiErrorMessage } from './chats.service';
 import { Button } from '../ui/button';
 import { settingsTabPath } from '../projects/settings-tabs';
-import { availableKinds, effectiveKind, parseKind } from './chat-kinds';
+import {
+  availableKinds,
+  effectiveKind,
+  kindDescription,
+  newChatInput,
+  parseKind,
+} from './chat-kinds';
 
 export const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 export const MAX_SLUG_LENGTH = 50;
@@ -35,6 +41,7 @@ export function slugProblem(slug: string): string | null {
           </option>
         }
       </select>
+      <p class="hint" data-testid="kind-description">{{ description() }}</p>
       @if (!project().hasKyro) {
         <p class="hint" role="status">
           Este proyecto no tiene Kyro: solo admite pedidos directos.
@@ -89,6 +96,7 @@ export class NewChatForm {
 
   protected readonly kinds = computed(() => availableKinds(this.project()));
   protected readonly chosenKind = computed(() => effectiveKind(this.project(), this.kind()));
+  protected readonly description = computed(() => kindDescription(this.chosenKind()));
   protected readonly kyroInitPath = computed(() =>
     settingsTabPath(this.project().id, 'repository'),
   );
@@ -126,12 +134,9 @@ export class NewChatForm {
     this.busy.set(true);
     this.error.set(null);
     try {
-      const chat = await this.chats.create({
-        projectId: this.project().id,
-        kind: this.chosenKind(),
-        slug: this.slug(),
-        prompt: this.prompt().trim(),
-      });
+      const chat = await this.chats.create(
+        newChatInput(this.project(), this.kind(), this.slug(), this.prompt()),
+      );
       await this.router.navigate(['/projects', chat.projectId, 'chats', chat.id]);
     } catch (cause) {
       // Keep everything typed so the user can fix the slug and retry.

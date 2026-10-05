@@ -1,5 +1,6 @@
 import type { Chat, ChatStatus } from '@agents-panel/shared';
 import type { BadgeTone } from '../ui/badge';
+import { workStateBadge } from './work-state';
 
 const LABELS: Record<ChatStatus, string> = {
   running: 'En curso',
@@ -46,4 +47,16 @@ export function chatBadge(
   return waitingForAnswer && status === 'running'
     ? { label: 'Esperando tu respuesta', tone: 'warn' }
     : { label: statusLabel(status), tone: statusTone(status) };
+}
+
+/**
+ * The one badge of a chat in the sidebar: the fine state of a scope, work or idea when it has one
+ * (tone by who has to move), the session status otherwise (a direct request, or no state yet).
+ */
+export function sidebarBadge(chat: Pick<Chat, 'status' | 'workState'>): {
+  label: string;
+  tone: BadgeTone;
+} {
+  if (chat.workState != null) return workStateBadge(chat.workState);
+  return { label: statusLabel(chat.status), tone: statusTone(chat.status) };
 }

@@ -119,6 +119,33 @@
   .question-actions {
     @apply flex flex-wrap items-center gap-3;
   }
+  .approval {
+    @apply border-warn;
+  }
+  .approval-actions {
+    @apply flex flex-wrap items-center gap-3;
+  }
+  .plan {
+    @apply max-h-96 overflow-y-auto rounded-control border border-border p-3 text-sm;
+  }
+  .plan p {
+    @apply m-0 mb-2;
+  }
+  .plan .plan-heading {
+    @apply font-semibold;
+  }
+  .plan ul {
+    @apply mb-2 list-disc pl-5;
+  }
+  .plan pre {
+    @apply mb-2 overflow-x-auto rounded-control bg-surface-raised p-2;
+  }
+  .plan blockquote {
+    @apply mb-2 border-l-2 border-border pl-3 text-muted;
+  }
+  .debt-list {
+    @apply m-0 flex list-none flex-col gap-1 p-0 text-sm;
+  }
   .composer {
     @apply sticky bottom-0 bg-bg py-2;
   }

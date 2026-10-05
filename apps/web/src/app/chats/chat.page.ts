@@ -15,6 +15,15 @@ import { ChatStreamService, type StreamHandle } from './chat-stream.service';
 import { ChatsService, apiErrorMessage } from './chats.service';
 import { endsTurn, pendingQuestionIds, toViewItems, type ViewItem } from './event-view';
 import { QuestionCard } from './question-card';
+import { DebtApprovalCard } from './debt-approval.card';
+import { IdeaApprovalCard } from './idea-approval.card';
+import {
+  approvalCard,
+  debtFromTimeline,
+  movesState,
+  prLinks,
+  type DebtView,
+} from './approval-logic';
 import { chatBadge } from './status';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
@@ -22,7 +31,7 @@ import { Badge } from '../ui/badge';
 @Component({
   selector: 'app-chat',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [Button, Badge, QuestionCard],
+  imports: [Button, Badge, QuestionCard, IdeaApprovalCard, DebtApprovalCard],
   template: `
     @if (chat(); as c) {
       <header class="chat-head">
@@ -40,6 +49,30 @@ import { Badge } from '../ui/badge';
       }
       @if (!connected() && c.status === 'running') {
         <p class="hint">Reconectando…</p>
+      }
+      @switch (card()) {
+        @case ('idea') {
+          <app-idea-approval-card [chatId]="c.id" (decided)="refreshAfterDecision()" />
+        }
+        @case ('debt') {
+          <app-debt-approval-card
+            [chatId]="c.id"
+            [debt]="debt()"
+            (accepted)="refreshAfterDecision()"
+          />
+        }
+        @case ('pr') {
+          <section class="card approval" aria-label="Pull request">
+            <h2>La PR está lista para revisar</h2>
+            @for (url of prUrls(); track url) {
+              <p>
+                <a [href]="url" target="_blank" rel="noopener noreferrer">{{ url }}</a>
+              </p>
+            } @empty {
+              <p class="hint">Todavía no hay un link de la PR para mostrar.</p>
+            }
+          </section>
+        }
       }
     }
     @if (error(); as message) {
@@ -155,6 +188,13 @@ export class ChatPage {
   /** Questions whose answer was sent and is not confirmed by the stream yet. */
   protected readonly submitted = signal<number[]>([]);
   protected readonly pending = computed(() => pendingQuestionIds(this.items()));
+  /** Debt the pilot stopped for and the PRs it opened: read when the card needs them. */
+  protected readonly debt = signal<DebtView[]>([]);
+  protected readonly prUrls = signal<string[]>([]);
+  protected readonly card = computed(() => {
+    const chat = this.chat();
+    return chat ? approvalCard(chat.kind, chat.workState) : null;
+  });
   protected readonly badge = computed(() => {
     const status = this.chat()?.status ?? 'idle';
     return chatBadge(status, this.pending().length > 0);
@@ -190,6 +230,8 @@ export class ChatPage {
     this.connected.set(true);
     this.draft.set('');
     this.submitted.set([]);
+    this.debt.set([]);
+    this.prUrls.set([]);
     if (!Number.isInteger(id) || id < 1) {
       this.error.set('Chat no encontrado.');
       return;
@@ -200,6 +242,7 @@ export class ChatPage {
       if (generation !== this.generation) return;
       this.chat.set(chat);
       this.ingest(events);
+      void this.refreshWorkState();
     } catch (cause) {
       if (generation === this.generation) this.error.set(apiErrorMessage(cause));
       return;
@@ -222,10 +265,37 @@ export class ChatPage {
     this.items.update((current) => [...current, ...fresh.flatMap(toViewItems)]);
     if (fresh.some((event) => event.type === 'user_prompt')) this.setStatus('running');
     if (fresh.some(endsTurn)) void this.refreshStatus();
+    if (fresh.some((event) => movesState(event.type))) void this.refreshWorkState();
   }
 
   private setStatus(status: Chat['status']): void {
     this.chat.update((c) => (c ? { ...c, status } : c));
+  }
+
+  /** The pilot or the agent moved the work: read its state and what the cards show. */
+  protected async refreshWorkState(): Promise<void> {
+    const id = this.current;
+    try {
+      const fresh = await this.service.get(id);
+      if (id !== this.current) return;
+      this.chat.update((c) =>
+        c ? { ...c, workState: fresh.workState ?? null, kind: fresh.kind } : c,
+      );
+      const card = approvalCard(fresh.kind, fresh.workState);
+      if (card === 'debt') this.debt.set(debtFromTimeline(await this.service.timeline(id)));
+      if (card === 'pr') {
+        const info = await this.service.autopilot(id);
+        this.prUrls.set(prLinks(info.run?.prUrls ?? []));
+      }
+    } catch {
+      // The state is a view: the next event reads it again.
+    }
+  }
+
+  /** A decision about the plan or the debt went through: the work changed state and may be a new kind. */
+  protected async refreshAfterDecision(): Promise<void> {
+    await this.refreshStatus();
+    await this.refreshWorkState();
   }
 
   /** The server updates the status right after the last event of a turn; read it back. */

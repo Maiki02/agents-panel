@@ -14,7 +14,7 @@ import { filter } from 'rxjs';
 import { Badge } from '../ui/badge';
 import { Icon } from '../ui/icon';
 import { ChatsService, apiErrorMessage } from './chats.service';
-import { chatSubtitle, hasRunning, statusLabel, statusTone } from './status';
+import { chatSubtitle, hasRunning, sidebarBadge } from './status';
 
 const POLL_MS = 4000;
 
@@ -50,8 +50,8 @@ const POLL_MS = 4000;
           >
             <span class="flex items-start justify-between gap-2">
               <span class="min-w-0 break-words text-sm font-medium">{{ chat.title }}</span>
-              <app-badge class="shrink-0" [tone]="tone(chat.status)">
-                {{ label(chat.status) }}
+              <app-badge class="shrink-0" [tone]="badge(chat).tone">
+                {{ badge(chat).label }}
               </app-badge>
             </span>
             <span class="mt-0.5 block break-all text-xs text-muted">{{ subtitle(chat) }}</span>
@@ -75,8 +75,7 @@ export class ChatSidebar {
   protected readonly error = signal<string | null>(null);
   private timer: ReturnType<typeof setInterval> | undefined;
 
-  protected readonly tone = statusTone;
-  protected readonly label = statusLabel;
+  protected readonly badge = sidebarBadge;
   protected readonly subtitle = chatSubtitle;
 
   constructor() {

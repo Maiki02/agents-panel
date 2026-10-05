@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { chatBadge, chatSubtitle, hasRunning, statusTone } from './status';
+import { chatBadge, chatSubtitle, hasRunning, sidebarBadge, statusTone } from './status';
 
 describe('chat status helpers', () => {
   it('polls only while some chat is running', () => {
@@ -36,5 +36,27 @@ describe('chatBadge', () => {
     expect(chatBadge('idle', false).label).toBe('En espera');
     // A pending question of a chat that is no longer running does not change its badge.
     expect(chatBadge('cancelled', true).label).toBe('Cancelado');
+  });
+});
+
+describe('sidebarBadge', () => {
+  it('shows the state of the work with the tone of who has to move', () => {
+    expect(sidebarBadge({ status: 'idle', workState: 'madurando_idea' })).toEqual({
+      label: 'Madurando la idea',
+      tone: 'accent',
+    });
+    expect(sidebarBadge({ status: 'idle', workState: 'esperando_aprobacion_plan' })).toEqual({
+      label: 'Esperando aprobación del plan',
+      tone: 'warn',
+    });
+    expect(sidebarBadge({ status: 'running', workState: 'pr_lista' }).tone).toBe('ok');
+  });
+
+  it('falls back to the session status for a direct request or a work without state yet', () => {
+    expect(sidebarBadge({ status: 'idle', workState: null })).toEqual({
+      label: 'En espera',
+      tone: 'ok',
+    });
+    expect(sidebarBadge({ status: 'error' })).toEqual({ label: 'Error', tone: 'danger' });
   });
 });

@@ -1,12 +1,16 @@
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import type {
+  AutopilotInfo,
   Chat,
   ChatEvent,
   ChatKind,
+  IdeaAction,
+  IdeaDocument,
   PendingQuestion,
   Project,
   QuestionAnswer,
+  WorktreeTransition,
 } from '@agents-panel/shared';
 import { firstValueFrom } from 'rxjs';
 
@@ -83,6 +87,31 @@ export class ChatsService {
         `/api/chats/${String(chatId)}/questions/${String(questionId)}/answer`,
         body,
       ),
+    );
+  }
+
+  /** The plan an idea wrote, for its approval card. */
+  idea(id: number): Promise<IdeaDocument> {
+    return firstValueFrom(this.http.get<IdeaDocument>(`/api/chats/${String(id)}/idea`));
+  }
+
+  /** The decision about the plan: approve it as a scope or a work, or ask for changes. */
+  ideaAction(id: number, body: { action: IdeaAction; text?: string }): Promise<unknown> {
+    return firstValueFrom(this.http.post(`/api/chats/${String(id)}/idea`, body));
+  }
+
+  timeline(id: number): Promise<WorktreeTransition[]> {
+    return firstValueFrom(this.http.get<WorktreeTransition[]>(`/api/chats/${String(id)}/timeline`));
+  }
+
+  autopilot(id: number): Promise<AutopilotInfo> {
+    return firstValueFrom(this.http.get<AutopilotInfo>(`/api/chats/${String(id)}/autopilot`));
+  }
+
+  /** The user's explicit OK to complete a scope with its debt still open. */
+  acceptDebt(id: number, reason: string): Promise<unknown> {
+    return firstValueFrom(
+      this.http.post(`/api/chats/${String(id)}/autopilot`, { action: 'accept_debt', reason }),
     );
   }
 
