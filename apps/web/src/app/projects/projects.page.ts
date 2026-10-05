@@ -10,7 +10,13 @@ import { RouterLink } from '@angular/router';
 import type { Project } from '@agents-panel/shared';
 import { apiErrorMessage } from '../chats/chats.service';
 import { AddProjectForm } from './add-project.form';
-import { projectLabel, projectStatusLabel, projectStatusTone, repoDisplay } from './project-label';
+import {
+  kyroPendingNotice,
+  projectLabel,
+  projectStatusLabel,
+  projectStatusTone,
+  repoDisplay,
+} from './project-label';
 import { ProjectsService } from './projects.service';
 import { Button } from '../ui/button';
 import { Icon } from '../ui/icon';
@@ -63,7 +69,13 @@ const POLL_MS = 3000;
           <button appButton type="button" (click)="retry(project)">Reintentar</button>
         }
         @if (project.status === 'ready' && !project.hasKyro) {
-          <p class="hint">Proyecto sin Kyro: no hay /kyro-* hasta inicializarlo a mano.</p>
+          <p class="hint">
+            Proyecto sin Kyro: solo admite pedidos directos hasta inicializarlo (Configuración →
+            Repositorio).
+          </p>
+        }
+        @if (pendingNotice(project); as notice) {
+          <p class="hint" role="status">{{ notice }}</p>
         }
         @if (project.kyroWarning; as warning) {
           <p class="hint">{{ warning }}</p>
@@ -135,6 +147,8 @@ export class ProjectsPage {
     });
     void this.load();
   }
+
+  protected pendingNotice = kyroPendingNotice;
 
   protected label(project: Project): string {
     return projectLabel(project);

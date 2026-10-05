@@ -76,6 +76,17 @@ const RUN_STATUS: Record<MaintenanceRun['status'], string> = {
             {{ run.startedAt | date: 'short' }} · {{ runText(run) }} ·
             <app-badge [tone]="tone(run)">{{ statusText(run) }}</app-badge>
           </summary>
+          @if (run.skipped.length > 0) {
+            <p class="hint" role="status">
+              No se actualizó el workspace de
+              {{ run.skipped.length === 1 ? 'este proyecto' : 'estos proyectos' }}
+              porque tienen cambios locales fuera de .agents/kyro/:
+              @for (root of run.skipped; track root) {
+                <code class="block">{{ root }}</code>
+              }
+              Commiteá o descartá esos cambios y volvé a actualizar.
+            </p>
+          }
           @if (run.output) {
             <pre>{{ run.output }}</pre>
           } @else {

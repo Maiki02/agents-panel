@@ -1,6 +1,6 @@
 import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
-import type { Project } from '@agents-panel/shared';
+import type { KyroBranchResult, Project, PullResult } from '@agents-panel/shared';
 import { firstValueFrom } from 'rxjs';
 
 export interface AddProjectInput {
@@ -38,6 +38,26 @@ export class ProjectsService {
 
   patch(id: number, input: PatchProjectInput): Promise<ProjectDetail> {
     return firstValueFrom(this.http.patch<ProjectDetail>(`/api/projects/${String(id)}`, input));
+  }
+
+  /** Fast-forward only, so it needs no code. */
+  pull(id: number): Promise<PullResult> {
+    return firstValueFrom(this.http.post<PullResult>(`/api/projects/${String(id)}/pull`, {}));
+  }
+
+  initKyro(id: number, code: string): Promise<KyroBranchResult> {
+    return firstValueFrom(
+      this.http.post<KyroBranchResult>(`/api/projects/${String(id)}/kyro-init`, { code }),
+    );
+  }
+
+  /** Destructive: needs the project's name typed by the user and a fresh TOTP code. */
+  remove(id: number, name: string, code: string): Promise<{ cloneRemoved: boolean }> {
+    return firstValueFrom(
+      this.http.delete<{ cloneRemoved: boolean }>(`/api/projects/${String(id)}`, {
+        body: { name, code },
+      }),
+    );
   }
 
   retry(id: number): Promise<Project> {

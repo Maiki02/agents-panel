@@ -16,7 +16,12 @@ import { Badge } from '../ui/badge';
 import { LastChatStore } from './last-chat.store';
 import { selectionFromUrl } from './last-chat';
 import { ProjectContext } from './project-context';
-import { projectLabel, projectStatusLabel, projectStatusTone } from './project-label';
+import {
+  kyroPendingNotice,
+  projectLabel,
+  projectStatusLabel,
+  projectStatusTone,
+} from './project-label';
 import { ProjectsService } from './projects.service';
 
 /**
@@ -42,6 +47,9 @@ import { ProjectsService } from './projects.service';
           <h1>{{ label(p) }}</h1>
           <app-badge [tone]="tone(p)">{{ statusText(p) }}</app-badge>
         </header>
+        @if (pendingNotice(p); as notice) {
+          <p class="hint" role="status">{{ notice }}</p>
+        }
         <div class="grid gap-4 md:grid-cols-[11rem_minmax(0,1fr)]">
           <nav class="flex gap-1 md:flex-col" aria-label="Secciones del proyecto">
             @for (item of sections; track item.path) {
@@ -99,6 +107,7 @@ export class ProjectLayout {
   }
 
   protected label = projectLabel;
+  protected pendingNotice = kyroPendingNotice;
 
   protected statusText(project: { status: Parameters<typeof projectStatusLabel>[0] }): string {
     return projectStatusLabel(project.status);

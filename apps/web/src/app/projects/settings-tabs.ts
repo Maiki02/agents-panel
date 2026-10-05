@@ -7,6 +7,7 @@ import type { TabItem } from '../ui/tabs-logic';
 export const SETTINGS_TABS: readonly TabItem[] = [
   { id: 'general', label: 'General' },
   { id: 'environment', label: 'Environment' },
+  { id: 'repository', label: 'Repositorio' },
 ];
 
 export function settingsTabPath(projectId: number, tab: string): string {

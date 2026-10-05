@@ -1,8 +1,10 @@
 import { ChangeDetectionStrategy, Component, computed, inject, input, signal } from '@angular/core';
-import { Router } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 import type { ChatKind, Project } from '@agents-panel/shared';
 import { ChatsService, apiErrorMessage } from './chats.service';
 import { Button } from '../ui/button';
+import { settingsTabPath } from '../projects/settings-tabs';
+import { availableKinds, effectiveKind, parseKind } from './chat-kinds';
 
 export const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 export const MAX_SLUG_LENGTH = 50;
@@ -17,7 +19,7 @@ export function slugProblem(slug: string): string | null {
 @Component({
   selector: 'app-new-chat-form',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [Button],
+  imports: [Button, RouterLink],
   template: `
     <form class="card" (submit)="submit($event)">
       <h2>Nuevo chat</h2>
@@ -26,10 +28,19 @@ export function slugProblem(slug: string): string | null {
       }
 
       <label for="kind">Tipo</label>
-      <select id="kind" [value]="kind()" (change)="kind.set(kindOf($event))">
-        <option value="work">Work (cambio chico)</option>
-        <option value="scope">Scope (etapa grande)</option>
+      <select id="kind" [value]="chosenKind()" (change)="kind.set(kindOf($event))">
+        @for (option of kinds(); track option.kind) {
+          <option [value]="option.kind" [selected]="option.kind === chosenKind()">
+            {{ option.label }}
+          </option>
+        }
       </select>
+      @if (!project().hasKyro) {
+        <p class="hint" role="status">
+          Este proyecto no tiene Kyro: solo admite pedidos directos.
+          <a [routerLink]="kyroInitPath()">Inicializar Kyro</a>
+        </p>
+      }
 
       <label for="slug">Nombre corto (slug)</label>
       <input
@@ -76,6 +87,11 @@ export class NewChatForm {
   protected readonly busy = signal(false);
   protected readonly error = signal<string | null>(null);
 
+  protected readonly kinds = computed(() => availableKinds(this.project()));
+  protected readonly chosenKind = computed(() => effectiveKind(this.project(), this.kind()));
+  protected readonly kyroInitPath = computed(() =>
+    settingsTabPath(this.project().id, 'repository'),
+  );
   protected readonly slugError = computed(() => slugProblem(this.slug()));
   /** Why the form is disabled; null while the project is ready (R7). */
   protected readonly blockedReason = computed(() => {
@@ -101,7 +117,7 @@ export class NewChatForm {
   }
 
   protected kindOf(event: Event): ChatKind {
-    return this.text(event) === 'scope' ? 'scope' : 'work';
+    return parseKind(this.text(event));
   }
 
   protected async submit(event: Event): Promise<void> {
@@ -112,7 +128,7 @@ export class NewChatForm {
     try {
       const chat = await this.chats.create({
         projectId: this.project().id,
-        kind: this.kind(),
+        kind: this.chosenKind(),
         slug: this.slug(),
         prompt: this.prompt().trim(),
       });

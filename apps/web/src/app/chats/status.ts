@@ -32,5 +32,5 @@ export function hasRunning(chats: readonly Pick<Chat, 'status'>[]): boolean {
 
 /** What identifies a chat besides its title: kind and branch (the worktree's branch). */
 export function chatSubtitle(chat: Pick<Chat, 'kind' | 'branch'>): string {
-  return `${chat.kind === 'scope' ? 'scope' : 'work'} · ${chat.branch}`;
+  return `${chat.kind === 'direct' ? 'directo' : chat.kind} · ${chat.branch}`;
 }

@@ -8,6 +8,7 @@ describe('settings tabs', () => {
   it('has General first and unique ids', () => {
     expect(ids[0]).toBe('general');
     expect(ids).toContain('environment');
+    expect(ids).toContain('repository');
     expect(new Set(ids).size).toBe(ids.length);
   });
 

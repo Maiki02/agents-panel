@@ -4,14 +4,16 @@ import { Tabs } from '../ui/tabs';
 import { resolveTab } from '../ui/tabs-logic';
 import { EnvFilesSection } from './env-files.section';
 import { ProjectContext } from './project-context';
+import { ProjectDangerZone } from './project-danger-zone';
 import { ProjectGeneralSettings } from './project-settings';
+import { RepoActionsSection } from './repo-actions.section';
 import { SETTINGS_TABS, settingsTabPath } from './settings-tabs';
 
 /** settings/:tab: one tab at a time; the active tab lives in the URL. */
 @Component({
   selector: 'app-settings-page',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [Tabs, ProjectGeneralSettings, EnvFilesSection],
+  imports: [Tabs, ProjectGeneralSettings, ProjectDangerZone, EnvFilesSection, RepoActionsSection],
   template: `
     @if (context.project(); as p) {
       <section class="card">
@@ -21,9 +23,13 @@ import { SETTINGS_TABS, settingsTabPath } from './settings-tabs';
           @switch (current()) {
             @case ('general') {
               <app-project-general [project]="p" (changed)="context.project.set($event)" />
+              <app-project-danger-zone [project]="p" />
             }
             @case ('environment') {
               <app-env-files-section [projectId]="p.id" />
+            }
+            @case ('repository') {
+              <app-repo-actions [project]="p" />
             }
           }
         </div>

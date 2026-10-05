@@ -13,6 +13,9 @@ describe('chat status helpers', () => {
       'work · feature/fix-login',
     );
     expect(chatSubtitle({ kind: 'scope', branch: 'feature/panel' })).toBe('scope · feature/panel');
+    expect(chatSubtitle({ kind: 'direct', branch: 'feature/ajuste' })).toBe(
+      'directo · feature/ajuste',
+    );
   });
 
   it('maps each status to a badge tone', () => {

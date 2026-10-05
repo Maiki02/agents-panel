@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { projectLabel, repoDisplay } from './project-label';
+import { kyroPendingNotice, projectLabel, repoDisplay } from './project-label';
 
 describe('projectLabel', () => {
   it('prefers the display name', () => {
@@ -25,5 +25,16 @@ describe('repoDisplay', () => {
       text: '/x/r',
       branch: null,
     });
+  });
+});
+
+describe('kyroPendingNotice', () => {
+  it("warns only while Kyro's files are modified in the clone", () => {
+    expect(kyroPendingNotice({ kyroPendingCommit: true })).toContain('Kyro actualizado en el clon');
+    expect(kyroPendingNotice({ kyroPendingCommit: true })).toContain(
+      'no a mano sobre el clon base',
+    );
+    expect(kyroPendingNotice({ kyroPendingCommit: false })).toBeNull();
+    expect(kyroPendingNotice({})).toBeNull();
   });
 });
