@@ -1,0 +1,516 @@
+{
+  "schemaVersion": 1,
+  "kind": "organic-work",
+  "id": "cuentas-claude",
+  "title": "Selector de cuenta de Claude en el panel",
+  "objective": "Que el panel pueda usar cualquiera de las cuentas de Claude Code logueadas en la VM (\"Miqueas Gentile\" en `~/.claude`, \"Miqueas - Bimtrazer\" en `~/.claude2`) y que cambiar de una a otra sea un clic desde la web, para seguir trabajando cuando una se queda sin cupo.",
+  "brief": {
+    "path": "brief.md",
+    "digest": "b97f03a229a31a7858b21b343a4a87b01af503e301e7fe3e3fea312a161a100f",
+    "sourceIdea": null
+  },
+  "state": "closed",
+  "revision": 15,
+  "createdAt": "2026-10-06T01:54:35.763Z",
+  "updatedAt": "2026-10-06T02:09:25.394Z",
+  "handoff": {
+    "nextAction": "done",
+    "nextTaskId": null,
+    "blockedReason": null
+  },
+  "tasks": [
+    {
+      "id": "W1",
+      "title": "Cuentas de Claude en la API: tabla, repositorio y rutas",
+      "description": "Migración 19: tabla claude_accounts (id, name único, config_dir nulo para la cuenta por defecto, active, created_at) con la cuenta por defecto activa, y agent_sessions.account_id. Repositorio con list, findById, active, setActive, create, rename y delete. Servicio que valida el directorio (absoluto, dentro del home, existe, tiene .credentials.json, no es ~/.claude) y lee la identidad (email y organización de oauthAccount en .claude.json), si tiene login y si projects/ está enlazado a ~/.claude/projects. Rutas GET/POST /api/accounts, PATCH y DELETE /api/accounts/:id y PUT /api/accounts/active. Tipos en packages/shared.",
+      "context": "Las rutas usan el guard de sesión y el chequeo CSRF globales. La cuenta por defecto (~/.claude) tiene su .claude.json en ~/.claude.json, afuera de la carpeta.",
+      "filesToTouch": [
+        "apps/api/src/db/migrations.ts",
+        "apps/api/src/accounts/repo.ts",
+        "apps/api/src/accounts/service.ts",
+        "apps/api/src/accounts/routes.ts",
+        "apps/api/src/app.ts",
+        "packages/shared/src/index.ts",
+        "apps/api/test/accounts.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "Tras migrar hay una sola cuenta, la por defecto, activa y sin directorio",
+        "El alta rechaza un directorio relativo, fuera del home, inexistente, sin .credentials.json o igual a ~/.claude, y un nombre repetido",
+        "GET /api/accounts devuelve nombre, email, organización, activa, logueada y enlazada de cada cuenta, sin datos del login",
+        "PUT /api/accounts/active deja exactamente una cuenta activa; no se puede borrar la cuenta por defecto ni la activa",
+        "Todas las rutas exigen sesión y las que modifican exigen CSRF"
+      ],
+      "dependsOn": [],
+      "definitionRevision": 1,
+      "status": "verified",
+      "blocker": null,
+      "evidence": {
+        "summary": "Migración 19 crea claude_accounts (con índice único parcial para una sola activa, la cuenta principal sin directorio y activa) y agent_sessions.account_id. AccountRepository, AccountService (valida directorio absoluto, dentro del home, existente, con .credentials.json y distinto de ~/.claude; lee email y organización de oauthAccount; informa login y si projects/ está enlazado) y rutas GET/POST /api/accounts, PATCH/DELETE /api/accounts/:id, PUT /api/accounts/active. Tipos ClaudeAccount y NewClaudeAccount en shared; AgentSession.accountId.",
+        "validations": [
+          {
+            "command": "npx vitest run test/accounts.test.ts",
+            "result": "passed",
+            "note": "7 tests: migración, listado sin datos del login, alta enlazada y no enlazada, rechazos de directorio y nombre, una sola activa y protección de principal y activa, renombrar, sesión y CSRF"
+          },
+          {
+            "command": "npx vitest run (apps/api)",
+            "result": "passed",
+            "note": "1064 tests; db.test.ts suma la migración 19 y cli.test.ts las rutas nuevas de escritura"
+          },
+          {
+            "command": "npx eslint + tsc --noEmit + prettier",
+            "result": "passed",
+            "note": "limpios"
+          }
+        ],
+        "filesChanged": [
+          "apps/api/src/db/migrations.ts",
+          "apps/api/src/accounts/repo.ts",
+          "apps/api/src/accounts/service.ts",
+          "apps/api/src/accounts/routes.ts",
+          "apps/api/src/app.ts",
+          "apps/api/src/chats/sessions-repo.ts",
+          "packages/shared/src/index.ts",
+          "apps/api/test/accounts.test.ts",
+          "apps/api/test/helpers.ts",
+          "apps/api/test/db.test.ts",
+          "apps/api/test/cli.test.ts"
+        ],
+        "notes": null,
+        "by": "claude-maker",
+        "recordedAt": "2026-10-06T02:01:01.045Z",
+        "definitionRevision": 1,
+        "materialDigest": "3c030074eb97200bc8ef653c05af9f62ff0552673ad3b68991cdbc81bee4a704"
+      },
+      "verdict": {
+        "result": "pass",
+        "checkedCriteria": [
+          "Tras migrar hay una sola cuenta, la por defecto, activa y sin directorio",
+          "El alta rechaza un directorio relativo, fuera del home, inexistente, sin .credentials.json o igual a ~/.claude, y un nombre repetido",
+          "GET /api/accounts devuelve nombre, email, organización, activa, logueada y enlazada de cada cuenta, sin datos del login",
+          "PUT /api/accounts/active deja exactamente una cuenta activa; no se puede borrar la cuenta por defecto ni la activa",
+          "Todas las rutas exigen sesión y las que modifican exigen CSRF"
+        ],
+        "findings": [
+          {
+            "severity": "suggestion",
+            "detail": "setActive con un id inexistente dejaba cero cuentas activas; aplicado: ahora revierte (test agregado)."
+          },
+          {
+            "severity": "suggestion",
+            "detail": "El test de CSRF cubre solo PUT /api/accounts/active; POST, PATCH y DELETE dependen del chequeo global."
+          },
+          {
+            "severity": "suggestion",
+            "detail": "La unicidad del nombre distingue mayúsculas."
+          }
+        ],
+        "by": "claude-checker",
+        "reviewedAt": "2026-10-06T02:02:43.522Z",
+        "definitionRevision": 1,
+        "evidenceDigest": "93cac3e7e94c84b6270942d6211f5a022ab60cb1733c4aa50b3c2641f47f6aff",
+        "reviewedMaterialDigest": "3c030074eb97200bc8ef653c05af9f62ff0552673ad3b68991cdbc81bee4a704"
+      },
+      "disposition": null
+    },
+    {
+      "id": "W2",
+      "title": "Cada turno corre con la cuenta activa",
+      "description": "RunParams lleva configDir. buildQueryOptions pasa env con CLAUDE_CONFIG_DIR del directorio de la cuenta y, para la cuenta por defecto, el entorno sin CLAUDE_CONFIG_DIR. AgentManager pide la cuenta activa al iniciar cada turno, la guarda en agent_sessions.account_id y suma el nombre de la cuenta al evento session_started.",
+      "context": "El único lugar que lanza el SDK es AgentManager.consume. Un turno en curso no cambia de cuenta.",
+      "filesToTouch": [
+        "apps/api/src/agent/runner.ts",
+        "apps/api/src/agent/sdk-runner.ts",
+        "apps/api/src/agent/manager.ts",
+        "apps/api/src/chats/sessions-repo.ts",
+        "apps/api/src/app.ts",
+        "apps/api/test/sdk-runner.test.ts",
+        "apps/api/test/agent.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "Con una cuenta con directorio, las opciones del SDK llevan CLAUDE_CONFIG_DIR con ese directorio",
+        "Con la cuenta por defecto, las opciones del SDK llevan un env sin CLAUDE_CONFIG_DIR aunque la API lo tenga en su entorno",
+        "Cambiar la cuenta activa hace que el siguiente turno use la nueva y agent_sessions.account_id la registra",
+        "El evento session_started incluye el nombre de la cuenta"
+      ],
+      "dependsOn": [
+        "W1"
+      ],
+      "definitionRevision": 1,
+      "status": "verified",
+      "blocker": null,
+      "evidence": {
+        "summary": "RunParams.configDir; accountEnv arma el env del proceso de Claude Code con CLAUDE_CONFIG_DIR de la cuenta o sin la variable para la cuenta principal (aunque la API la herede); buildQueryOptions siempre pasa env. AgentManager recibe accountOf, lee la cuenta activa una vez al iniciar cada turno, la pasa al runner, la guarda en agent_sessions.account_id y suma account al evento session_started. app.ts conecta AccountService.activeForRun.",
+        "validations": [
+          {
+            "command": "npx vitest run test/sdk-runner.test.ts test/agent.test.ts",
+            "result": "passed",
+            "note": "40 tests; nuevos: env con directorio, env sin CLAUDE_CONFIG_DIR para la principal aunque la base la tenga, y dos turnos con cambio de cuenta (configDir, account_id y session_started)"
+          },
+          {
+            "command": "npx vitest run (apps/api)",
+            "result": "passed",
+            "note": "1068 tests"
+          },
+          {
+            "command": "npx eslint + tsc --noEmit + prettier",
+            "result": "passed",
+            "note": "limpios"
+          }
+        ],
+        "filesChanged": [
+          "apps/api/src/agent/runner.ts",
+          "apps/api/src/agent/sdk-runner.ts",
+          "apps/api/src/agent/manager.ts",
+          "apps/api/src/chats/sessions-repo.ts",
+          "apps/api/src/app.ts",
+          "apps/api/test/sdk-runner.test.ts",
+          "apps/api/test/agent.test.ts"
+        ],
+        "notes": null,
+        "by": "claude-maker",
+        "recordedAt": "2026-10-06T02:04:30.019Z",
+        "definitionRevision": 1,
+        "materialDigest": "ee843779052b6002e2dee1008ef845d7ffec765d19b4e298ec878c4b46b24786"
+      },
+      "verdict": {
+        "result": "pass",
+        "checkedCriteria": [
+          "Con una cuenta con directorio, las opciones del SDK llevan CLAUDE_CONFIG_DIR con ese directorio",
+          "Con la cuenta por defecto, las opciones del SDK llevan un env sin CLAUDE_CONFIG_DIR aunque la API lo tenga en su entorno",
+          "Cambiar la cuenta activa hace que el siguiente turno use la nueva y agent_sessions.account_id la registra",
+          "El evento session_started incluye el nombre de la cuenta"
+        ],
+        "findings": [
+          {
+            "severity": "suggestion",
+            "detail": "Options.env del SDK reemplaza el entorno del subproceso; accountEnv copia process.env, así que PATH y HOME se conservan. Un test podría verificarlo vía buildQueryOptions."
+          },
+          {
+            "severity": "suggestion",
+            "detail": "Si accountOf() fallara (sin cuenta activa) start lanza antes de abrir la sesión; hoy la migración y setActive lo impiden."
+          }
+        ],
+        "by": "claude-checker",
+        "reviewedAt": "2026-10-06T02:05:37.119Z",
+        "definitionRevision": 1,
+        "evidenceDigest": "d1fe6afbd119e476d76cc3ffd4d31f10f49c67328917333554b6254c5a4d6703",
+        "reviewedMaterialDigest": "ee843779052b6002e2dee1008ef845d7ffec765d19b4e298ec878c4b46b24786"
+      },
+      "disposition": null
+    },
+    {
+      "id": "W3",
+      "title": "Selector de cuenta en el encabezado y página Cuentas",
+      "description": "Servicio AccountsService en la web. Desplegable en el encabezado (con sesión) que muestra la cuenta activa y cambia a otra con un clic. Página /accounts (enlace Cuentas en la navegación) con la lista de cuentas (nombre, email, organización, activa, aviso si no tiene login o no está enlazada), formulario de alta (nombre y directorio), renombrar, borrar y activar.",
+      "context": "Angular standalone con signals, componentes de ui/ (button, badge) y estilos de docs/identidad-visual.md. El CSRF lo pone el interceptor.",
+      "filesToTouch": [
+        "apps/web/src/app/accounts/accounts.service.ts",
+        "apps/web/src/app/accounts/account-selector.ts",
+        "apps/web/src/app/accounts/accounts.page.ts",
+        "apps/web/src/app/accounts/accounts.spec.ts",
+        "apps/web/src/app/app.ts",
+        "apps/web/src/app/app.routes.ts"
+      ],
+      "acceptanceCriteria": [
+        "El encabezado muestra la cuenta activa y elegir otra llama a PUT /api/accounts/active y actualiza la vista",
+        "La página Cuentas lista las cuentas con su email y avisa las que no tienen login o no están enlazadas",
+        "Desde la página se puede dar de alta, renombrar, borrar y activar una cuenta, con los errores de la API visibles",
+        "Build y tests de la web en verde"
+      ],
+      "dependsOn": [
+        "W1"
+      ],
+      "definitionRevision": 1,
+      "status": "verified",
+      "blocker": null,
+      "evidence": {
+        "summary": "AccountsService (signals accounts y active, refresh, activate, create, rename, remove). AccountSelector en el encabezado: desplegable con las cuentas (las sin login deshabilitadas), elegir una llama a PUT /api/accounts/active y refresca; si falla muestra el error y vuelve a la activa. Página /accounts (enlace Cuentas): tarjetas con nombre, email, organización, directorio, insignias Activa/Sin login/Sin enlazar y avisos con el comando para resolverlos; Usar esta, Renombrar (inline), Borrar (con confirmación, no para principal ni activa) y formulario de alta; errores de la API visibles. Lógica pura en accounts-logic.ts con spec.",
+        "validations": [
+          {
+            "command": "npx vitest run (apps/web)",
+            "result": "passed",
+            "note": "259 tests, incluidos accounts.spec.ts (etiqueta, avisos, quién se puede activar)"
+          },
+          {
+            "command": "npx ng build",
+            "result": "passed",
+            "note": "bundle generado"
+          },
+          {
+            "command": "npx eslint + prettier --check",
+            "result": "passed",
+            "note": "limpios"
+          },
+          {
+            "command": "AccountService contra ~/.claude y ~/.claude2 reales (base en memoria)",
+            "result": "passed",
+            "note": "las dos cuentas con email, organización, login y enlazadas"
+          },
+          {
+            "command": "query del SDK con accountEnv(~/.claude2), haiku, 1 turno",
+            "result": "passed",
+            "note": "init apiKeySource none (OAuth), result success; la sesión quedó en ~/.claude/projects (compartido)"
+          }
+        ],
+        "filesChanged": [
+          "apps/web/src/app/accounts/accounts-logic.ts",
+          "apps/web/src/app/accounts/accounts.service.ts",
+          "apps/web/src/app/accounts/account-selector.ts",
+          "apps/web/src/app/accounts/accounts.page.ts",
+          "apps/web/src/app/accounts/accounts.spec.ts",
+          "apps/web/src/app/app.ts",
+          "apps/web/src/app/app.routes.ts"
+        ],
+        "notes": "No se probó en un navegador: el servicio agents-panel sigue con el build anterior hasta reiniciarlo.",
+        "by": "claude-maker",
+        "recordedAt": "2026-10-06T02:07:00.035Z",
+        "definitionRevision": 1,
+        "materialDigest": "c87204aebef2819136c20bb2bcd9992ffa6a8245f9464231d7b87e3eb18dab76"
+      },
+      "verdict": {
+        "result": "pass",
+        "checkedCriteria": [
+          "El encabezado muestra la cuenta activa y elegir otra llama a PUT /api/accounts/active y actualiza la vista",
+          "La página Cuentas lista las cuentas con su email y avisa las que no tienen login o no están enlazadas",
+          "Desde la página se puede dar de alta, renombrar, borrar y activar una cuenta, con los errores de la API visibles",
+          "Build y tests de la web en verde"
+        ],
+        "findings": [
+          {
+            "severity": "warning",
+            "detail": "El error del selector del encabezado no se borraba tras una recarga correcta; corregido con un effect sobre accounts (build y tests de nuevo en verde)."
+          },
+          {
+            "severity": "suggestion",
+            "detail": "El encabezado carga las cuentas solo al crearse; un cambio desde otro navegador se ve al recargar."
+          },
+          {
+            "severity": "suggestion",
+            "detail": "Los specs cubren solo la lógica pura; no hubo prueba en navegador (el servicio corre el build anterior hasta reiniciarlo)."
+          }
+        ],
+        "by": "claude-checker",
+        "reviewedAt": "2026-10-06T02:08:47.140Z",
+        "definitionRevision": 1,
+        "evidenceDigest": "86a75ddb5146095e09b751177028529c76b2e169e801394d709e629a066a9446",
+        "reviewedMaterialDigest": "c87204aebef2819136c20bb2bcd9992ffa6a8245f9464231d7b87e3eb18dab76"
+      },
+      "disposition": null
+    },
+    {
+      "id": "W4",
+      "title": "Documentación de las cuentas",
+      "description": "docs/plan.md (decisión y diseño de cuentas), docs/panel-desarrollo.md (cómo dar de alta una cuenta), docs/vm-setup.md paso 17 (el panel ya elige la cuenta) y CLAUDE.md (regla breve de cuentas).",
+      "context": "Regla del repo: si una decisión cambia, se actualiza el doc en el mismo cambio. Docs en español.",
+      "filesToTouch": [
+        "docs/plan.md",
+        "docs/panel-desarrollo.md",
+        "docs/vm-setup.md",
+        "CLAUDE.md"
+      ],
+      "acceptanceCriteria": [
+        "Los docs describen tabla, selector, uso de CLAUDE_CONFIG_DIR y el caso de la cuenta por defecto",
+        "El paso 17 del runbook ya no dice que el panel no puede elegir la cuenta"
+      ],
+      "dependsOn": [
+        "W2",
+        "W3"
+      ],
+      "definitionRevision": 1,
+      "status": "verified",
+      "blocker": null,
+      "evidence": {
+        "summary": "docs/plan.md (Arquitectura: cuentas de Claude, cuenta activa global, CLAUDE_CONFIG_DIR y el caso de la principal sin variable, account_id, enlace y rutas), docs/panel-desarrollo.md (sección Cuentas de Claude: cómo agregar una y referencia de la API), docs/vm-setup.md paso 17 (el panel ya elige la cuenta) y CLAUDE.md (sección Cuentas de Claude).",
+        "validations": [
+          {
+            "command": "grep 'todavía no se puede elegir la cuenta' docs/vm-setup.md",
+            "result": "passed",
+            "note": "sin coincidencias"
+          },
+          {
+            "command": "revisión de los cuatro docs contra el código de W1-W3",
+            "result": "passed",
+            "note": "rutas, códigos 400/409 y comportamiento coinciden"
+          }
+        ],
+        "filesChanged": [
+          "docs/plan.md",
+          "docs/panel-desarrollo.md",
+          "docs/vm-setup.md",
+          "CLAUDE.md"
+        ],
+        "notes": null,
+        "by": "claude-maker",
+        "recordedAt": "2026-10-06T02:08:47.586Z",
+        "definitionRevision": 1,
+        "materialDigest": "f22e597b73d115d1b45a20d2d73eef84ff2e27b7c1ced68379136e8df36377e3"
+      },
+      "verdict": {
+        "result": "pass",
+        "checkedCriteria": [
+          "Los docs describen tabla, selector, uso de CLAUDE_CONFIG_DIR y el caso de la cuenta por defecto",
+          "El paso 17 del runbook ya no dice que el panel no puede elegir la cuenta"
+        ],
+        "findings": [
+          {
+            "severity": "suggestion",
+            "detail": "La referencia de la API en panel-desarrollo.md omitía el 400 por ruta no absoluta, el 204 de DELETE y los 404; agregados."
+          }
+        ],
+        "by": "claude-checker",
+        "reviewedAt": "2026-10-06T02:09:24.945Z",
+        "definitionRevision": 1,
+        "evidenceDigest": "a511b571857e8e1526c2e4cb7a3003be79c443d8af8692318867363f47690f6f",
+        "reviewedMaterialDigest": "f22e597b73d115d1b45a20d2d73eef84ff2e27b7c1ced68379136e8df36377e3"
+      },
+      "disposition": null
+    }
+  ],
+  "activity": [
+    {
+      "seq": 1,
+      "at": "2026-10-06T01:54:35.763Z",
+      "event": "created",
+      "taskId": null,
+      "by": "claude",
+      "reason": "Created through the Work CLI.",
+      "revision": 1
+    },
+    {
+      "seq": 2,
+      "at": "2026-10-06T01:55:17.271Z",
+      "event": "tasks_planned",
+      "taskId": null,
+      "by": "claude",
+      "reason": "Planned 4 Work tasks.",
+      "revision": 2
+    },
+    {
+      "seq": 3,
+      "at": "2026-10-06T01:55:17.509Z",
+      "event": "task_started",
+      "taskId": "W1",
+      "by": "claude-maker",
+      "reason": "Task started through the Work CLI.",
+      "revision": 3
+    },
+    {
+      "seq": 4,
+      "at": "2026-10-06T02:01:01.045Z",
+      "event": "evidence_recorded",
+      "taskId": "W1",
+      "by": "claude-maker",
+      "reason": "Evidence recorded with 3 validation results.",
+      "revision": 4
+    },
+    {
+      "seq": 5,
+      "at": "2026-10-06T02:02:43.522Z",
+      "event": "review_recorded",
+      "taskId": "W1",
+      "by": "claude-checker",
+      "reason": "Task review recorded with pass.",
+      "revision": 5
+    },
+    {
+      "seq": 6,
+      "at": "2026-10-06T02:02:43.744Z",
+      "event": "task_started",
+      "taskId": "W2",
+      "by": "claude-maker",
+      "reason": "Task started through the Work CLI.",
+      "revision": 6
+    },
+    {
+      "seq": 7,
+      "at": "2026-10-06T02:02:43.967Z",
+      "event": "task_started",
+      "taskId": "W3",
+      "by": "claude-maker",
+      "reason": "Task started through the Work CLI.",
+      "revision": 7
+    },
+    {
+      "seq": 8,
+      "at": "2026-10-06T02:04:30.019Z",
+      "event": "evidence_recorded",
+      "taskId": "W2",
+      "by": "claude-maker",
+      "reason": "Evidence recorded with 3 validation results.",
+      "revision": 8
+    },
+    {
+      "seq": 9,
+      "at": "2026-10-06T02:05:37.119Z",
+      "event": "review_recorded",
+      "taskId": "W2",
+      "by": "claude-checker",
+      "reason": "Task review recorded with pass.",
+      "revision": 9
+    },
+    {
+      "seq": 10,
+      "at": "2026-10-06T02:07:00.035Z",
+      "event": "evidence_recorded",
+      "taskId": "W3",
+      "by": "claude-maker",
+      "reason": "Evidence recorded with 5 validation results.",
+      "revision": 10
+    },
+    {
+      "seq": 11,
+      "at": "2026-10-06T02:08:47.140Z",
+      "event": "review_recorded",
+      "taskId": "W3",
+      "by": "claude-checker",
+      "reason": "Task review recorded with pass.",
+      "revision": 11
+    },
+    {
+      "seq": 12,
+      "at": "2026-10-06T02:08:47.358Z",
+      "event": "task_started",
+      "taskId": "W4",
+      "by": "claude-maker",
+      "reason": "Task started through the Work CLI.",
+      "revision": 12
+    },
+    {
+      "seq": 13,
+      "at": "2026-10-06T02:08:47.586Z",
+      "event": "evidence_recorded",
+      "taskId": "W4",
+      "by": "claude-maker",
+      "reason": "Evidence recorded with 2 validation results.",
+      "revision": 13
+    },
+    {
+      "seq": 14,
+      "at": "2026-10-06T02:09:24.945Z",
+      "event": "review_recorded",
+      "taskId": "W4",
+      "by": "claude-checker",
+      "reason": "Task review recorded with pass.",
+      "revision": 14
+    },
+    {
+      "seq": 15,
+      "at": "2026-10-06T02:09:25.394Z",
+      "event": "work_closed",
+      "taskId": null,
+      "by": "claude",
+      "reason": "Selector de cuenta de Claude: API, turnos con CLAUDE_CONFIG_DIR, web y docs verificados",
+      "revision": 15
+    }
+  ],
+  "closure": {
+    "outcome": "completed",
+    "reason": "Selector de cuenta de Claude: API, turnos con CLAUDE_CONFIG_DIR, web y docs verificados",
+    "by": "claude",
+    "closedAt": "2026-10-06T02:09:25.394Z",
+    "briefDigest": "b97f03a229a31a7858b21b343a4a87b01af503e301e7fe3e3fea312a161a100f",
+    "finalRevision": 15
+  },
+  "promotion": null
+}
