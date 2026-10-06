@@ -1,0 +1,251 @@
+{
+  "schemaVersion": 1,
+  "kind": "organic-work",
+  "id": "menos-bloqueos",
+  "title": "El piloto y los permisos bloquean menos",
+  "objective": "El piloto reconoce el QA aunque el agente siga la skill leyendo su SKILL.md, y el chequeo de Bash deja de confundir texto entre comillas con pipes, separadores o redirecciones.",
+  "brief": {
+    "path": "brief.md",
+    "digest": "468b971e329d32981f4de10931c5e9f877f3cd4bfa4f13ad02639de4a7c326f7",
+    "sourceIdea": null
+  },
+  "state": "closed",
+  "revision": 9,
+  "createdAt": "2026-10-06T19:52:20.410Z",
+  "updatedAt": "2026-10-06T19:57:06.383Z",
+  "handoff": {
+    "nextAction": "done",
+    "nextTaskId": null,
+    "blockedReason": null
+  },
+  "tasks": [
+    {
+      "id": "W1",
+      "title": "usedSkill acepta el Read del SKILL.md",
+      "description": "usedSkill cuenta un Read de .../skills/<skill>/SKILL.md además de la herramienta Skill.",
+      "context": "Chat 3 frenó con qa_sin_correr aunque el agente leyó kyro-qa/SKILL.md y corrió QA.",
+      "filesToTouch": [
+        "apps/api/src/pilot/autopilot.ts",
+        "apps/api/test/pilot-autopilot.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "Un Read de ~/.agents/skills/kyro-qa/SKILL.md cuenta como kyro-qa usada",
+        "Leer otro archivo o la skill de otro nombre no cuenta",
+        "La herramienta Skill sigue contando"
+      ],
+      "dependsOn": [],
+      "definitionRevision": 1,
+      "status": "verified",
+      "blocker": null,
+      "evidence": {
+        "summary": "usedSkill cuenta la herramienta Skill con el nombre o un Read cuyo file_path termina en /skills/<skill>/SKILL.md, que es como los prompts del piloto mandan usar las skills.",
+        "validations": [
+          {
+            "command": "npx vitest run test/pilot-autopilot.test.ts",
+            "result": "passed",
+            "note": "55 tests; nuevo caso: Read de kyro-qa/SKILL.md cuenta, otra skill u otro archivo no"
+          },
+          {
+            "command": "usedSkill sobre los 119 eventos reales de la sesión de cierre del chat 3 (base en solo lectura)",
+            "result": "passed",
+            "note": "true (antes false: el piloto frenó con qa_sin_correr)"
+          }
+        ],
+        "filesChanged": [
+          "apps/api/src/pilot/autopilot.ts",
+          "apps/api/test/pilot-autopilot.test.ts"
+        ],
+        "notes": null,
+        "by": "claude-maker",
+        "recordedAt": "2026-10-06T19:52:56.946Z",
+        "definitionRevision": 1,
+        "materialDigest": "91f7911e2970c2aca5a5b03fb60ef2d2b2ab3e329d41db9bd4c90bc17cce42b7"
+      },
+      "verdict": {
+        "result": "pass",
+        "checkedCriteria": [
+          "Un Read de ~/.agents/skills/kyro-qa/SKILL.md cuenta como kyro-qa usada",
+          "Leer otro archivo o la skill de otro nombre no cuenta",
+          "La herramienta Skill sigue contando"
+        ],
+        "findings": [],
+        "by": "claude-checker",
+        "reviewedAt": "2026-10-06T19:52:57.160Z",
+        "definitionRevision": 1,
+        "evidenceDigest": "d6086f29cf424723e9d287045a8e7c3f8b874bcfc9c3f8e6e64ba168a914a51c",
+        "reviewedMaterialDigest": "91f7911e2970c2aca5a5b03fb60ef2d2b2ab3e329d41db9bd4c90bc17cce42b7"
+      },
+      "disposition": null
+    },
+    {
+      "id": "W2",
+      "title": "checkBash respeta las comillas",
+      "description": "Separadores, pipes y redirecciones se buscan con el texto entre comillas enmascarado; las etapas se validan con su texto original; comilla sin cerrar se rechaza; $( y backticks se siguen rechazando en todos lados.",
+      "context": "git grep -E \"a|b\" y Co-Authored-By con <email> se rechazaban.",
+      "filesToTouch": [
+        "apps/api/src/agent/permissions.ts",
+        "apps/api/test/permissions.test.ts",
+        "docs/plan.md"
+      ],
+      "acceptanceCriteria": [
+        "git grep -E \"a|b\" se permite",
+        "git commit -m con <email> entre comillas se permite",
+        "echo x > f y git log | sh siguen rechazados",
+        "$(...) entre comillas dobles sigue rechazado",
+        "Una comilla sin cerrar se rechaza"
+      ],
+      "dependsOn": [],
+      "definitionRevision": 1,
+      "status": "verified",
+      "blocker": null,
+      "evidence": {
+        "summary": "maskQuoted reemplaza por _ lo que está entre comillas simples o dobles y lo escapado con backslash (reglas de bash), conservando largo; checkBash busca redirecciones, separadores y pipes en el texto enmascarado y valida cada etapa con su texto original (splitMasked). Se rechazan comilla sin cerrar y $'…'; $( y backticks siguen rechazados en el texto crudo. docs/plan.md lo documenta.",
+        "validations": [
+          {
+            "command": "npx vitest run test/permissions.test.ts",
+            "result": "passed",
+            "note": "174 tests; nuevos: | y ; entre comillas, <email> en commit, pipes reales junto a comillas, escapes que no falsean comillas, comilla sin cerrar, $'…', $( entre comillas dobles"
+          },
+          {
+            "command": "npx vitest run (apps/api)",
+            "result": "passed",
+            "note": "65 archivos, 1103 tests"
+          },
+          {
+            "command": "tsc + npm run lint + prettier --check .",
+            "result": "passed",
+            "note": "limpios"
+          }
+        ],
+        "filesChanged": [
+          "apps/api/src/agent/permissions.ts",
+          "apps/api/test/permissions.test.ts",
+          "docs/plan.md"
+        ],
+        "notes": null,
+        "by": "claude-maker",
+        "recordedAt": "2026-10-06T19:57:05.929Z",
+        "definitionRevision": 1,
+        "materialDigest": "d75207881dca8b295916284883f9658e52ebec5f3b6ce63cba8cca1f9d532e1b"
+      },
+      "verdict": {
+        "result": "pass",
+        "checkedCriteria": [
+          "git grep -E \"a|b\" se permite",
+          "git commit -m con <email> entre comillas se permite",
+          "echo x > f y git log | sh siguen rechazados",
+          "$(...) entre comillas dobles sigue rechazado",
+          "Una comilla sin cerrar se rechaza"
+        ],
+        "findings": [
+          {
+            "severity": "suggestion",
+            "detail": "Un # de comentario fuera de comillas no se interpreta: lo que sigue se sigue revisando (más estricto que bash, nunca más permisivo)."
+          },
+          {
+            "severity": "suggestion",
+            "detail": "Un primer comando entre comillas (\"git\") se rechaza como no permitido: más estricto que bash."
+          }
+        ],
+        "by": "claude-checker",
+        "reviewedAt": "2026-10-06T19:57:06.156Z",
+        "definitionRevision": 1,
+        "evidenceDigest": "defdacba1671a5d48da4e893fd30c77844f9b31b102ae06852484cd73243b450",
+        "reviewedMaterialDigest": "d75207881dca8b295916284883f9658e52ebec5f3b6ce63cba8cca1f9d532e1b"
+      },
+      "disposition": null
+    }
+  ],
+  "activity": [
+    {
+      "seq": 1,
+      "at": "2026-10-06T19:52:20.410Z",
+      "event": "created",
+      "taskId": null,
+      "by": "claude",
+      "reason": "Created through the Work CLI.",
+      "revision": 1
+    },
+    {
+      "seq": 2,
+      "at": "2026-10-06T19:52:20.654Z",
+      "event": "tasks_planned",
+      "taskId": null,
+      "by": "claude",
+      "reason": "Planned 2 Work tasks.",
+      "revision": 2
+    },
+    {
+      "seq": 3,
+      "at": "2026-10-06T19:52:20.872Z",
+      "event": "task_started",
+      "taskId": "W1",
+      "by": "claude",
+      "reason": "Task started through the Work CLI.",
+      "revision": 3
+    },
+    {
+      "seq": 4,
+      "at": "2026-10-06T19:52:56.946Z",
+      "event": "evidence_recorded",
+      "taskId": "W1",
+      "by": "claude-maker",
+      "reason": "Evidence recorded with 2 validation results.",
+      "revision": 4
+    },
+    {
+      "seq": 5,
+      "at": "2026-10-06T19:52:57.160Z",
+      "event": "review_recorded",
+      "taskId": "W1",
+      "by": "claude-checker",
+      "reason": "Task review recorded with pass.",
+      "revision": 5
+    },
+    {
+      "seq": 6,
+      "at": "2026-10-06T19:52:57.381Z",
+      "event": "task_started",
+      "taskId": "W2",
+      "by": "claude",
+      "reason": "Task started through the Work CLI.",
+      "revision": 6
+    },
+    {
+      "seq": 7,
+      "at": "2026-10-06T19:57:05.929Z",
+      "event": "evidence_recorded",
+      "taskId": "W2",
+      "by": "claude-maker",
+      "reason": "Evidence recorded with 3 validation results.",
+      "revision": 7
+    },
+    {
+      "seq": 8,
+      "at": "2026-10-06T19:57:06.156Z",
+      "event": "review_recorded",
+      "taskId": "W2",
+      "by": "claude-checker",
+      "reason": "Task review recorded with pass.",
+      "revision": 8
+    },
+    {
+      "seq": 9,
+      "at": "2026-10-06T19:57:06.383Z",
+      "event": "work_closed",
+      "taskId": null,
+      "by": "claude",
+      "reason": "Las dos tareas verificadas",
+      "revision": 9
+    }
+  ],
+  "closure": {
+    "outcome": "completed",
+    "reason": "Las dos tareas verificadas",
+    "by": "claude",
+    "closedAt": "2026-10-06T19:57:06.383Z",
+    "briefDigest": "468b971e329d32981f4de10931c5e9f877f3cd4bfa4f13ad02639de4a7c326f7",
+    "finalRevision": 9
+  },
+  "promotion": null
+}
