@@ -1,4 +1,4 @@
-import type { ChatKind, Project } from '@agents-panel/shared';
+import { MODEL_CATALOG, type ChatKind, type Project } from '@agents-panel/shared';
 import type { NewChatInput } from './chats.service';
 
 export interface KindOption {
@@ -55,21 +55,74 @@ export function effectiveKind(project: Pick<Project, 'hasKyro'>, chosen: ChatKin
     : defaultKind(project);
 }
 
+/** Whether the pilot switch of the form applies to a kind; when it does not, the reason is shown. */
+export function pilotSwitch(kind: ChatKind): { available: boolean; reason: string | null } {
+  if (kind === 'scope' || kind === 'work') return { available: true, reason: null };
+  if (kind === 'idea') {
+    return { available: false, reason: 'La idea enciende el piloto sola cuando aprobás su plan.' };
+  }
+  return { available: false, reason: 'Un pedido directo no tiene piloto.' };
+}
+
+/** Models the form can offer for the project's provider. */
+export function modelOptions(
+  project: Pick<Project, 'models'>,
+): { id: string; byDefault: { thinker: boolean; executor: boolean } }[] {
+  return MODEL_CATALOG[project.models.provider].map((id) => ({
+    id,
+    byDefault: {
+      thinker: id === project.models.thinker,
+      executor: id === project.models.executor,
+    },
+  }));
+}
+
+/** Label of a model in a select: the project's own is marked as the default. */
+export function modelLabel(id: string, isDefault: boolean): string {
+  return isDefault ? `${id} (por defecto)` : id;
+}
+
+/** The roles the user changed from the project's models; nothing when they did not touch them. */
+export function modelOverrides(
+  project: Pick<Project, 'models'>,
+  chosen: { thinker: string; executor: string },
+): { thinker?: string; executor?: string } {
+  return {
+    ...(chosen.thinker !== project.models.thinker ? { thinker: chosen.thinker } : {}),
+    ...(chosen.executor !== project.models.executor ? { executor: chosen.executor } : {}),
+  };
+}
+
+/** What the form decided besides the request: the pilot and the models, both optional. */
+export interface NewChatChoices {
+  autopilot?: boolean;
+  models?: { thinker: string; executor: string };
+}
+
 /**
- * What the form sends to create a chat. It never carries an autopilot switch: an idea turns the
- * pilot on when its plan is approved, and a scope or work is switched on from its own page.
+ * What the form sends to create a chat. `autopilot: true` only goes with a scope or work (an idea
+ * turns the pilot on when its plan is approved; a direct request has none) and `models` only with
+ * the roles the user changed, so a project's default keeps applying when nothing was touched.
  */
 export function newChatInput(
-  project: Pick<Project, 'id' | 'hasKyro'>,
+  project: Pick<Project, 'id' | 'hasKyro'> & Partial<Pick<Project, 'models'>>,
   chosen: ChatKind,
   slug: string,
   prompt: string,
+  choices: NewChatChoices = {},
 ): NewChatInput {
+  const kind = effectiveKind(project, chosen);
+  const overrides =
+    choices.models !== undefined && project.models !== undefined
+      ? modelOverrides({ models: project.models }, choices.models)
+      : {};
   return {
     projectId: project.id,
-    kind: effectiveKind(project, chosen),
+    kind,
     slug,
     prompt: prompt.trim(),
+    ...(choices.autopilot === true && pilotSwitch(kind).available ? { autopilot: true } : {}),
+    ...(Object.keys(overrides).length > 0 ? { models: overrides } : {}),
   };
 }
 

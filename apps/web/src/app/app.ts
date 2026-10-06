@@ -27,6 +27,13 @@ import { Button } from './ui/button';
           >
             Versiones
           </a>
+          <a
+            routerLink="/settings/notifications"
+            class="text-muted hover:text-text hover:no-underline"
+            routerLinkActive="!text-text font-semibold"
+          >
+            Notificaciones
+          </a>
         </nav>
       }
       @if (auth.username(); as name) {

@@ -10,6 +10,7 @@ import type {
   PendingQuestion,
   Project,
   QuestionAnswer,
+  WorktreeState,
   WorktreeTransition,
 } from '@agents-panel/shared';
 import { firstValueFrom } from 'rxjs';
@@ -19,6 +20,10 @@ export interface NewChatInput {
   kind: ChatKind;
   slug: string;
   prompt: string;
+  /** Only a scope or work: the pilot starts with it. */
+  autopilot?: boolean;
+  /** Only the roles that differ from the project's models. */
+  models?: { thinker?: string; executor?: string };
 }
 
 /** Turns an API failure into text for the user, keeping the server's own message when it sent one. */
@@ -104,8 +109,20 @@ export class ChatsService {
     return firstValueFrom(this.http.get<WorktreeTransition[]>(`/api/chats/${String(id)}/timeline`));
   }
 
+  /** The fine state of a scope, work or idea; null while it has none. */
+  state(id: number): Promise<WorktreeState | null> {
+    return firstValueFrom(this.http.get<WorktreeState | null>(`/api/chats/${String(id)}/state`));
+  }
+
   autopilot(id: number): Promise<AutopilotInfo> {
     return firstValueFrom(this.http.get<AutopilotInfo>(`/api/chats/${String(id)}/autopilot`));
+  }
+
+  /** Switch the pilot on or off, pause or resume it; 409 with a readable reason when it does not apply. */
+  autopilotAction(id: number, action: 'on' | 'off' | 'pause' | 'resume'): Promise<AutopilotInfo> {
+    return firstValueFrom(
+      this.http.post<AutopilotInfo>(`/api/chats/${String(id)}/autopilot`, { action }),
+    );
   }
 
   /** The user's explicit OK to complete a scope with its debt still open. */

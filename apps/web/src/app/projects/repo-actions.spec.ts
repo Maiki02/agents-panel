@@ -4,6 +4,7 @@ import {
   blockerLabel,
   deleteBlockers,
   kyroBranchSummary,
+  kyroInitView,
   nameMatches,
   pullSummary,
 } from './repo-actions';
@@ -38,6 +39,59 @@ describe('kyroBranchSummary', () => {
     );
     expect(text).toContain('chore/kyro-init');
     expect(text).toContain('mergeala a dev');
+  });
+});
+
+describe('kyroInitView', () => {
+  const base = { status: 'ready', baseBranch: 'main' } as const;
+  const pending = {
+    branch: 'chore/kyro-init',
+    pushed: false,
+    prUrl: 'https://github.com/o/r/pull/new/chore/kyro-init',
+  };
+
+  it('lets a project without Kyro and without a branch start the init', () => {
+    expect(kyroInitView({ ...base, hasKyro: false, kyroInit: null })).toMatchObject({
+      state: 'none',
+      canInit: true,
+      initReason: null,
+      chip: null,
+    });
+    expect(kyroInitView({ ...base, status: 'cloning', hasKyro: false })).toMatchObject({
+      canInit: false,
+    });
+  });
+
+  it('shows a pending chip, disables the init and offers the push while the branch is local', () => {
+    const view = kyroInitView({ ...base, hasKyro: false, kyroInit: pending });
+    expect(view).toMatchObject({
+      state: 'pending',
+      chip: 'Pendiente de subir y mergear',
+      canInit: false,
+      canPush: true,
+      prUrl: pending.prUrl,
+    });
+    expect(view.initReason).toContain('chore/kyro-init');
+    expect(view.steps).toHaveLength(3);
+  });
+
+  it('after the push only the merge and the pull are left', () => {
+    for (const view of [
+      kyroInitView({ ...base, hasKyro: false, kyroInit: { ...pending, pushed: true } }),
+      kyroInitView({ ...base, hasKyro: false, kyroInit: pending }, true),
+    ]) {
+      expect(view).toMatchObject({ chip: 'Pendiente de merge', canPush: false, canInit: false });
+      expect(view.steps).toHaveLength(2);
+      expect(view.steps[0]).toContain('mergeala a main');
+    }
+  });
+
+  it('has nothing pending once the project has Kyro', () => {
+    expect(kyroInitView({ ...base, hasKyro: true, kyroInit: pending })).toMatchObject({
+      state: 'has_kyro',
+      chip: null,
+      canPush: false,
+    });
   });
 });
 

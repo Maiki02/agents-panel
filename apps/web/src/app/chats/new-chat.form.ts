@@ -8,8 +8,11 @@ import {
   availableKinds,
   effectiveKind,
   kindDescription,
+  modelLabel,
+  modelOptions,
   newChatInput,
   parseKind,
+  pilotSwitch,
 } from './chat-kinds';
 
 export const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -72,6 +75,45 @@ export function slugProblem(slug: string): string | null {
         (input)="prompt.set(text($event))"
       ></textarea>
 
+      <label class="flex items-center gap-2" for="autopilot">
+        <input
+          id="autopilot"
+          name="autopilot"
+          type="checkbox"
+          [checked]="pilotOn()"
+          [disabled]="!pilot().available"
+          (change)="autopilot.set(checked($event))"
+        />
+        Piloto automático
+      </label>
+      @if (pilot().reason; as why) {
+        <p class="hint" data-testid="pilot-reason">{{ why }}</p>
+      } @else {
+        <p class="hint">
+          Lleva el trabajo solo hasta la PR y frena cuando necesita una decisión tuya.
+        </p>
+      }
+
+      <details class="my-2">
+        <summary>Opciones: modelos</summary>
+        <label for="thinker">Modelo pensante (idea y plan)</label>
+        <select id="thinker" (change)="thinker.set(text($event))">
+          @for (option of models(); track option.id) {
+            <option [value]="option.id" [selected]="option.id === thinkerModel()">
+              {{ label(option.id, option.byDefault.thinker) }}
+            </option>
+          }
+        </select>
+        <label for="executor">Modelo ejecutor (ejecución, QA y cierre)</label>
+        <select id="executor" (change)="executor.set(text($event))">
+          @for (option of models(); track option.id) {
+            <option [value]="option.id" [selected]="option.id === executorModel()">
+              {{ label(option.id, option.byDefault.executor) }}
+            </option>
+          }
+        </select>
+      </details>
+
       <button appButton type="submit" [disabled]="!canSubmit()">
         {{ busy() ? 'Creando…' : 'Crear' }}
       </button>
@@ -94,11 +136,24 @@ export class NewChatForm {
   protected readonly busy = signal(false);
   protected readonly error = signal<string | null>(null);
 
+  /** The switch starts on; only a scope or work can have it. */
+  protected readonly autopilot = signal(true);
+  /** null: the project's model stays (the select shows it as the default). */
+  protected readonly thinker = signal<string | null>(null);
+  protected readonly executor = signal<string | null>(null);
+
   protected readonly kinds = computed(() => availableKinds(this.project()));
   protected readonly chosenKind = computed(() => effectiveKind(this.project(), this.kind()));
   protected readonly description = computed(() => kindDescription(this.chosenKind()));
   protected readonly kyroInitPath = computed(() =>
     settingsTabPath(this.project().id, 'repository'),
+  );
+  protected readonly pilot = computed(() => pilotSwitch(this.chosenKind()));
+  protected readonly pilotOn = computed(() => this.pilot().available && this.autopilot());
+  protected readonly models = computed(() => modelOptions(this.project()));
+  protected readonly thinkerModel = computed(() => this.thinker() ?? this.project().models.thinker);
+  protected readonly executorModel = computed(
+    () => this.executor() ?? this.project().models.executor,
   );
   protected readonly slugError = computed(() => slugProblem(this.slug()));
   /** Why the form is disabled; null while the project is ready (R7). */
@@ -124,6 +179,14 @@ export class NewChatForm {
     return (event.target as HTMLInputElement).value;
   }
 
+  protected checked(event: Event): boolean {
+    return (event.target as HTMLInputElement).checked;
+  }
+
+  protected label(id: string, isDefault: boolean): string {
+    return modelLabel(id, isDefault);
+  }
+
   protected kindOf(event: Event): ChatKind {
     return parseKind(this.text(event));
   }
@@ -135,7 +198,10 @@ export class NewChatForm {
     this.error.set(null);
     try {
       const chat = await this.chats.create(
-        newChatInput(this.project(), this.kind(), this.slug(), this.prompt()),
+        newChatInput(this.project(), this.kind(), this.slug(), this.prompt(), {
+          autopilot: this.pilotOn(),
+          models: { thinker: this.thinkerModel(), executor: this.executorModel() },
+        }),
       );
       await this.router.navigate(['/projects', chat.projectId, 'chats', chat.id]);
     } catch (cause) {

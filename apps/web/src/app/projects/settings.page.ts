@@ -3,7 +3,9 @@ import { Router } from '@angular/router';
 import { Tabs } from '../ui/tabs';
 import { resolveTab } from '../ui/tabs-logic';
 import { EnvFilesSection } from './env-files.section';
+import { ModelsSection } from './models.section';
 import { PermissionsSection } from './permissions.section';
+import { ProjectsService } from './projects.service';
 import { ProjectContext } from './project-context';
 import { ProjectDangerZone } from './project-danger-zone';
 import { ProjectGeneralSettings } from './project-settings';
@@ -21,6 +23,7 @@ import { SETTINGS_TABS, settingsTabPath } from './settings-tabs';
     EnvFilesSection,
     RepoActionsSection,
     PermissionsSection,
+    ModelsSection,
   ],
   template: `
     @if (context.project(); as p) {
@@ -37,10 +40,13 @@ import { SETTINGS_TABS, settingsTabPath } from './settings-tabs';
               <app-env-files-section [projectId]="p.id" />
             }
             @case ('repository') {
-              <app-repo-actions [project]="p" />
+              <app-repo-actions [project]="p" (refresh)="reload(p.id)" />
             }
             @case ('permissions') {
               <app-permissions-section [projectId]="p.id" />
+            }
+            @case ('models') {
+              <app-models-section [projectId]="p.id" />
             }
           }
         </div>
@@ -51,6 +57,7 @@ import { SETTINGS_TABS, settingsTabPath } from './settings-tabs';
 export class SettingsPage {
   protected readonly context = inject(ProjectContext);
   private readonly router = inject(Router);
+  private readonly projects = inject(ProjectsService);
 
   /** Route param `:tab` (bound by withComponentInputBinding). */
   readonly tab = input<string>();
@@ -70,6 +77,15 @@ export class SettingsPage {
         });
       }
     });
+  }
+
+  /** Reads the project again: a pull or a merged init branch may have brought Kyro. */
+  protected async reload(projectId: number): Promise<void> {
+    try {
+      this.context.project.set(await this.projects.get(projectId));
+    } catch {
+      // The screen keeps what it had; the next reload tries again.
+    }
   }
 
   protected select(projectId: number, tab: string): void {

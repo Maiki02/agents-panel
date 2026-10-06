@@ -1,5 +1,5 @@
 import { HttpErrorResponse } from '@angular/common/http';
-import type { DeleteBlocker, KyroBranchResult, PullResult } from '@agents-panel/shared';
+import type { DeleteBlocker, KyroBranchResult, Project, PullResult } from '@agents-panel/shared';
 
 /** One line saying what a pull did. */
 export function pullSummary(result: PullResult): string {
@@ -16,6 +16,70 @@ export function kyroBranchSummary(result: KyroBranchResult, baseBranch: string):
     `Kyro quedó commiteado en la rama ${result.branch} (${result.path}). ` +
     `Revisala, pusheala y mergeala a ${baseBranch}: hasta entonces el proyecto sigue sin Kyro.`
   );
+}
+
+export interface KyroInitView {
+  /** `has_kyro`: nothing to do; `pending`: the init branch waits for its merge; `none`: not started. */
+  state: 'has_kyro' | 'pending' | 'none';
+  /** Chip shown next to the title while the branch is pending. */
+  chip: string | null;
+  /** What is left to do, in order. */
+  steps: string[];
+  canInit: boolean;
+  /** Why `Inicializar Kyro` is disabled; null when it can be pressed. */
+  initReason: string | null;
+  /** The branch is local only: it can be pushed from the web. */
+  canPush: boolean;
+  prUrl: string | null;
+}
+
+/**
+ * What the Kyro block of Repositorio shows. `pushedNow` is true right after the web pushed the
+ * branch, before the project is read again. With the branch pending the init button is disabled:
+ * a second init would only fail with a conflict.
+ */
+export function kyroInitView(
+  project: Pick<Project, 'hasKyro' | 'status' | 'baseBranch' | 'kyroInit'>,
+  pushedNow = false,
+): KyroInitView {
+  if (project.hasKyro) {
+    return {
+      state: 'has_kyro',
+      chip: null,
+      steps: [],
+      canInit: false,
+      initReason: 'Este proyecto ya tiene Kyro.',
+      canPush: false,
+      prUrl: null,
+    };
+  }
+  const pending = project.kyroInit ?? null;
+  if (pending !== null) {
+    const pushed = pending.pushed || pushedNow;
+    return {
+      state: 'pending',
+      chip: pushed ? 'Pendiente de merge' : 'Pendiente de subir y mergear',
+      steps: [
+        ...(pushed ? [] : [`Subí la rama ${pending.branch} a GitHub (botón de abajo).`]),
+        `Abrí la PR y mergeala a ${project.baseBranch}.`,
+        'Traé los cambios de GitHub (botón de arriba): recién ahí el proyecto pasa a tener Kyro.',
+      ],
+      canInit: false,
+      initReason: `Ya hay una inicialización pendiente (rama ${pending.branch}): falta mergearla.`,
+      canPush: !pushed,
+      prUrl: pending.prUrl,
+    };
+  }
+  const ready = project.status === 'ready';
+  return {
+    state: 'none',
+    chip: null,
+    steps: [],
+    canInit: ready,
+    initReason: ready ? null : 'El proyecto todavía no está listo.',
+    canPush: false,
+    prUrl: null,
+  };
 }
 
 /** True when the typed text is the name the project shows (case sensitive, spaces around ignored). */

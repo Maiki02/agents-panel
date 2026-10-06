@@ -1,0 +1,245 @@
+import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import type { PushConfig, PushSubscriptionInfo } from '@agents-panel/shared';
+import { apiErrorMessage } from '../chats/chats.service';
+import { Badge } from '../ui/badge';
+import { Button } from '../ui/button';
+import { NotificationsService } from './notifications.service';
+import {
+  pushSupport,
+  subscriptionBody,
+  suggestedName,
+  testMessage,
+  type PushSupport,
+} from './notifications-logic';
+import { PushBrowser } from './push-browser';
+
+/**
+ * Notificaciones: the devices of the logged-in user that receive Web Push. It is not a project
+ * setting: the devices belong to the user, so it lives next to Versiones in the header.
+ */
+@Component({
+  selector: 'app-notifications',
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [Badge, Button],
+  template: `
+    <h2>Notificaciones</h2>
+    <p class="hint">
+      El panel te avisa en este y en tus otros dispositivos cuando un trabajo frena, te hace una
+      pregunta o deja la PR lista, aunque la pestaña esté cerrada.
+    </p>
+    @if (error(); as message) {
+      <p class="error" role="alert">{{ message }}</p>
+    }
+    @if (notice(); as message) {
+      <p class="hint" role="status">{{ message }}</p>
+    }
+
+    <section class="card">
+      <h3>Este dispositivo</h3>
+      @if (support(); as s) {
+        <button
+          appButton
+          type="button"
+          [disabled]="s.kind !== 'ready' || busy()"
+          (click)="activate()"
+        >
+          {{ busy() ? 'Activando…' : 'Activar en este dispositivo' }}
+        </button>
+        @if (s.reason; as why) {
+          <p class="hint" role="status" data-testid="support-reason">{{ why }}</p>
+        }
+      } @else {
+        <p class="hint">Cargando…</p>
+      }
+    </section>
+
+    <section class="card">
+      <h3>Dispositivos que reciben avisos</h3>
+      <ul class="m-0 flex list-none flex-col gap-3 p-0">
+        @for (item of devices(); track item.id) {
+          <li class="flex flex-col gap-2 rounded-card border border-border px-3 py-2">
+            <div class="flex flex-wrap items-center gap-2">
+              <strong>{{ item.name }}</strong>
+              @if (item.endpoint === here()) {
+                <app-badge tone="accent">Este dispositivo</app-badge>
+              }
+              <span class="ml-auto text-xs text-muted">
+                {{
+                  item.lastSuccessAt === null
+                    ? 'Sin avisos enviados'
+                    : 'Último aviso ' + time(item.lastSuccessAt)
+                }}
+              </span>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+              <input
+                class="min-w-0 flex-1"
+                [attr.aria-label]="'Nombre de ' + item.name"
+                maxlength="80"
+                [value]="draft(item)"
+                (input)="rename(item.id, text($event))"
+              />
+              <button
+                appButton
+                variant="secondary"
+                type="button"
+                [disabled]="busy() || draft(item).trim() === '' || draft(item).trim() === item.name"
+                (click)="saveName(item)"
+              >
+                Renombrar
+              </button>
+              <button
+                appButton
+                variant="secondary"
+                type="button"
+                [disabled]="busy()"
+                (click)="test(item)"
+              >
+                Probar
+              </button>
+              <button
+                appButton
+                variant="danger"
+                type="button"
+                [disabled]="busy()"
+                (click)="remove(item)"
+              >
+                Quitar
+              </button>
+            </div>
+          </li>
+        } @empty {
+          <li class="text-sm text-muted">
+            Ningún dispositivo recibe avisos todavía. Entrá desde el que quieras avisar y tocá
+            «Activar en este dispositivo».
+          </li>
+        }
+      </ul>
+    </section>
+  `,
+})
+export class NotificationsPage {
+  private readonly service = inject(NotificationsService);
+  private readonly browser = inject(PushBrowser);
+
+  protected readonly config = signal<PushConfig | null>(null);
+  protected readonly devices = signal<PushSubscriptionInfo[]>([]);
+  /** Endpoint of this browser's own subscription; null when it has none. */
+  protected readonly here = signal<string | null>(null);
+  protected readonly names = signal<Record<number, string>>({});
+  protected readonly busy = signal(false);
+  protected readonly error = signal<string | null>(null);
+  protected readonly notice = signal<string | null>(null);
+  protected readonly loaded = signal(false);
+
+  protected readonly support = computed<PushSupport | null>(() => {
+    const config = this.config();
+    if (config === null || !this.loaded()) return null;
+    return pushSupport({
+      ...this.browser.environment(),
+      serverEnabled: config.enabled,
+      subscribed: this.here() !== null && this.devices().some((d) => d.endpoint === this.here()),
+    });
+  });
+
+  constructor() {
+    void this.load();
+  }
+
+  private async load(): Promise<void> {
+    try {
+      const [config, devices, current] = await Promise.all([
+        this.service.config(),
+        this.service.list(),
+        this.browser.current().catch(() => null),
+      ]);
+      this.config.set(config);
+      this.devices.set(devices);
+      this.here.set(current?.endpoint ?? null);
+    } catch (cause) {
+      this.error.set(apiErrorMessage(cause));
+    } finally {
+      this.loaded.set(true);
+    }
+  }
+
+  private async refreshList(): Promise<void> {
+    this.devices.set(await this.service.list());
+  }
+
+  protected text(event: Event): string {
+    return (event.target as HTMLInputElement).value;
+  }
+
+  protected draft(item: PushSubscriptionInfo): string {
+    return this.names()[item.id] ?? item.name;
+  }
+
+  protected rename(id: number, value: string): void {
+    this.names.update((names) => ({ ...names, [id]: value }));
+  }
+
+  protected time(epochMs: number): string {
+    return new Date(epochMs).toLocaleString('es-AR', {
+      day: 'numeric',
+      month: 'short',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  }
+
+  private async run(action: () => Promise<void>): Promise<void> {
+    this.busy.set(true);
+    this.error.set(null);
+    this.notice.set(null);
+    try {
+      await action();
+    } catch (cause) {
+      this.error.set(
+        cause instanceof Error && !('status' in cause) ? cause.message : apiErrorMessage(cause),
+      );
+    } finally {
+      this.busy.set(false);
+    }
+  }
+
+  protected async activate(): Promise<void> {
+    const publicKey = this.config()?.publicKey;
+    if (publicKey === null || publicKey === undefined) return;
+    await this.run(async () => {
+      const subscription = await this.browser.subscribe(publicKey);
+      const body = subscriptionBody(subscription.toJSON(), suggestedName(this.browser.userAgent()));
+      if (body === null) throw new Error('El navegador no devolvió las claves de la suscripción.');
+      await this.service.subscribe(body);
+      this.here.set(subscription.endpoint);
+      await this.refreshList();
+      this.notice.set('Listo: este dispositivo recibe avisos. Probalo con el botón «Probar».');
+    });
+  }
+
+  protected async saveName(item: PushSubscriptionInfo): Promise<void> {
+    await this.run(async () => {
+      await this.service.rename(item.id, this.draft(item).trim());
+      await this.refreshList();
+    });
+  }
+
+  protected async test(item: PushSubscriptionInfo): Promise<void> {
+    await this.run(async () => {
+      const result = await this.service.test(item.id);
+      this.notice.set(testMessage(result));
+      await this.refreshList();
+    });
+  }
+
+  protected async remove(item: PushSubscriptionInfo): Promise<void> {
+    await this.run(async () => {
+      await this.service.remove(item.id);
+      if (item.endpoint === this.here()) {
+        await this.browser.unsubscribe().catch(() => undefined);
+        this.here.set(null);
+      }
+      await this.refreshList();
+    });
+  }
+}

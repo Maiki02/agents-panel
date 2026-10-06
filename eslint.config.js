@@ -39,6 +39,11 @@ export default defineConfig(
     extends: [angular.configs.templateRecommended, angular.configs.templateAccessibility],
   },
   {
+    // The service worker runs in a worker scope: it has `self` and `URL`, not the Node globals.
+    files: ['apps/web/public/push-sw.js'],
+    languageOptions: { globals: { self: 'readonly', URL: 'readonly' } },
+  },
+  {
     files: ['**/*.js', '**/*.mjs'],
     extends: [tseslint.configs.disableTypeChecked],
   },

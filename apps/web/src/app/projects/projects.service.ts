@@ -2,6 +2,8 @@ import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import type {
   KyroBranchResult,
+  KyroInitPushResult,
+  ModelSelection,
   Project,
   ProjectPermissions,
   PullResult,
@@ -20,6 +22,7 @@ export interface PatchProjectInput {
   displayName?: string | null;
   baseBranch?: string;
   setupCommand?: string | null;
+  validateCommand?: string | null;
 }
 
 /** `GET /api/projects/:id` and PATCH also offer a setup command while none is saved. */
@@ -56,6 +59,13 @@ export class ProjectsService {
     );
   }
 
+  /** Pushes the branch the init left behind (never forced); answers the link that opens its PR. */
+  pushKyroInit(id: number): Promise<KyroInitPushResult> {
+    return firstValueFrom(
+      this.http.post<KyroInitPushResult>(`/api/projects/${String(id)}/kyro-init/push`, {}),
+    );
+  }
+
   /** Destructive: needs the project's name typed by the user and a fresh TOTP code. */
   remove(id: number, name: string, code: string): Promise<{ cloneRemoved: boolean }> {
     return firstValueFrom(
@@ -78,6 +88,17 @@ export class ProjectsService {
   ): Promise<ProjectPermissions> {
     return firstValueFrom(
       this.http.put<ProjectPermissions>(`/api/projects/${String(id)}/permissions`, input),
+    );
+  }
+
+  models(id: number): Promise<ModelSelection> {
+    return firstValueFrom(this.http.get<ModelSelection>(`/api/projects/${String(id)}/models`));
+  }
+
+  /** The API refuses a provider or model outside the catalog (400) and leaves the project as it was. */
+  saveModels(id: number, models: ModelSelection): Promise<ModelSelection> {
+    return firstValueFrom(
+      this.http.put<ModelSelection>(`/api/projects/${String(id)}/models`, models),
     );
   }
 

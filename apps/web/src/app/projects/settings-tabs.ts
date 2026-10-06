@@ -9,6 +9,7 @@ export const SETTINGS_TABS: readonly TabItem[] = [
   { id: 'environment', label: 'Environment' },
   { id: 'repository', label: 'Repositorio' },
   { id: 'permissions', label: 'Permisos' },
+  { id: 'models', label: 'Modelos' },
 ];
 
 export function settingsTabPath(projectId: number, tab: string): string {
