@@ -97,7 +97,8 @@ export interface AutopilotInfo {
   maxSessionsPerSprint: number;
 }
 
-export type AutopilotAction = 'pause' | 'resume' | 'off' | 'accept_debt';
+/** `on` switches the pilot on in a scope or work that has none (or has it off). */
+export type AutopilotAction = 'on' | 'pause' | 'resume' | 'off' | 'accept_debt';
 
 /** One SDK session the panel opened for a chat, with the model that ran it. */
 export interface AgentSession {
@@ -139,6 +140,8 @@ export interface Project {
   hasKyro: boolean;
   /** Set when a ready project could not initialize Kyro (the project stays usable). */
   kyroWarning: string | null;
+  /** The Kyro init branch waits to be pushed and merged; null once the clone has Kyro or none exists. */
+  kyroInit?: KyroInitPending | null;
   /** Kyro's files in the base clone are modified (e.g. after an update): they need a commit. */
   kyroPendingCommit?: boolean;
   /** Models for new chats; the global defaults when the project has no configuration. */
@@ -269,6 +272,21 @@ export interface PullResult {
 }
 
 /** The branch POST /api/projects/:id/kyro-init leaves committed and unpushed. */
+/** The branch `Inicializar Kyro` left behind, read from the clone's refs (no network). */
+export interface KyroInitPending {
+  branch: string;
+  /** The branch is on `origin`: only the PR and the merge are left. */
+  pushed: boolean;
+  /** GitHub link that opens the PR of the branch; null for a project without a GitHub URL. */
+  prUrl: string | null;
+}
+
+/** Answer of `POST /api/projects/:id/kyro-init/push`. */
+export interface KyroInitPushResult {
+  branch: string;
+  prUrl: string | null;
+}
+
 export interface KyroBranchResult {
   branch: string;
   path: string;
@@ -422,3 +440,85 @@ export interface IdeaDocument {
 /** What the user decides about the plan of an idea (POST /api/chats/:id/idea). */
 export const IDEA_ACTIONS = ['approve_scope', 'approve_work', 'request_changes'] as const;
 export type IdeaAction = (typeof IDEA_ACTIONS)[number];
+
+/** Answer of `GET /api/push/config`: Web Push is off until the panel has VAPID keys. */
+export interface PushConfig {
+  enabled: boolean;
+  /** VAPID public key the browser subscribes with; null while disabled. */
+  publicKey: string | null;
+}
+
+/** A browser or phone that receives the panel's notifications (never exposes its keys). */
+export interface PushSubscriptionInfo {
+  id: number;
+  endpoint: string;
+  name: string;
+  userAgent: string | null;
+  createdAt: number;
+  lastSuccessAt: number | null;
+}
+
+/** What the browser sends to subscribe (`PushSubscription.toJSON()` plus a name). */
+export interface NewPushSubscription {
+  endpoint: string;
+  keys: { p256dh: string; auth: string };
+  name?: string;
+}
+
+/** Answer of `POST /api/push/subscriptions/:id/test`. */
+export interface PushTestResult {
+  sent: boolean;
+  /** The push service said the subscription is gone (404 or 410) and the panel dropped it. */
+  removed: boolean;
+  statusCode: number | null;
+}
+
+/**
+ * Who has to move in a state: the badge tone of the web and the push notifications of the API
+ * follow it, so both read the same classification.
+ */
+export type StateActor = 'working' | 'user' | 'ok' | 'waiting' | 'error';
+
+/** Spanish label and who has to move, for every state of the catalog (docs/estados.md). */
+export const WORKTREE_STATE_INFO: Record<WorktreeStateId, { label: string; who: StateActor }> = {
+  en_cola: { label: 'En cola', who: 'waiting' },
+  creando_worktree: { label: 'Creando worktree', who: 'working' },
+  instalando_dependencias: { label: 'Instalando dependencias', who: 'working' },
+  madurando_idea: { label: 'Madurando la idea', who: 'working' },
+  planificando: { label: 'Planificando', who: 'working' },
+  esperando_aclaracion: { label: 'Necesita una aclaración', who: 'user' },
+  esperando_aprobacion_plan: { label: 'Esperando aprobación del plan', who: 'user' },
+  escribiendo_codigo: { label: 'Escribiendo código', who: 'working' },
+  en_cola_build: { label: 'En cola para buildear', who: 'waiting' },
+  buildeando: { label: 'Buildeando', who: 'working' },
+  probando: { label: 'Probando', who: 'working' },
+  corrigiendo: { label: 'Corrigiendo', who: 'working' },
+  registrando_evidencia: { label: 'Registrando evidencia', who: 'working' },
+  revisando_tarea: { label: 'Revisando tarea', who: 'working' },
+  esperando_permiso: { label: 'Pide permiso', who: 'user' },
+  esperando_respuesta: { label: 'Esperando tu respuesta', who: 'user' },
+  qa: { label: 'QA en curso', who: 'working' },
+  cerrando_sprint: { label: 'Cerrando sprint', who: 'working' },
+  esperando_aprobacion_cierre: { label: 'Cierre de scope para aprobar', who: 'user' },
+  trayendo_dev: { label: 'Trayendo la base a la rama', who: 'working' },
+  resolviendo_conflictos: { label: 'Resolviendo conflictos', who: 'working' },
+  validando_post_merge: { label: 'Validando después del merge', who: 'working' },
+  abriendo_pr: { label: 'Abriendo la PR', who: 'working' },
+  en_cola_merge_raiz: { label: 'En cola para mergear la raíz', who: 'waiting' },
+  mergeando_raiz: { label: 'Mergeando la raíz', who: 'working' },
+  pr_lista: { label: 'PR lista para revisar', who: 'ok' },
+  pr_checks_fallidos: { label: 'Checks de la PR en rojo', who: 'user' },
+  pr_cambios_pedidos: { label: 'Cambios pedidos en la PR', who: 'working' },
+  mergeada: { label: 'Mergeada', who: 'ok' },
+  limpiando: { label: 'Borrando worktree', who: 'working' },
+  archivado: { label: 'Archivado', who: 'waiting' },
+  pausado: { label: 'Pausado', who: 'user' },
+  sin_cupo_de_uso: { label: 'Esperando cupo de la suscripción', who: 'waiting' },
+  interrumpido: { label: 'Interrumpido', who: 'user' },
+  bloqueado: { label: 'Bloqueado', who: 'user' },
+  revisar: { label: 'Revisar a mano', who: 'user' },
+  error: { label: 'Error', who: 'error' },
+  cancelado: { label: 'Cancelado', who: 'waiting' },
+  cerrando: { label: 'Cerrando', who: 'working' },
+  terminado: { label: 'Terminado', who: 'ok' },
+};
