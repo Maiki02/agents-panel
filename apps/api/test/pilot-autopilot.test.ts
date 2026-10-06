@@ -77,7 +77,14 @@ class FakeKyro implements PilotKyro {
   capabilities(): Promise<KyroReadResult<string[]>> {
     return Promise.resolve({ ok: true, state: this.capabilities_ });
   }
-  contextPackTask(): Promise<KyroReadResult<KyroTaskContext>> {
+  /** The task id each context-pack asked for (null: no --task). */
+  packTasks: (string | null | undefined)[] = [];
+  contextPackTask(
+    _cwd: string,
+    _scope: string,
+    taskId?: string | null,
+  ): Promise<KyroReadResult<KyroTaskContext>> {
+    this.packTasks.push(taskId);
     return Promise.resolve({
       ok: true,
       state: {
@@ -420,6 +427,8 @@ describe('Autopilot over a 2-sprint scope (S7)', () => {
       ]),
     );
     expect(t.kyro.analyzeCalls).toBe(2);
+    // Plan and close have no next task: asking `--task` there makes Kyro fail ("No next task").
+    expect(t.kyro.packTasks).toEqual([null, 'T1.1', null, null, 'T2.1', null]);
     expect(t.runs.get(t.chat.id)).toMatchObject({ status: 'finished' });
     expect(t.states.get(t.chat.id)?.state).toBe('pr_lista');
     expect(t.kyro.completed).toEqual(['scope demo']);

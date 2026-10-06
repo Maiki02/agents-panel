@@ -366,7 +366,8 @@ export function buildApp(deps: AppDeps, options: FastifyServerOptions = {}): Fas
       ...(deps.branchPrs ? { prsOf: deps.branchPrs } : {}),
     }),
     onResume: (chatId) => {
-      pilot.kick(chatId);
+      // The user resumed or switched it on: a task Kyro holds as blocked is unblocked once.
+      pilot.resumeByUser(chatId);
     },
     debt: new DebtAcceptance({
       service: chatService,
