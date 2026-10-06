@@ -1,0 +1,605 @@
+{
+  "schemaVersion": 1,
+  "kind": "organic-work",
+  "id": "pr-y-deploy",
+  "title": "PR de works terminados y despliegue del panel desde la web",
+  "objective": "Un work terminado muestra el link de su PR en la web aunque la haya abierto el agente, y agents-panel se despliega desde la pantalla Versiones con un botón, sin entrar a la VM.",
+  "brief": {
+    "path": "brief.md",
+    "digest": "7e4097638f3b76b6270ef8db714c43dc53f02e465956f84dde0dbf8fb75c06ac",
+    "sourceIdea": null
+  },
+  "state": "closed",
+  "revision": 18,
+  "createdAt": "2026-10-06T18:26:30.394Z",
+  "updatedAt": "2026-10-06T18:43:23.903Z",
+  "handoff": {
+    "nextAction": "done",
+    "nextTaskId": null,
+    "blockedReason": null
+  },
+  "tasks": [
+    {
+      "id": "W1",
+      "title": "API: PR de un work terminado buscada en GitHub",
+      "description": "Ruta GET /api/chats/:id/pr que devuelve { urls }: las PR guardadas por el piloto o, si no hay y el work está en terminado o pr_lista, las de la rama con gh pr list --head <rama> --state all (worktree o repo del proyecto). Si encuentra y hay corrida del piloto, las guarda en pr_urls. PilotGh suma prsOf (todas las PR de la rama, cualquier estado).",
+      "context": "Caso real: chat 5 terminó por Kyro done antes del fix f51e19a; el agente abrió Maiki02/agents-panel#1 retomado con un mensaje y pr_urls quedó vacío. La señal es gh, nunca el texto del agente.",
+      "filesToTouch": [
+        "apps/api/src/pilot/github-cli.ts",
+        "apps/api/src/pilot/routes.ts",
+        "apps/api/src/pilot/pr-lookup.ts",
+        "apps/api/src/app.ts",
+        "apps/api/test/pr-lookup.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "Con pr_urls guardadas devuelve esas sin llamar a gh",
+        "En terminado sin pr_urls llama a gh con la rama y --state all y guarda lo encontrado en la corrida del piloto",
+        "En otro estado (por ejemplo ejecutando) no llama a gh y devuelve la lista vacía",
+        "Si gh falla devuelve la lista vacía, sin error 500",
+        "La ruta exige sesión"
+      ],
+      "dependsOn": [],
+      "definitionRevision": 1,
+      "status": "verified",
+      "blocker": null,
+      "evidence": {
+        "summary": "GET /api/chats/:id/pr devuelve las PR guardadas por el piloto o, si no hay y el work está en terminado o pr_lista, las de la rama según gh pr list --head <rama> --state all (en el worktree o, si ya no existe, en el clon del proyecto); lo encontrado se guarda en pr_urls cuando hay corrida del piloto. PrLookup con BranchPrs inyectable (allPrsOf en github-cli). Además se quitó código muerto de autopilot.ts (f51e19a) que rompía el lint: la condición run.phase !== 'merge' siempre era verdadera.",
+        "validations": [
+          {
+            "command": "npx vitest run test/pr-lookup.test.ts",
+            "result": "passed",
+            "note": "6 tests: guardadas sin gh, búsqueda y guardado en terminado, clon del proyecto sin worktree y sin corrida, sin búsqueda en otro estado, gh que falla, sesión"
+          },
+          {
+            "command": "npx vitest run (apps/api)",
+            "result": "passed",
+            "note": "62 archivos, 1074 tests"
+          },
+          {
+            "command": "npx tsc --noEmit + npx eslint apps/api + prettier --check",
+            "result": "passed",
+            "note": "limpios"
+          }
+        ],
+        "filesChanged": [
+          "apps/api/src/pilot/github-cli.ts",
+          "apps/api/src/pilot/pr-lookup.ts",
+          "apps/api/src/pilot/routes.ts",
+          "apps/api/src/pilot/autopilot.ts",
+          "apps/api/src/app.ts",
+          "apps/api/test/helpers.ts",
+          "apps/api/test/pr-lookup.test.ts"
+        ],
+        "notes": null,
+        "by": "claude-maker",
+        "recordedAt": "2026-10-06T18:32:35.309Z",
+        "definitionRevision": 1,
+        "materialDigest": "84b64af5a698d43e099f510c2278b7d1e4aaeab6ad8f6b6988707d62614f2b93"
+      },
+      "verdict": {
+        "result": "pass",
+        "checkedCriteria": [
+          "Con pr_urls guardadas devuelve esas sin llamar a gh",
+          "En terminado sin pr_urls llama a gh con la rama y --state all y guarda lo encontrado en la corrida del piloto",
+          "En otro estado (por ejemplo ejecutando) no llama a gh y devuelve la lista vacía",
+          "Si gh falla devuelve la lista vacía, sin error 500",
+          "La ruta exige sesión"
+        ],
+        "findings": [
+          {
+            "severity": "suggestion",
+            "detail": "--state all también devuelve PR cerradas sin mergear; se muestran igual (son de la rama del work)."
+          },
+          {
+            "severity": "suggestion",
+            "detail": "Sin corrida del piloto la búsqueda se repite en cada visita (no hay dónde guardarla); es una llamada a gh por apertura del chat."
+          }
+        ],
+        "by": "claude-checker",
+        "reviewedAt": "2026-10-06T18:32:41.243Z",
+        "definitionRevision": 1,
+        "evidenceDigest": "0ea904d4ab9da12e8a293d678ac114804babff0d0df8c337d77654ac44438e5f",
+        "reviewedMaterialDigest": "84b64af5a698d43e099f510c2278b7d1e4aaeab6ad8f6b6988707d62614f2b93"
+      },
+      "disposition": null
+    },
+    {
+      "id": "W2",
+      "title": "Web: tarjeta de la PR en works terminados",
+      "description": "El chat pide GET /api/chats/:id/pr al entrar (y al cambiar de estado) cuando el work está en terminado o pr_lista, y muestra la tarjeta de la PR en pr_lista siempre y en terminado solo si hay URLs.",
+      "context": "approvalCard devuelve 'pr' solo para pr_lista; la tarjeta lee hoy run.prUrls de /autopilot.",
+      "filesToTouch": [
+        "apps/web/src/app/chats/chat.page.ts",
+        "apps/web/src/app/chats/chats.service.ts",
+        "apps/web/src/app/chats/approval-logic.ts",
+        "apps/web/src/app/chats/approval-logic.spec.ts"
+      ],
+      "acceptanceCriteria": [
+        "Un work terminado con PR encontrada muestra la tarjeta con el link",
+        "Un work terminado sin PR no muestra tarjeta",
+        "pr_lista sigue mostrando la tarjeta como antes"
+      ],
+      "dependsOn": [
+        "W1"
+      ],
+      "definitionRevision": 1,
+      "status": "verified",
+      "blocker": null,
+      "evidence": {
+        "summary": "approvalCard devuelve 'pr' también en terminado para scope y work; showPrCard muestra la tarjeta siempre en pr_lista y en terminado solo con URLs. El chat pide GET /api/chats/:id/pr (ChatsService.prs) al entrar y cuando cambia el estado, en lugar de leer run.prUrls de /autopilot.",
+        "validations": [
+          {
+            "command": "npx vitest run (apps/web)",
+            "result": "passed",
+            "note": "28 archivos, 261 tests; approval-logic.spec suma terminado y showPrCard"
+          },
+          {
+            "command": "npm run typecheck (apps/web) + eslint apps/web/src/app/chats + prettier",
+            "result": "passed",
+            "note": "limpios"
+          },
+          {
+            "command": "allPrsOf('/home/ubuntu/wt/agents-panel/refactor-ui', 'feature/refactor-ui') con gh real",
+            "result": "passed",
+            "note": "devuelve https://github.com/Maiki02/agents-panel/pull/1, la PR del chat 5"
+          }
+        ],
+        "filesChanged": [
+          "apps/web/src/app/chats/approval-logic.ts",
+          "apps/web/src/app/chats/approval-logic.spec.ts",
+          "apps/web/src/app/chats/chats.service.ts",
+          "apps/web/src/app/chats/chat.page.ts"
+        ],
+        "notes": "La prueba de punta a punta en el navegador queda para después del deploy (el servicio corre el build anterior).",
+        "by": "claude-maker",
+        "recordedAt": "2026-10-06T18:33:42.050Z",
+        "definitionRevision": 1,
+        "materialDigest": "9b856ad972f275421feb16f29eb2e7c9f42ad838319b9cd2b98efe5791e55b22"
+      },
+      "verdict": {
+        "result": "pass",
+        "checkedCriteria": [
+          "Un work terminado con PR encontrada muestra la tarjeta con el link",
+          "Un work terminado sin PR no muestra tarjeta",
+          "pr_lista sigue mostrando la tarjeta como antes"
+        ],
+        "findings": [
+          {
+            "severity": "suggestion",
+            "detail": "El título de la tarjeta dice 'La PR está lista para revisar' también si la PR encontrada ya se mergeó."
+          }
+        ],
+        "by": "claude-checker",
+        "reviewedAt": "2026-10-06T18:33:42.273Z",
+        "definitionRevision": 1,
+        "evidenceDigest": "ec004ec7926f2fba6849962259f830fa7225bd5c41d18e4979cd2143ec20a547",
+        "reviewedMaterialDigest": "9b856ad972f275421feb16f29eb2e7c9f42ad838319b9cd2b98efe5791e55b22"
+      },
+      "disposition": null
+    },
+    {
+      "id": "W3",
+      "title": "Script 12-panel-deploy.sh y su paso en el runbook",
+      "description": "scripts/vm/12-panel-deploy.sh [<repo>]: se niega fuera de main o con cambios; fetch + merge --ff-only origin/main; npm ci solo si cambió package-lock.json; npm run build; si el build falla vuelve al commit anterior y recompila; imprime DEPLOY_FROM, DEPLOY_TO y DEPLOY_RESTART=yes|no. Paso nuevo en docs/vm-setup.md, bitácora y excepción en CLAUDE.md para los deploys del botón.",
+      "context": "El servicio agents-panel corre dist/main.js con NoNewPrivileges y Restart=on-failure: no puede usar sudo, pero systemd lo relanza si sale con error.",
+      "filesToTouch": [
+        "scripts/vm/12-panel-deploy.sh",
+        "docs/vm-setup.md",
+        "CLAUDE.md"
+      ],
+      "acceptanceCriteria": [
+        "Con el repo al día termina en DEPLOY_RESTART=no sin compilar",
+        "Con cambios locales o fuera de main sale con error sin tocar nada",
+        "Con commits nuevos hace ff, compila e imprime DEPLOY_RESTART=yes",
+        "bash -n y shellcheck (si está) pasan; LF y set -euo pipefail",
+        "docs/vm-setup.md documenta el paso, cómo se verifica y suma la línea a la bitácora"
+      ],
+      "dependsOn": [],
+      "definitionRevision": 1,
+      "status": "verified",
+      "blocker": null,
+      "evidence": {
+        "summary": "scripts/vm/12-panel-deploy.sh (LF, set -euo pipefail, ejecutable): se niega fuera de main, con cambios locales o con commits locales que origin/main no tiene; fetch + merge --ff-only; npm ci solo si cambió package-lock.json; npm run build; si el build falla hace reset --hard al commit anterior y recompila. Emite DEPLOY_FROM, DEPLOY_TO y DEPLOY_RESTART. Paso 18 en docs/vm-setup.md (qué hace, reinicio con código 75 y Restart=on-failure, cuándo se rechaza, registro, riesgo, costo, verificación), nota en el paso 16, línea de bitácora y excepción en CLAUDE.md para los deploys del botón.",
+        "validations": [
+          {
+            "command": "npx vitest run test/panel-deploy-script.test.ts",
+            "result": "passed",
+            "note": "6 tests con origin bare local y npm falso: al día sin compilar e idempotente, fast-forward + build, npm ci solo con lock nuevo, rechazo con cambios locales y fuera de main, rechazo con commits locales, vuelta atrás si el build falla"
+          },
+          {
+            "command": "bash -n scripts/vm/12-panel-deploy.sh + file (LF)",
+            "result": "passed",
+            "note": "shellcheck no está instalado en la VM"
+          },
+          {
+            "command": "npx eslint + prettier del test",
+            "result": "passed",
+            "note": "limpios"
+          }
+        ],
+        "filesChanged": [
+          "scripts/vm/12-panel-deploy.sh",
+          "apps/api/test/panel-deploy-script.test.ts",
+          "docs/vm-setup.md",
+          "CLAUDE.md"
+        ],
+        "notes": "Todavía no se corrió en la VM real: el primer deploy será al mergear este work.",
+        "by": "claude-maker",
+        "recordedAt": "2026-10-06T18:35:31.890Z",
+        "definitionRevision": 1,
+        "materialDigest": "fde718d1f064a0fe360058269d2c5a23d7f5868bcac6157ef7be907608f7a287"
+      },
+      "verdict": {
+        "result": "pass",
+        "checkedCriteria": [
+          "Con el repo al día termina en DEPLOY_RESTART=no sin compilar",
+          "Con cambios locales o fuera de main sale con error sin tocar nada",
+          "Con commits nuevos hace ff, compila e imprime DEPLOY_RESTART=yes",
+          "bash -n y shellcheck (si está) pasan; LF y set -euo pipefail",
+          "docs/vm-setup.md documenta el paso, cómo se verifica y suma la línea a la bitácora"
+        ],
+        "findings": [
+          {
+            "severity": "suggestion",
+            "detail": "npm ci reemplaza node_modules mientras la API vieja sigue corriendo; las sesiones están bloqueadas durante el deploy, pero un import perezoso en ese lapso podría fallar hasta el reinicio."
+          },
+          {
+            "severity": "suggestion",
+            "detail": "Cualquier archivo sin seguimiento en el repo (por ejemplo un brief suelto) bloquea el deploy; es intencional, el mensaje lista los archivos."
+          }
+        ],
+        "by": "claude-checker",
+        "reviewedAt": "2026-10-06T18:35:32.120Z",
+        "definitionRevision": 1,
+        "evidenceDigest": "55891a2ddad6d5d0cbf72cdfbc749bf071ab0ae36d4e2a584b9a57a57fc7271a",
+        "reviewedMaterialDigest": "fde718d1f064a0fe360058269d2c5a23d7f5868bcac6157ef7be907608f7a287"
+      },
+      "disposition": null
+    },
+    {
+      "id": "W4",
+      "title": "API: despliegue del panel desde la web",
+      "description": "PanelDeployer: con TOTP fresco, bloquea sesiones nuevas (tryBeginMaintenance), rechaza con pilotos en fase de merge, corre el script, guarda la corrida en maintenance_runs con kind panel-deploy y commits, y si pidió reinicio cierra la API y sale con código distinto de cero para que systemd la relance. Solo disponible con INVOCATION_ID (systemd). POST /api/versions/panel/deploy y GET /api/versions con panel { commit, behind, deployRunning, available, reason }.",
+      "context": "Mismo patrón que KyroUpdater y registerMaintenanceRoutes. maintenance_runs.kind es texto libre: no hace falta migración.",
+      "filesToTouch": [
+        "apps/api/src/maintenance/deployer.ts",
+        "apps/api/src/maintenance/panel-info.ts",
+        "apps/api/src/maintenance/routes.ts",
+        "apps/api/src/maintenance/runs.ts",
+        "apps/api/src/config.ts",
+        "apps/api/src/app.ts",
+        "packages/shared/src/index.ts",
+        "apps/api/test/panel-deploy.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "Sin TOTP válido responde 401 y no corre nada",
+        "Con sesiones corriendo, otra mantención o un piloto en merge responde 409",
+        "Fuera de systemd responde 409 con el motivo",
+        "Una corrida exitosa queda ok con from/to y llama al reinicio solo si DEPLOY_RESTART=yes",
+        "Una corrida fallida queda en error con la salida y no reinicia",
+        "GET /api/versions informa commit, commits sin desplegar y disponibilidad"
+      ],
+      "dependsOn": [
+        "W3"
+      ],
+      "definitionRevision": 1,
+      "status": "verified",
+      "blocker": null,
+      "evidence": {
+        "summary": "PanelDeployer (maintenance/deployer.ts): con TOTP fresco, rechaza (409) fuera de systemd (INVOCATION_ID), con pilotos activos en fase merge, con sesiones corriendo u otra mantención; bloquea sesiones nuevas con el candado de mantención, corre 12-panel-deploy.sh en segundo plano y guarda la corrida en maintenance_runs (kind panel-deploy, commit anterior y DEPLOY_TO). Si el script pidió reinicio, deja las sesiones bloqueadas y llama a restart (app.close + process.exit(75), systemd la relanza con Restart=on-failure). GET /api/versions suma panel { commit (leído al arrancar), behind (git fetch + rev-list, cacheado 60 s), deployRunning, unavailableReason }. POST /api/versions/panel/deploy. Config: panelRepo, panelDeployScript (PANEL_DEPLOY_SCRIPT), selfDeploy. Shared: MaintenanceKind y PanelDeployInfo. updateRunning de Kyro no se prende durante un deploy.",
+        "validations": [
+          {
+            "command": "npx vitest run test/panel-deploy.test.ts test/maintenance-routes.test.ts",
+            "result": "passed",
+            "note": "22 tests: commit y commits sin desplegar con fetch cacheado, motivo fuera de systemd, 401 sin TOTP, corrida ok con from/to y reinicio, sin reinicio si estaba al día, error sin reinicio, 409 fuera de systemd, 409 con piloto en merge, 409 con otro deploy en curso"
+          },
+          {
+            "command": "npx vitest run (apps/api)",
+            "result": "passed",
+            "note": "64 archivos, 1089 tests; cli.test.ts suma la ruta de escritura nueva"
+          },
+          {
+            "command": "tsc --noEmit + eslint apps/api packages/shared + prettier",
+            "result": "passed",
+            "note": "limpios"
+          }
+        ],
+        "filesChanged": [
+          "apps/api/src/maintenance/deployer.ts",
+          "apps/api/src/maintenance/routes.ts",
+          "apps/api/src/maintenance/runs.ts",
+          "apps/api/src/config.ts",
+          "apps/api/src/app.ts",
+          "packages/shared/src/index.ts",
+          "apps/api/test/panel-deploy.test.ts",
+          "apps/api/test/maintenance-routes.test.ts",
+          "apps/api/test/helpers.ts",
+          "apps/api/test/cli.test.ts"
+        ],
+        "notes": "El reinicio real (exit 75 y systemd) se verifica en el primer deploy en la VM.",
+        "by": "claude-maker",
+        "recordedAt": "2026-10-06T18:40:30.437Z",
+        "definitionRevision": 1,
+        "materialDigest": "143afc19e4169b654ee1179082965519f8140581fe5e8fe6eacfa1b40d35eb8b"
+      },
+      "verdict": {
+        "result": "pass",
+        "checkedCriteria": [
+          "Sin TOTP válido responde 401 y no corre nada",
+          "Con sesiones corriendo, otra mantención o un piloto en merge responde 409",
+          "Fuera de systemd responde 409 con el motivo",
+          "Una corrida exitosa queda ok con from/to y llama al reinicio solo si DEPLOY_RESTART=yes",
+          "Una corrida fallida queda en error con la salida y no reinicia",
+          "GET /api/versions informa commit, commits sin desplegar y disponibilidad"
+        ],
+        "findings": [
+          {
+            "severity": "suggestion",
+            "detail": "El 409 por sesiones corriendo se apoya en tryBeginMaintenance, ya cubierto por los tests de la actualización de Kyro; no hay test propio del deploy con una sesión corriendo."
+          },
+          {
+            "severity": "suggestion",
+            "detail": "Un piloto que entra en fase merge después del chequeo no queda frenado; si el reinicio lo corta, retoma la fase al arrancar (la fase está guardada)."
+          }
+        ],
+        "by": "claude-checker",
+        "reviewedAt": "2026-10-06T18:40:30.665Z",
+        "definitionRevision": 1,
+        "evidenceDigest": "2c18475d8f4982529efe7b6d90c5fe178df4c4148db1b69d0b00fba934a09479",
+        "reviewedMaterialDigest": "143afc19e4169b654ee1179082965519f8140581fe5e8fe6eacfa1b40d35eb8b"
+      },
+      "disposition": null
+    },
+    {
+      "id": "W5",
+      "title": "Web: tarjeta Panel con botón Desplegar",
+      "description": "En Versiones, tarjeta Panel con el commit corriendo, commits sin desplegar y botón Desplegar con TOTP (deshabilitado con el motivo si no está disponible). Tras desplegar consulta hasta que el servidor vuelve con otro commit y avisa que hay que refrescar. El Historial etiqueta cada corrida como Kyro o Panel.",
+      "context": "VersionsPage ya tiene el modal de TOTP, el historial y el polling.",
+      "filesToTouch": [
+        "apps/web/src/app/versions/versions.page.ts",
+        "apps/web/src/app/versions/versions.service.ts",
+        "apps/web/src/app/versions/version-label.ts",
+        "apps/web/src/app/versions/versions.spec.ts"
+      ],
+      "acceptanceCriteria": [
+        "Se ve el commit y cuántos commits faltan desplegar",
+        "El botón pide TOTP y llama a la ruta de deploy",
+        "Con deploy no disponible el botón está deshabilitado con el motivo",
+        "El historial distingue corridas de Kyro y del panel"
+      ],
+      "dependsOn": [
+        "W4"
+      ],
+      "definitionRevision": 1,
+      "status": "verified",
+      "blocker": null,
+      "evidence": {
+        "summary": "Versiones suma la tarjeta Panel: commit corriendo, commits de main sin desplegar (behindLabel), motivo si no está disponible y el icono Desplegar con modal TOTP (deshabilitado sin commit conocido, fuera de systemd, con una mantención en curso o siguiendo un deploy). Tras el 202 la página consulta cada 3 s y tolera que el servidor no responda; deployPhase decide running/restarting/done/finished y en done ofrece refrescar. El historial etiqueta cada corrida como Kyro o Panel (runLabel con kind). VersionsService.deploy. Docs: plan.md (deploy y PR de work terminado) y panel-desarrollo.md.",
+        "validations": [
+          {
+            "command": "npx vitest run (apps/web)",
+            "result": "passed",
+            "note": "28 archivos, 266 tests; versions.spec suma runLabel por tipo, behindLabel y deployPhase"
+          },
+          {
+            "command": "ng build a una carpeta temporal (no se tocó el dist que sirve el servicio)",
+            "result": "passed",
+            "note": "plantillas compilan"
+          },
+          {
+            "command": "npm run lint + prettier --check . + npm run typecheck (raíz)",
+            "result": "passed",
+            "note": "limpios"
+          }
+        ],
+        "filesChanged": [
+          "apps/web/src/app/versions/versions.page.ts",
+          "apps/web/src/app/versions/versions.service.ts",
+          "apps/web/src/app/versions/version-label.ts",
+          "apps/web/src/app/versions/versions.spec.ts",
+          "docs/plan.md",
+          "docs/panel-desarrollo.md"
+        ],
+        "notes": "Sin prueba en el navegador: el servicio corre el build anterior; se prueba con el primer deploy.",
+        "by": "claude-maker",
+        "recordedAt": "2026-10-06T18:43:21.240Z",
+        "definitionRevision": 1,
+        "materialDigest": "00fcf055a36c62d68db174f2b5d4461911cfd2ba86b7868613b54ca9c56688e9"
+      },
+      "verdict": {
+        "result": "pass",
+        "checkedCriteria": [
+          "Se ve el commit y cuántos commits faltan desplegar",
+          "El botón pide TOTP y llama a la ruta de deploy",
+          "Con deploy no disponible el botón está deshabilitado con el motivo",
+          "El historial distingue corridas de Kyro y del panel"
+        ],
+        "findings": [
+          {
+            "severity": "suggestion",
+            "detail": "El seguimiento del reinicio vive en la página: si se navega a otra pantalla durante el deploy, al volver solo se ve el resultado en el historial y el commit nuevo."
+          }
+        ],
+        "by": "claude-checker",
+        "reviewedAt": "2026-10-06T18:43:21.471Z",
+        "definitionRevision": 1,
+        "evidenceDigest": "a3dc93b630a2042526e0efa2b633a85ed4ec5e239cc6f72cf4cf41a98fc69c40",
+        "reviewedMaterialDigest": "00fcf055a36c62d68db174f2b5d4461911cfd2ba86b7868613b54ca9c56688e9"
+      },
+      "disposition": null
+    }
+  ],
+  "activity": [
+    {
+      "seq": 1,
+      "at": "2026-10-06T18:26:30.394Z",
+      "event": "created",
+      "taskId": null,
+      "by": "claude",
+      "reason": "Created through the Work CLI.",
+      "revision": 1
+    },
+    {
+      "seq": 2,
+      "at": "2026-10-06T18:27:02.299Z",
+      "event": "tasks_planned",
+      "taskId": null,
+      "by": "claude",
+      "reason": "Planned 5 Work tasks.",
+      "revision": 2
+    },
+    {
+      "seq": 3,
+      "at": "2026-10-06T18:27:02.521Z",
+      "event": "task_started",
+      "taskId": "W1",
+      "by": "claude",
+      "reason": "Task started through the Work CLI.",
+      "revision": 3
+    },
+    {
+      "seq": 4,
+      "at": "2026-10-06T18:32:35.309Z",
+      "event": "evidence_recorded",
+      "taskId": "W1",
+      "by": "claude-maker",
+      "reason": "Evidence recorded with 3 validation results.",
+      "revision": 4
+    },
+    {
+      "seq": 5,
+      "at": "2026-10-06T18:32:41.243Z",
+      "event": "review_recorded",
+      "taskId": "W1",
+      "by": "claude-checker",
+      "reason": "Task review recorded with pass.",
+      "revision": 5
+    },
+    {
+      "seq": 6,
+      "at": "2026-10-06T18:32:44.637Z",
+      "event": "task_started",
+      "taskId": "W2",
+      "by": "claude",
+      "reason": "Task started through the Work CLI.",
+      "revision": 6
+    },
+    {
+      "seq": 7,
+      "at": "2026-10-06T18:33:42.050Z",
+      "event": "evidence_recorded",
+      "taskId": "W2",
+      "by": "claude-maker",
+      "reason": "Evidence recorded with 3 validation results.",
+      "revision": 7
+    },
+    {
+      "seq": 8,
+      "at": "2026-10-06T18:33:42.273Z",
+      "event": "review_recorded",
+      "taskId": "W2",
+      "by": "claude-checker",
+      "reason": "Task review recorded with pass.",
+      "revision": 8
+    },
+    {
+      "seq": 9,
+      "at": "2026-10-06T18:33:42.504Z",
+      "event": "task_started",
+      "taskId": "W3",
+      "by": "claude",
+      "reason": "Task started through the Work CLI.",
+      "revision": 9
+    },
+    {
+      "seq": 10,
+      "at": "2026-10-06T18:35:31.890Z",
+      "event": "evidence_recorded",
+      "taskId": "W3",
+      "by": "claude-maker",
+      "reason": "Evidence recorded with 3 validation results.",
+      "revision": 10
+    },
+    {
+      "seq": 11,
+      "at": "2026-10-06T18:35:32.120Z",
+      "event": "review_recorded",
+      "taskId": "W3",
+      "by": "claude-checker",
+      "reason": "Task review recorded with pass.",
+      "revision": 11
+    },
+    {
+      "seq": 12,
+      "at": "2026-10-06T18:35:32.363Z",
+      "event": "task_started",
+      "taskId": "W4",
+      "by": "claude",
+      "reason": "Task started through the Work CLI.",
+      "revision": 12
+    },
+    {
+      "seq": 13,
+      "at": "2026-10-06T18:40:30.437Z",
+      "event": "evidence_recorded",
+      "taskId": "W4",
+      "by": "claude-maker",
+      "reason": "Evidence recorded with 3 validation results.",
+      "revision": 13
+    },
+    {
+      "seq": 14,
+      "at": "2026-10-06T18:40:30.665Z",
+      "event": "review_recorded",
+      "taskId": "W4",
+      "by": "claude-checker",
+      "reason": "Task review recorded with pass.",
+      "revision": 14
+    },
+    {
+      "seq": 15,
+      "at": "2026-10-06T18:40:30.891Z",
+      "event": "task_started",
+      "taskId": "W5",
+      "by": "claude",
+      "reason": "Task started through the Work CLI.",
+      "revision": 15
+    },
+    {
+      "seq": 16,
+      "at": "2026-10-06T18:43:21.240Z",
+      "event": "evidence_recorded",
+      "taskId": "W5",
+      "by": "claude-maker",
+      "reason": "Evidence recorded with 3 validation results.",
+      "revision": 16
+    },
+    {
+      "seq": 17,
+      "at": "2026-10-06T18:43:21.471Z",
+      "event": "review_recorded",
+      "taskId": "W5",
+      "by": "claude-checker",
+      "reason": "Task review recorded with pass.",
+      "revision": 17
+    },
+    {
+      "seq": 18,
+      "at": "2026-10-06T18:43:23.903Z",
+      "event": "work_closed",
+      "taskId": null,
+      "by": "claude",
+      "reason": "Las cinco tareas verificadas",
+      "revision": 18
+    }
+  ],
+  "closure": {
+    "outcome": "completed",
+    "reason": "Las cinco tareas verificadas",
+    "by": "claude",
+    "closedAt": "2026-10-06T18:43:23.903Z",
+    "briefDigest": "7e4097638f3b76b6270ef8db714c43dc53f02e465956f84dde0dbf8fb75c06ac",
+    "finalRevision": 18
+  },
+  "promotion": null
+}
