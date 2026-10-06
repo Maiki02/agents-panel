@@ -1,0 +1,253 @@
+{
+  "schemaVersion": 1,
+  "kind": "organic-work",
+  "id": "piloto-reanudar",
+  "title": "Reanudar el piloto desbloquea y sigue",
+  "objective": "Al apretar Reanudar, un work o scope frenado vuelve a ejecutarse solo en lugar de quedar bloqueado otra vez.",
+  "brief": {
+    "path": "brief.md",
+    "digest": "aef787d0506a2c361d4fb443a66ef464fd7bd93842de742e2d337235078d099b",
+    "sourceIdea": null
+  },
+  "state": "closed",
+  "revision": 9,
+  "createdAt": "2026-10-06T19:30:21.970Z",
+  "updatedAt": "2026-10-06T19:35:39.938Z",
+  "handoff": {
+    "nextAction": "done",
+    "nextTaskId": null,
+    "blockedReason": null
+  },
+  "tasks": [
+    {
+      "id": "W1",
+      "title": "context-pack de scope sin --task cuando no hay próxima tarea",
+      "description": "contextPackTask recibe el nextTaskId; pasa --task <id> solo si hay, y sin tarea pide el context-pack del scope sin --task.",
+      "context": "Kyro 6.1.0: --task sin id falla con 'No next task in handoff' en qa_or_close.",
+      "filesToTouch": [
+        "apps/api/src/kyro/reader.ts",
+        "apps/api/src/pilot/autopilot.ts",
+        "apps/api/test/pilot-autopilot.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "En qa_or_close el piloto abre la sesión de cierre sin pedir --task",
+        "Con próxima tarea pasa --task <id>"
+      ],
+      "dependsOn": [],
+      "definitionRevision": 1,
+      "status": "verified",
+      "blocker": null,
+      "evidence": {
+        "summary": "KyroReader.contextPackTask recibe el nextTaskId y pasa --task <id> solo si hay; sin tarea (plan, cierre, fix) pide el context-pack del scope sin --task. El piloto le pasa state.nextTaskId.",
+        "validations": [
+          {
+            "command": "npx vitest run test/kyro-reader.test.ts test/pilot-autopilot.test.ts",
+            "result": "passed",
+            "note": "argv con y sin --task; el scope de 2 sprints pide [null, T1.1, null, null, T2.1, null]"
+          },
+          {
+            "command": "contextPackTask real en /home/ubuntu/wt/agents-panel/operaciones-worktree con null",
+            "result": "passed",
+            "note": "ok: qa_or_close, sin tarea, sprint repos-y-git-por-trabajo (antes: No next task in handoff)"
+          }
+        ],
+        "filesChanged": [
+          "apps/api/src/kyro/reader.ts",
+          "apps/api/src/pilot/autopilot.ts",
+          "apps/api/test/kyro-reader.test.ts",
+          "apps/api/test/pilot-autopilot.test.ts"
+        ],
+        "notes": null,
+        "by": "claude-maker",
+        "recordedAt": "2026-10-06T19:31:25.534Z",
+        "definitionRevision": 1,
+        "materialDigest": "cd63928263ab16030f4f52294c50553d71ecec693807d5bc5aba3ccdde7a95b9"
+      },
+      "verdict": {
+        "result": "pass",
+        "checkedCriteria": [
+          "En qa_or_close el piloto abre la sesión de cierre sin pedir --task",
+          "Con próxima tarea pasa --task <id>"
+        ],
+        "findings": [],
+        "by": "claude-checker",
+        "reviewedAt": "2026-10-06T19:31:25.759Z",
+        "definitionRevision": 1,
+        "evidenceDigest": "032f44208dc9394322f9456430b4e5a7c38b64e44aabe27b8be321c5d566ed81",
+        "reviewedMaterialDigest": "cd63928263ab16030f4f52294c50553d71ecec693807d5bc5aba3ccdde7a95b9"
+      },
+      "disposition": null
+    },
+    {
+      "id": "W2",
+      "title": "Reanudar desbloquea la tarea de un work",
+      "description": "Reanudar o encender marcan el chat; en la primera decisión, si el work está en resolve_blocker, el piloto corre kyro work unblock, lo anota en el Timeline y ejecuta con el motivo anterior en el prompt. Sin la marca frena como antes.",
+      "context": "Chat 4, W7 bloqueada por el agente.",
+      "filesToTouch": [
+        "apps/api/src/kyro/reader.ts",
+        "apps/api/src/pilot/autopilot.ts",
+        "apps/api/src/pilot/prompts.ts",
+        "apps/api/src/app.ts",
+        "apps/api/test/pilot-autopilot.test.ts",
+        "docs/plan.md"
+      ],
+      "acceptanceCriteria": [
+        "Tras Reanudar con una tarea bloqueada, el piloto la desbloquea y abre la sesión de ejecución",
+        "El prompt incluye el motivo del bloqueo anterior",
+        "Si el agente la vuelve a bloquear, el piloto frena con tarea_bloqueada",
+        "Si unblock falla frena con kyro_bloqueado"
+      ],
+      "dependsOn": [],
+      "definitionRevision": 1,
+      "status": "verified",
+      "blocker": null,
+      "evidence": {
+        "summary": "Autopilot.resumeByUser marca el chat (lo usan las acciones on y resume de la ruta del piloto). En la primera decisión, si el work está en resolve_blocker con nextTaskId, el piloto corre kyro work unblock (KyroReader.unblockWorkTask, --by user, con la revisión), lo anota en el Timeline y abre la ejecución con el motivo anterior en el prompt (StepPromptContext.unblocked). La marca se consume en esa decisión o en cualquier stop. Si unblock falla frena con kyro_bloqueado. docs/plan.md lo documenta.",
+        "validations": [
+          {
+            "command": "npx vitest run test/pilot-unblock.test.ts",
+            "result": "passed",
+            "note": "4 tests: desbloquea una vez y ejecuta con el motivo, vuelve a frenar si el agente re-bloquea, Timeline, sin Reanudar no desbloquea, unblock rechazado frena con kyro_bloqueado"
+          },
+          {
+            "command": "npx vitest run (apps/api)",
+            "result": "passed",
+            "note": "65 archivos, 1096 tests"
+          },
+          {
+            "command": "tsc + npm run lint + prettier --check .",
+            "result": "passed",
+            "note": "limpios"
+          }
+        ],
+        "filesChanged": [
+          "apps/api/src/kyro/reader.ts",
+          "apps/api/src/pilot/autopilot.ts",
+          "apps/api/src/pilot/prompts.ts",
+          "apps/api/src/app.ts",
+          "apps/api/test/kyro-reader.test.ts",
+          "apps/api/test/pilot-unblock.test.ts",
+          "docs/plan.md"
+        ],
+        "notes": "Se prueba en el panel real cuando el servicio corra este código.",
+        "by": "claude-maker",
+        "recordedAt": "2026-10-06T19:35:39.429Z",
+        "definitionRevision": 1,
+        "materialDigest": "f31863a85222db810be2218c50ca270ef021e5bd9982f2598c37feda6ffc7193"
+      },
+      "verdict": {
+        "result": "pass",
+        "checkedCriteria": [
+          "Tras Reanudar con una tarea bloqueada, el piloto la desbloquea y abre la sesión de ejecución",
+          "El prompt incluye el motivo del bloqueo anterior",
+          "Si el agente la vuelve a bloquear, el piloto frena con tarea_bloqueada",
+          "Si unblock falla frena con kyro_bloqueado"
+        ],
+        "findings": [
+          {
+            "severity": "suggestion",
+            "detail": "Encender el piloto (on) también cuenta como Reanudar; es coherente (la persona decide seguir), pero desbloquea una tarea que el agente bloqueó en una sesión manual."
+          }
+        ],
+        "by": "claude-checker",
+        "reviewedAt": "2026-10-06T19:35:39.709Z",
+        "definitionRevision": 1,
+        "evidenceDigest": "b7e1cb67cc875bf47997de2f17f0a1f083a4ac2899dd0f0331a6ea3ceb936ab5",
+        "reviewedMaterialDigest": "f31863a85222db810be2218c50ca270ef021e5bd9982f2598c37feda6ffc7193"
+      },
+      "disposition": null
+    }
+  ],
+  "activity": [
+    {
+      "seq": 1,
+      "at": "2026-10-06T19:30:21.970Z",
+      "event": "created",
+      "taskId": null,
+      "by": "claude",
+      "reason": "Created through the Work CLI.",
+      "revision": 1
+    },
+    {
+      "seq": 2,
+      "at": "2026-10-06T19:30:22.203Z",
+      "event": "tasks_planned",
+      "taskId": null,
+      "by": "claude",
+      "reason": "Planned 2 Work tasks.",
+      "revision": 2
+    },
+    {
+      "seq": 3,
+      "at": "2026-10-06T19:30:22.424Z",
+      "event": "task_started",
+      "taskId": "W1",
+      "by": "claude",
+      "reason": "Task started through the Work CLI.",
+      "revision": 3
+    },
+    {
+      "seq": 4,
+      "at": "2026-10-06T19:31:25.534Z",
+      "event": "evidence_recorded",
+      "taskId": "W1",
+      "by": "claude-maker",
+      "reason": "Evidence recorded with 2 validation results.",
+      "revision": 4
+    },
+    {
+      "seq": 5,
+      "at": "2026-10-06T19:31:25.759Z",
+      "event": "review_recorded",
+      "taskId": "W1",
+      "by": "claude-checker",
+      "reason": "Task review recorded with pass.",
+      "revision": 5
+    },
+    {
+      "seq": 6,
+      "at": "2026-10-06T19:31:25.982Z",
+      "event": "task_started",
+      "taskId": "W2",
+      "by": "claude",
+      "reason": "Task started through the Work CLI.",
+      "revision": 6
+    },
+    {
+      "seq": 7,
+      "at": "2026-10-06T19:35:39.429Z",
+      "event": "evidence_recorded",
+      "taskId": "W2",
+      "by": "claude-maker",
+      "reason": "Evidence recorded with 3 validation results.",
+      "revision": 7
+    },
+    {
+      "seq": 8,
+      "at": "2026-10-06T19:35:39.709Z",
+      "event": "review_recorded",
+      "taskId": "W2",
+      "by": "claude-checker",
+      "reason": "Task review recorded with pass.",
+      "revision": 8
+    },
+    {
+      "seq": 9,
+      "at": "2026-10-06T19:35:39.938Z",
+      "event": "work_closed",
+      "taskId": null,
+      "by": "claude",
+      "reason": "Las dos tareas verificadas",
+      "revision": 9
+    }
+  ],
+  "closure": {
+    "outcome": "completed",
+    "reason": "Las dos tareas verificadas",
+    "by": "claude",
+    "closedAt": "2026-10-06T19:35:39.938Z",
+    "briefDigest": "aef787d0506a2c361d4fb443a66ef464fd7bd93842de742e2d337235078d099b",
+    "finalRevision": 9
+  },
+  "promotion": null
+}
