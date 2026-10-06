@@ -247,10 +247,33 @@ Kyro es global de la VM (CLI en `~/.npm-global/bin/kyro`, runtime en `~/.agents/
 - **Verificar:** exit 0, 13 checks `PASS` de `kyro doctor`, última línea `KYRO_VERSION=…`, y `ls -l ~/.claude/skills | grep kyro-` igual antes y después. Las corridas desde el panel quedan en `maintenance_runs`, no en la bitácora (ver `CLAUDE.md`).
 - Las sesiones que ya estaban abiertas siguen con el runtime anterior: el panel no actualiza mientras haya sesiones corriendo.
 
+### 15. Tailscale + Funnel: `scripts/vm/09-tailscale-funnel.sh`
+
+```bash
+bash ~/proyectos/agents-panel/scripts/vm/09-tailscale-funnel.sh      # 1ª vez: instala y pide el login
+sudo tailscale up                                                    # manual, una sola vez, con tu cuenta
+bash ~/proyectos/agents-panel/scripts/vm/09-tailscale-funnel.sh      # 2ª vez: publica la web con Funnel
+```
+
+Publica la web del panel en una URL `https://<vm>.<tailnet>.ts.net` para entrar desde el celular y la PC sin túnel SSH y para que Web Push (que exige HTTPS) funcione en el Android. Se adelantó de la etapa 6 por el sprint 5 de `autopiloto-kyro`.
+
+- **Qué hace, en orden:** (1) instala Tailscale desde su repositorio oficial de apt (`pkgs.tailscale.com/stable/ubuntu/<codename>`, con su clave en `/usr/share/keyrings`) si falta; (2) `systemctl enable --now tailscaled`; (3) si el nodo no tiene sesión, avisa que falta `sudo tailscale up`, imprime `FUNNEL_URL=` vacío y sale con 0; (4) con sesión, `sudo tailscale funnel --bg 4200`: Funnel en 443 hacia `http://127.0.0.1:4200` (la web con `ng serve`; el proxy de la web reenvía `/api` a la API). Acepta otro puerto como argumento.
+- **Idempotente:** con todo hecho solo escribe `ya publicado`; la última línea es `FUNNEL_URL=<url>`. `--bg` deja la configuración guardada en `tailscaled`, así que sobrevive a reinicios de la VM.
+- **Sin secretos:** el login es interactivo (link + cuenta); no se usan authkeys. El script y este doc no llevan ninguno.
+- **Requisitos en la cuenta de Tailscale (una sola vez, a mano):** habilitar HTTPS en el tailnet y el atributo `funnel` del nodo en las ACL. Si falta, `tailscale funnel` imprime el link para habilitarlo.
+- **Qué hay que ajustar en el panel para que atienda por ese nombre:**
+  - API (`apps/api/.env`): `PANEL_EXTRA_ORIGINS=https://<vm>.<tailnet>.ts.net` suma esa URL a las que se aceptan como `Origin` en las escrituras; `PANEL_ORIGIN` sigue siendo `http://localhost:4200` y el túnel SSH sigue funcionando. Reiniciar la API.
+  - Web (`apps/web/angular.json`): el dev server acepta solo hosts `*.ts.net` (y `localhost`) con `allowedHosts: [".ts.net"]`. Reiniciar `ng serve`.
+  - Las cookies de sesión ya son `Secure`, `HttpOnly` y `SameSite=Strict`: con HTTPS de Funnel no hace falta cambiar nada.
+- **Riesgo:** la URL es pública. El login (Argon2id + passkey o TOTP) es la única puerta y toda ruta de la API exige sesión (test de rutas sin sesión en `apps/api/test`), pero mientras el panel corra con `ng serve` (el servicio systemd y el build de producción son de la etapa 6) Funnel publica el servidor de desarrollo. Antes de prender Funnel: confirmar que las únicas rutas públicas son `GET /api/health` y los dos pasos del login (`public: true` en `apps/api/src`).
+- Sin costo (US$0): plan gratis de Tailscale (Personal), sin recursos de Oracle. Aprobado por Miqueas el 2026-10-05.
+- **Verificar:** `tailscale funnel status` muestra solo `https://<vm>.<tailnet>.ts.net` → `proxy http://127.0.0.1:4200`; desde un dispositivo fuera de la VM esa URL muestra el login y el login con TOTP funciona; correr el script dos veces seguidas no cambia nada.
+- **Si el navegador da `DNS_PROBE_FINISHED_NXDOMAIN` (2026-10-05):** el nombre solo lo resolvía la VM (por Tailscale) y el DNS público no tenía registro, ni siquiera el servidor autoritativo de `ts.net`; apagar y volver a prender Funnel no lo arregló. Lo resolvió pedir el certificado una vez a mano: `cd /tmp && sudo tailscale cert <vm>.<tailnet>.ts.net && sudo rm -f /tmp/<vm>.<tailnet>.ts.net.*` (el `.crt` y el `.key` que deja no se usan: Funnel maneja su certificado dentro de `tailscaled`, por eso se borran). El registro público apareció a los pocos minutos. Se comprueba con `dig +short @8.8.8.8 <vm>.<tailnet>.ts.net`.
+- Estado (2026-10-05): **corrido en la VM**. Tailscale 1.102.4 (arm64, Ubuntu `resolute`), login hecho por la persona, HTTPS Certificates y Funnel habilitados en el admin de Tailscale. La segunda corrida respondió `ya publicado` sin cambios. Falta la prueba del login con TOTP desde un dispositivo fuera de la VM.
+
 ### Pendiente (etapas siguientes del plan)
 
 
-- Tailscale + Funnel (etapa 6).
 - Servicio systemd del panel (etapa 6).
 
 ## Costos
@@ -266,6 +289,7 @@ Regla del repo (`CLAUDE.md`): todo cambio que pueda modificar lo que se paga se 
 | 2026-10-04 | uv instalado en `~/.local/bin` con el instalador oficial (`07-uv.sh`) | US$0: sin recursos de Oracle ni planes pagos | — |
 | 2026-10-04 | Panel en desarrollo (etapa 4): `.env`, base SQLite local, worktrees en `~/wt`, sesiones del Agent SDK con la suscripción existente | US$0: sin recursos nuevos de Oracle ni planes pagos | — |
 | 2026-10-04 | Actualización de Kyro con `08-kyro-update.sh` (paquete npm global, runtime y symlinks locales) | US$0: sin recursos de Oracle ni planes pagos | — |
+| 2026-10-05 | Tailscale (repositorio oficial) y Funnel en 443 hacia la web del panel (`09-tailscale-funnel.sh`, paso 15) | US$0: plan gratis de Tailscale (Personal), sin recursos de Oracle | Miqueas, 2026-10-05 (adelantado de la etapa 6) |
 
 ## Bitácora
 
@@ -300,3 +324,6 @@ Regla del repo (`CLAUDE.md`): todo cambio que pueda modificar lo que se paga se 
 | 2026-10-05 | El panel corre `scripts/vm/06-kyro-skills.sh` después de cada `kyro install` (alta con Kyro e Inicializar Kyro); `kyro install --init-workspace` verificado en una carpeta temporal sin Kyro | OK: crea `.agents/kyro/{.gitignore,project.json,local.json,scopes}`; sin cambios de configuración en la VM (el script es el del paso 6, idempotente). Sin costo |
 | 2026-10-05 | `08-kyro-update.sh` cambia de procedimiento: saltea las raíces con cambios locales fuera de `.agents/kyro/` y emite `KYRO_SKIPPED=<raíz>`. Probado con stubs de `npm` y `kyro` y repos temporales (test automático); no se corrió contra el Kyro real | OK en el test: raíz limpia y raíz con cambios solo en `.agents/kyro/` se actualizan, raíz sucia se saltea, global siempre corre. Sin costo |
 | 2026-10-05 | `/tmp` sin inodos (45.752 carpetas `panel-*` de tests en 1.048.576 inodos): el Bash de Claude Code dejó de responder. Se borraron a mano `panel-*`, `go-build*` y `e2e-*` del usuario (`find /tmp -maxdepth 1 -user ubuntu … -exec rm -rf {} +`). Script global `~/.agents/scripts/clean-test-tmp.sh` (con `--dry-run`, solo carpetas de más de 30 min) y su índice `~/.agents/scripts/README.md`; regla de permiso de Claude Code solo para ese script en `~/.claude/settings.json` (backup `settings.json.bak.*`). Se quitaron de `~` las copias viejas de `01`–`04` (las vigentes están en `scripts/vm/`) | OK: inodos de `/tmp` de 100% a 2% (13.597 usados); `--dry-run` da 0 carpetas. Causa de fondo (los tests no limpian sus `mkdtemp`) pendiente como deuda del scope `autopiloto-kyro`. Sin costo |
+| 2026-10-05 | Paso 15: se escribió `scripts/vm/09-tailscale-funnel.sh` (instala Tailscale desde el repo oficial, habilita `tailscaled`, publica la web con `tailscale funnel --bg 4200`), `PANEL_EXTRA_ORIGINS` en la API y `allowedHosts: [".ts.net"]` en el dev server | Probado con stubs (`apps/api/test/funnel.test.ts`): 2ª corrida sin cambios, sin login no publica nada. **Sin correr todavía en la VM**: falta el login manual (`sudo tailscale up`) y la verificación desde un dispositivo externo. Sin costo |
+| 2026-10-05 | Paso 15 corrido: `09-tailscale-funnel.sh` instaló Tailscale 1.102.4, `sudo tailscale up` (login manual), HTTPS Certificates y Funnel habilitados en el admin; segunda corrida `ya publicado`. Se agregaron al `apps/api/.env` (600) `PANEL_EXTRA_ORIGINS` con la URL de Funnel y las claves VAPID generadas con `push:vapid-keys` (sin valores en este doc), y se reinició el panel con `dev-panel.sh` | OK desde la VM: la URL de Funnel sirve la web (200), `/push-sw.js` 200, `/api/health` 200, rutas con sesión dan 401, login con `Origin` de Funnel pasa el chequeo y con un `Origin` ajeno da 403; `funnel status` muestra solo el puerto 4200. Pendiente: login con TOTP desde un dispositivo externo. Sin costo |
+| 2026-10-05 | Paso 15: el navegador daba `DNS_PROBE_FINISHED_NXDOMAIN` (sin registro DNS público). Se apagó y prendió Funnel (`tailscale funnel --https=443 off` + `09-tailscale-funnel.sh`) sin efecto y después se pidió el certificado con `sudo tailscale cert` (archivos borrados) | OK: el DNS público resolvió a los pocos minutos; con `curl --resolve` hacia las IPs de Funnel la web da 200 con certificado válido, `/api/health` 200, rutas con sesión 401. Sin costo |

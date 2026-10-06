@@ -235,7 +235,21 @@ El lector de Kyro deja `kyro_bloqueado` y `tarea_bloqueada`; el piloto del sprin
 - **Aviso** de `sin_cupo_de_uso` y la hora exacta de reinicio del límite (`resetsAt`): scope `operaciones-worktree`; hoy el piloto reintenta cada 15 minutos.
 - **Idea** (`madurando_idea`, `esperando_aprobacion_plan`): chat de tipo Idea, sprint 4; ya se escriben ambos: el primer turno la deja con actor `user` y el fin del turno no cambia el estado (T2.1); `esperando_aprobacion_plan` se escribe cuando git muestra exactamente un documento nuevo o cambiado de `kyro-idea` y no hay pregunta pendiente (T2.2); con varios queda `bloqueado` (`otro`) y con ninguno sigue en `madurando_idea`. Las decisiones sobre el plan (T2.3): aprobar como scope o work pasa a `planificando` (actor `user`, con la ruta y el usuario en el Timeline) y pedir cambios vuelve a `madurando_idea`; si `kyro work create` falla queda `bloqueado` (`kyro_bloqueado`).
 
-La etiqueta única por ítem y los tres niveles de estado (proyecto, trabajo y sesión) son del sprint 5.
+## Tres niveles de estado y etiqueta única (sprint 5)
+
+La web muestra **una sola etiqueta por ítem** (sidebar, cabecera del chat), descriptiva y en español. Hay tres niveles y cada ítem usa solo el que le corresponde:
+
+| Nivel | De qué es | Etiquetas | Dónde vive |
+|---|---|---|---|
+| **Proyecto** | Un proyecto registrado | Clonando, Listo, Error (más Actualizando e Inicializando Kyro mientras corre esa operación) | `projects.status` y `project-label.ts` de la web |
+| **Trabajo** | Un scope, work o idea (tiene worktree) | El catálogo fino de arriba (`planificando`, `qa`, `bloqueado`, `pr_lista`…) | `worktree_state` y `WORKTREE_STATE_INFO` de `packages/shared` |
+| **Sesión** | Un pedido directo (consulta sin worktree) o un trabajo que todavía no tiene estado fino | En curso, En espera, Error, Interrumpido, Cancelado | `chats.status` y `status.ts` de la web |
+
+**Mapeo sesión → trabajo.** El estado de sesión no se muestra cuando el trabajo tiene estado fino: `running` es el estado del paso en curso (planificando, escribiendo código, QA…), `idle` es el estado en que quedó la fase, una pregunta pendiente es `esperando_respuesta`, `interrupted` es `interrumpido` y `cancelled` es `cancelado`. Un pedido directo no tiene estado fino: muestra el de sesión. La sidebar (`sidebarBadge`) y la cabecera del chat eligen así: estado fino si lo hay, estado de sesión si no.
+
+**Tono por quién actúa.** Cada estado del catálogo lleva `who` en `WORKTREE_STATE_INFO` (`packages/shared`): `working` (acento), `user` (ámbar: te toca a vos), `ok`, `waiting` (neutro) o `error`. La web usa esa clasificación para el color del `Badge` y el notificador de la API la usa para decidir qué avisa: **la clasificación vive en un solo lugar** y los dos lados no se desincronizan.
+
+**Qué estados avisan por Web Push.** `PushNotifier` (`apps/api/src/push/notifier.ts`) escucha los eventos `state_changed` y manda un aviso a todos los dispositivos suscriptos cuando el trabajo entra en un estado con `who = user` (`esperando_aclaracion`, `esperando_aprobacion_plan`, `esperando_aprobacion_cierre`, `esperando_permiso`, `esperando_respuesta`, `pr_checks_fallidos`, `interrumpido`, `bloqueado`, `revisar`), en `pausado` **solo si lo pausó el piloto** (una pausa del usuario no es noticia) o en `pr_lista`. Un aviso por transición: repetir el mismo estado no reenvía. `sin_cupo_de_uso` no avisa (lo hace `operaciones-worktree` con la hora de reinicio). El aviso lleva título `proyecto · trabajo`, cuerpo con la etiqueta y el motivo, la URL del trabajo y un `tag` por chat (el aviso nuevo reemplaza al anterior); nunca lleva secretos. Un fallo de envío se loguea y no frena al piloto; un 404 o 410 del servicio de push borra la suscripción.
 
 ### Cómo se lee Kyro
 
@@ -276,4 +290,4 @@ Antes de que exista el estado fino, cada chat guarda un **estado grueso de sesi�
 
 Un chat `running` rechaza nuevos mensajes con 409; y no puede haber más de 4 sesiones `running` a la vez (la quinta da 409).
 
-**Mapeo a los estados finos (etapa 5):** `running` pasa a ser cualquiera de los estados de Preparación/Planificación/Ejecución/QA según las señales de Kyro, git y `gh`; `idle` se mapea al estado en que quedó la fase; una pregunta pendiente (`pending_questions`) es `esperando_respuesta` y la sesión sigue `running` mientras espera (el turno no terminó); `interrupted` y `cancelled` equivalen a las transversales `interrumpido` y `cancelado`; `error` es la transversal `error`. La tabla `worktree_state` se agrega encima: `chats.status` sigue siendo el estado de la *sesión*, no del *worktree*.
+**Mapeo a los estados finos (sprint 5, ver «Tres niveles de estado»):** `running` pasa a ser cualquiera de los estados de Preparación/Planificación/Ejecución/QA según las señales de Kyro, git y `gh`; `idle` se mapea al estado en que quedó la fase; una pregunta pendiente (`pending_questions`) es `esperando_respuesta` y la sesión sigue `running` mientras espera (el turno no terminó); `interrupted` y `cancelled` equivalen a las transversales `interrumpido` y `cancelado`; `error` es la transversal `error`. La tabla `worktree_state` se agrega encima: `chats.status` sigue siendo el estado de la *sesión*, no del *worktree*.

@@ -74,6 +74,14 @@ Las etiquetas son descriptivas y en español: «Esperando tu respuesta», «Prob
 - **Largas** (pull, push, setup, clonado): el botón se deshabilita y muestra el `Icon` girando. El resultado aparece en línea al terminar; si toca varios repos o worktrees, va como tabla por elemento (escrito / omitido con motivo).
 - Una acción que no se puede hacer ahora (por ejemplo, con un agente corriendo) se muestra deshabilitada y con el motivo en el tooltip, en vez de esconderla.
 
+### Trabajo: stepper, pestañas, piloto y Timeline
+
+- **Stepper de fases** (`PhaseStepper`): Idea › Plan › Ejecución › QA › Cierre › Merge › PR como píldoras: hechas en `ok`, la actual rellena con `accent`, las que faltan en `neutral`. Debajo, una línea `text-muted` con sprint n/m, tarea n/m y rol · modelo, solo con los datos que el estado trae (no se inventan números). Un estado que interrumpe (bloqueado, pausado) conserva la fase en que quedó.
+- **Pestañas Chat y Timeline** con el `Tabs` compartido; el pedido directo no las tiene.
+- **Barra del piloto** (`AutopilotBar`): una tarjeta con el estado de la **corrida** (no del trabajo: el estado del trabajo sigue siendo el único badge de la cabecera) y los botones Encender, Reanudar, Pausar y Apagar. Lo que no aplica va deshabilitado y con su motivo escrito debajo (en el celular no hay tooltip). Apagar es `danger` y pide confirmación en un `Modal`.
+- **Timeline** (`Timeline`): una tarjeta por transición, de la más nueva a la más vieja: de → a (el destino como `Badge` con el tono de quién actúa), actor, rol y modelo, motivo, deuda y decisiones. La lista vacía dice qué esperar.
+- **Notificaciones:** página propia (link del header) porque los dispositivos son del usuario y no de un proyecto. El manifest y el `theme-color` del `index.html` llevan el azul de la marca como valor literal porque ahí no se pueden usar variables CSS: si cambia `--palette-brand-600`, actualizarlos a mano.
+
 ### Listas y vacíos
 
 - Toda lista vacía tiene un `hint` que dice qué hacer y, si existe, el botón para hacerlo.

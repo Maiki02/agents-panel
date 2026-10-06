@@ -1,6 +1,6 @@
 # Panel en desarrollo: cuenta, API, web y túnel
 
-Cómo trabajar con el panel mientras todavía no está publicado con Funnel (etapa 6): crear la cuenta, levantar backend y frontend en la VM y verlos desde la PC en `localhost` por un túnel SSH. Para instalar la VM en sí, ver [`vm-setup.md`](vm-setup.md) (paso 10).
+Cómo trabajar con el panel en desarrollo (la publicación con Funnel es el paso 15 de [`vm-setup.md`](vm-setup.md) y el servicio systemd es de la etapa 6): crear la cuenta, levantar backend y frontend en la VM y verlos desde la PC en `localhost` por un túnel SSH. Para instalar la VM en sí, ver [`vm-setup.md`](vm-setup.md) (paso 10).
 
 ## Cómo encaja todo
 
@@ -26,6 +26,7 @@ printf 'PANEL_SECRET_KEY=%s\nPANEL_ORIGIN=http://localhost:4200\nHOST=127.0.0.1\
 ```
 
 - `PANEL_SECRET_KEY` (≥ 32 bytes) cifra el secreto TOTP. **Si se cambia o se pierde, hay que rehacer el segundo factor de cada usuario** (`user:reset-2fa`).
+- `PANEL_EXTRA_ORIGINS` (opcional, separadas por coma) suma otras URLs del mismo panel, por ejemplo la de Tailscale Funnel (`docs/vm-setup.md`, paso 15); cada una también se acepta como `Origin` en las escrituras.
 - `PANEL_ORIGIN` tiene que ser **exactamente** la URL que se escribe en el navegador. Con el túnel de abajo es `http://localhost:4200`. Si se usa otro puerto local, cambiarlo acá y reiniciar la API.
 - La clave no se muestra ni se pega en ningún lado. Variables opcionales (`PANEL_DATA_DIR`, `PANEL_WORKTREES_DIR`, TTL de sesión): ver `apps/api/.env.example`.
 
@@ -186,7 +187,7 @@ Hay una entrada por pregunta; cada una lleva `selected` (opciones elegidas, una 
 
 ### Probar modelos por rol, estado y permisos por proyecto
 
-Recorrido manual del sprint 2 de `autopiloto-kyro` (con la API y la web levantadas, sección 4). La web de modelos y el estado fino son del sprint 5: por ahora se ven por la API y la base. La base está en `~/.local/share/agents-panel/panel.sqlite` (`sqlite3` en la VM) y las rutas piden sesión, CSRF y `Origin`, como las de la tabla de arriba.
+Recorrido manual del sprint 2 de `autopiloto-kyro` (con la API y la web levantadas, sección 4). Los modelos se ven y se cambian en la web (Configuración → Modelos y Nuevo chat) y el estado fino en la pestaña Timeline; acá se repasan por la API y la base. La base está en `~/.local/share/agents-panel/panel.sqlite` (`sqlite3` en la VM) y las rutas piden sesión, CSRF y `Origin`, como las de la tabla de arriba.
 
 **A. Modelos por rol y sesiones**
 
@@ -211,7 +212,7 @@ Al terminar, contale al agente qué pasó en cada paso: el resultado se registra
 
 ### Probar el piloto automático (por la API)
 
-Recorrido del sprint 3 de `autopiloto-kyro`. La web del piloto (interruptor, pausar, preguntas con botones) es del sprint 5: por ahora se maneja por la API con la sesión y el token CSRF de una sesión de la web (sección 4). Pruebalo primero con un **Work de prueba** que solo cambie un archivo de doc (D31: el piloto se estrena con el usuario mirando), nunca con un scope real.
+Recorrido del sprint 3 de `autopiloto-kyro`. Se puede seguir por la API, con la sesión y el token CSRF de una sesión de la web (sección 4), o desde la web: la barra del piloto de cada trabajo (Encender, Pausar, Reanudar, Apagar), el interruptor de Nuevo chat y las preguntas con botones (ver «Probar el piloto desde la web»). Pruebalo primero con un **Work de prueba** que solo cambie un archivo de doc (D31: el piloto se estrena con el usuario mirando), nunca con un scope real.
 
 1. **Activar:** `POST /api/chats` con `"kind": "work"`, `"autopilot": true` y un pedido chico (por ejemplo «agregá una línea al README»). Un pedido directo con `autopilot: true` da 400.
 2. **Mirar:** `GET /api/chats/:id/autopilot` trae `{ run, maxSessionsPerSprint }` (`run.status`, `run.step`, `run.sessionsInSprint`, `run.stopReason`); `GET /api/chats/:id/state` y `/timeline` traen el estado fino y las transiciones con actor `pilot`.
@@ -225,7 +226,7 @@ Recorrido del sprint 3 de `autopiloto-kyro`. La web del piloto (interruptor, pau
 
 ### Probar una Idea, su aprobación y el cierre con merge
 
-Recorrido del sprint 4 de `autopiloto-kyro`. **Usá siempre un repo de prueba** (un clon descartable con Kyro inicializado y un remoto que no sea el real: por ejemplo un repo vacío tuyo en GitHub, o un remoto *bare* local), nunca `ventas` ni este repo. Con `gh` autenticado solo hace falta para abrir la PR; el panel nunca la mergea. Se maneja por la API con la sesión y el token CSRF de la web (sección 4) hasta el sprint 5.
+Recorrido del sprint 4 de `autopiloto-kyro`. **Usá siempre un repo de prueba** (un clon descartable con Kyro inicializado y un remoto que no sea el real: por ejemplo un repo vacío tuyo en GitHub, o un remoto *bare* local), nunca `ventas` ni este repo. Con `gh` autenticado solo hace falta para abrir la PR; el panel nunca la mergea. Se maneja desde la web (Nuevo chat → Idea, tarjetas de aprobación) o por la API con la sesión y el token CSRF (sección 4).
 
 1. **Preparar el repo de prueba:** registralo en **Proyectos → Nuevo proyecto**, con rama base `main`. Opcional: `PATCH /api/projects/:id` con `{ "validateCommand": "npm test" }` (o cualquier comando que termine en 0) para ver la validación; sin él, el Timeline anota que no hubo validación.
 2. **Crear la Idea:** `POST /api/chats` con `"kind": "idea"`, un `slug` y el pedido. No lleva `autopilot` (con `true` da 400: el piloto se prende al aprobar) y un proyecto sin Kyro da 409. El estado queda en `madurando_idea` (`GET /api/chats/:id/state`).
@@ -241,6 +242,40 @@ Recorrido del sprint 4 de `autopiloto-kyro`. **Usá siempre un repo de prueba** 
 8. **Frenos para forzar:** un `validate_command` que falla → `build_roto` (sin PR); un `.env` o un token de mentira en el diff → `secretos` (el Timeline lista archivo y tipo, nunca el valor); un worktree sin `origin` → `git`; un informe de QA sin `Verdict:` → `qa_sin_aprobar`. Cada uno se resuelve y se retoma con `resume`.
 9. **Reinicio en la fase de merge:** con el piloto en `trayendo_dev`, matá la API y levantala: lee `autopilot_runs.phase = 'merge'` y retoma el merge (el pull, el push y la PR son idempotentes: una PR abierta de la rama se reusa).
 10. **Limpieza:** el panel no borra nada solo. Cerrá la PR de prueba a mano y borrá la rama del remoto y el worktree de prueba.
+
+### Probar el piloto desde la web
+
+Recorrido del sprint 5 de `autopiloto-kyro`, con la API y la web levantadas (sección 4). **Usá un repo de prueba** (como en la sección anterior), nunca `ventas` ni este repo.
+
+1. **Nuevo chat:** elegí Work o Scope. El interruptor **Piloto automático** viene encendido; con Idea o Pedido directo está deshabilitado y dice por qué. En «Opciones: modelos» el pensante y el ejecutor muestran el del proyecto como «(por defecto)»; solo se mandan los que cambies.
+2. **Barra del piloto** (arriba del chat de un trabajo): muestra el estado de la corrida y las sesiones del sprint. **Encender** abre el paso que toca; **Pausar** y **Reanudar** se alternan; **Apagar** pide confirmación y deja el trabajo en modo manual. Lo que no se puede hacer queda deshabilitado con el motivo escrito debajo.
+3. **Stepper y Timeline:** el stepper marca la fase actual con sprint n/m, tarea n/m y rol y modelo de la sesión; la pestaña **Timeline** lista las transiciones de la más nueva a la más vieja (actor, rol, modelo, motivo, deuda) y se actualiza sola.
+4. **Configuración del proyecto:** la tab **Modelos** guarda pensante y ejecutor; en **General**, el **Comando de validación** (vacío = sin validación) se guarda, se borra y muestra el error de la API junto al campo.
+5. Si algo falla, mirá el Timeline y `GET /api/chats/:id/autopilot`: cada freno trae su motivo.
+
+### Notificaciones push (VAPID)
+
+Web Push avisa a la PC y al celular aunque la pestaña esté cerrada. Usa los servicios de push de los navegadores (US$0) y exige **HTTPS o `localhost`**.
+
+1. **Generar las claves** (una sola vez, en la VM): `npm run -w @agents-panel/api cli -- push:vapid-keys`. Imprime tres líneas.
+2. **Dónde van:** en `apps/api/.env` (el de desarrollo de la VM): `PUSH_VAPID_PUBLIC_KEY`, `PUSH_VAPID_PRIVATE_KEY` y `PUSH_VAPID_SUBJECT` (`mailto:` o `https:`). La clave privada es un secreto: no se pega en docs, bitácora ni chats. Sin las claves el panel arranca igual y las notificaciones quedan apagadas (`GET /api/push/config` da `enabled: false`). Reiniciar la API después de cambiarlas; con otras claves, las suscripciones viejas dejan de servir y hay que activarlas de nuevo.
+3. **Activar un dispositivo:** entrá a **Notificaciones** (link del header), tocá **Activar en este dispositivo**, aceptá el permiso y probá con **Probar**. La lista permite renombrar y quitar.
+   - En la PC por el túnel (`http://localhost:4200`) funciona porque `localhost` es contexto seguro.
+   - En el Android hace falta la URL de Funnel (HTTPS): ver el paso 15 de `vm-setup.md` y `PANEL_EXTRA_ORIGINS`.
+   - En iPhone y iPad hay que agregar el panel a la pantalla de inicio y abrirlo desde ahí.
+4. **Qué avisa:** un trabajo que frena, hace una pregunta, espera tu aprobación o deja la PR lista (detalle en `estados.md`). Tocar el aviso abre el trabajo.
+
+### Probar las notificaciones push
+
+Prueba de H3 con vos mirando. **Un Work de prueba en un repo de prueba**, nunca `ventas` ni este repo.
+
+1. Con las claves VAPID cargadas y la API reiniciada, activá la PC y el Android desde **Notificaciones** y tocá **Probar** en cada uno: tiene que llegar una notificación.
+2. **Cerrá Chrome en el Android** (sacalo de recientes) y provocá un freno: por ejemplo un Work de prueba cuyo pedido obligue al agente a hacer una pregunta (o pausá el piloto desde la VM, que avisa por ser del piloto).
+3. Comprobá que el aviso llega **a los dos dispositivos** con el motivo y que tocarlo abre el trabajo.
+4. **Suscripción vencida:** quitá el permiso de notificaciones del sitio en un navegador (o borrá sus datos) y provocá otro aviso: el envío da 404 o 410 y la fila desaparece de la lista de Notificaciones.
+5. Anotá el resultado: lo que no se pueda probar en la sesión queda como deuda con target 6 del scope.
+
+**Resultado de H3 (2026-10-05, PC con Chrome y Android con Chrome cerrado, por la URL de Funnel):** confirmada. Un trabajo que frena, hace una pregunta o deja la PR lista avisa a la PC y al Android con el motivo y al tocar el aviso abre el trabajo. Dos hallazgos: en el Android el **ahorro de batería de Chrome** (Ajustes → Apps → Chrome → Batería, «Sin restricciones») demora o descarta los avisos, y por eso el envío usa `urgency: high`; y el reinicio de la API con una pregunta pendiente la cancela (ahora deja el evento `question_cancelled`). **No probado en real:** que una suscripción vencida (404 o 410 del servicio de push) se borre sola en el envío siguiente; está cubierto por tests automáticos y queda como deuda con target 6.
 
 ## 4. Levantar backend y frontend en la VM
 
@@ -320,4 +355,4 @@ Si se desarrolla el frontend en la PC, alcanza con el túnel del puerto 3000 y l
 ## Seguridad
 
 - El túnel no abre nada nuevo en Oracle ni cuesta nada.
-- No exponer el 4200 ni el 3000 con `0.0.0.0` ni abrirlos en la lista de seguridad de Oracle: el login del panel está pensado para quedar detrás de Funnel (etapa 6), no para quedar abierto en la IP pública.
+- No exponer el 4200 ni el 3000 con `0.0.0.0` ni abrirlos en la lista de seguridad de Oracle: el login del panel está pensado para quedar detrás de Funnel (paso 15 de `vm-setup.md`), no para quedar abierto en la IP pública.
