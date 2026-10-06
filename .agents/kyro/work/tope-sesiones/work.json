@@ -1,0 +1,171 @@
+{
+  "schemaVersion": 1,
+  "kind": "organic-work",
+  "id": "tope-sesiones",
+  "title": "El tope de sesiones cuenta solo las sesiones sin avance",
+  "objective": "Un sprint con muchas tareas corre completo sin frenar por el tope de sesiones, y un bucle sin avance se sigue cortando a las 6.",
+  "brief": {
+    "path": "brief.md",
+    "digest": "8c32ff1f98c97a30430f079399b864983ba49380f4b0bbf19e5d9a4425727767",
+    "sourceIdea": null
+  },
+  "state": "closed",
+  "revision": 6,
+  "createdAt": "2026-10-06T22:28:59.106Z",
+  "updatedAt": "2026-10-06T22:32:47.398Z",
+  "handoff": {
+    "nextAction": "done",
+    "nextTaskId": null,
+    "blockedReason": null
+  },
+  "tasks": [
+    {
+      "id": "W1",
+      "title": "El contador de sesiones se reinicia cuando una ejecución cierra una tarea",
+      "description": "completedTask(step, before, after) en decide.ts: la sesión anterior fue execute y tasksDone subió. decideNextStep no aplica el tope si es verdadero; AutopilotRunRepository.beginSession reinicia el contador a 1 en ese caso. Fix y reinicios siguen contando.",
+      "context": "Chat 3: 6 sesiones execute que avanzaron una tarea cada una frenaron con tope_de_sesiones.",
+      "filesToTouch": [
+        "apps/api/src/pilot/decide.ts",
+        "apps/api/src/pilot/runs-repo.ts",
+        "apps/api/test/pilot-decide.test.ts",
+        "apps/api/test/pilot-runs.test.ts",
+        "apps/api/test/pilot-autopilot.test.ts",
+        "docs/plan.md",
+        "docs/estados.md",
+        "docs/panel-desarrollo.md"
+      ],
+      "acceptanceCriteria": [
+        "Con 6 sesiones y la última ejecución cerró una tarea, el piloto sigue",
+        "Con 6 sesiones sin cerrar tarea (fix, o ejecución sin tareas nuevas) frena con tope_de_sesiones",
+        "beginSession reinicia el contador solo tras una ejecución que cerró una tarea",
+        "Un scope de 8 tareas en un sprint corre completo con el tope en 6",
+        "Los docs describen la regla nueva"
+      ],
+      "dependsOn": [],
+      "definitionRevision": 1,
+      "status": "verified",
+      "blocker": null,
+      "evidence": {
+        "summary": "completedTask(step, before, after) en decide.ts: la sesión anterior fue execute y tasksDone subió. decideNextStep no aplica el tope si es verdadero y AutopilotRunRepository.beginSession reinicia sessions_in_sprint a 1 en ese caso. Las sesiones fix y las reanudadas por reinicio (countSession) no reinician. Docs: plan.md, estados.md y panel-desarrollo.md.",
+        "validations": [
+          {
+            "command": "npx vitest run test/pilot-decide.test.ts test/pilot-runs.test.ts test/pilot-autopilot.test.ts",
+            "result": "passed",
+            "note": "completedTask; el tope sigue tras fix o ejecución sin tarea; beginSession reinicia solo tras una ejecución que cerró tarea; un sprint de 5 tareas con tope 2 corre hasta el cierre; el test del tope con fix ahora ve plan, execute, fix, fix"
+          },
+          {
+            "command": "npx vitest run (apps/api) + tsc + lint + prettier",
+            "result": "passed",
+            "note": "65 archivos, 1110 tests"
+          }
+        ],
+        "filesChanged": [
+          "apps/api/src/pilot/decide.ts",
+          "apps/api/src/pilot/runs-repo.ts",
+          "apps/api/test/pilot-decide.test.ts",
+          "apps/api/test/pilot-runs.test.ts",
+          "apps/api/test/pilot-autopilot.test.ts",
+          "docs/plan.md",
+          "docs/estados.md",
+          "docs/panel-desarrollo.md"
+        ],
+        "notes": null,
+        "by": "claude-maker",
+        "recordedAt": "2026-10-06T22:32:46.943Z",
+        "definitionRevision": 1,
+        "materialDigest": "e6d3cf130ab98c0a5d2fe07b128d9c47c397affef26f579bddab12c98b8a397d"
+      },
+      "verdict": {
+        "result": "pass",
+        "checkedCriteria": [
+          "Con 6 sesiones y la última ejecución cerró una tarea, el piloto sigue",
+          "Con 6 sesiones sin cerrar tarea (fix, o ejecución sin tareas nuevas) frena con tope_de_sesiones",
+          "beginSession reinicia el contador solo tras una ejecución que cerró una tarea",
+          "Un scope de 8 tareas en un sprint corre completo con el tope en 6",
+          "Los docs describen la regla nueva"
+        ],
+        "findings": [
+          {
+            "severity": "suggestion",
+            "detail": "Tras un reinicio en medio de una ejecución, la sesión reanudada suma al contador (countSession) sin reiniciarlo; si el reinicio cae justo después de cerrar una tarea, el reinicio de la cuenta se aplica en la siguiente sesión nueva. Es lo esperado."
+          },
+          {
+            "severity": "suggestion",
+            "detail": "Un sprint donde cada ejecución cierra una tarea pero Kyro agrega tareas nuevas sin fin no frena por el tope; la red es sin_avance y el límite de tareas del sprint."
+          }
+        ],
+        "by": "claude-checker",
+        "reviewedAt": "2026-10-06T22:32:47.171Z",
+        "definitionRevision": 1,
+        "evidenceDigest": "94d20839106775271622cda9256fb4e325cdaebbdd16db91592d276c409a4f0d",
+        "reviewedMaterialDigest": "e6d3cf130ab98c0a5d2fe07b128d9c47c397affef26f579bddab12c98b8a397d"
+      },
+      "disposition": null
+    }
+  ],
+  "activity": [
+    {
+      "seq": 1,
+      "at": "2026-10-06T22:28:59.106Z",
+      "event": "created",
+      "taskId": null,
+      "by": "claude",
+      "reason": "Created through the Work CLI.",
+      "revision": 1
+    },
+    {
+      "seq": 2,
+      "at": "2026-10-06T22:28:59.331Z",
+      "event": "tasks_planned",
+      "taskId": null,
+      "by": "claude",
+      "reason": "Planned 1 Work task.",
+      "revision": 2
+    },
+    {
+      "seq": 3,
+      "at": "2026-10-06T22:28:59.546Z",
+      "event": "task_started",
+      "taskId": "W1",
+      "by": "claude",
+      "reason": "Task started through the Work CLI.",
+      "revision": 3
+    },
+    {
+      "seq": 4,
+      "at": "2026-10-06T22:32:46.943Z",
+      "event": "evidence_recorded",
+      "taskId": "W1",
+      "by": "claude-maker",
+      "reason": "Evidence recorded with 2 validation results.",
+      "revision": 4
+    },
+    {
+      "seq": 5,
+      "at": "2026-10-06T22:32:47.171Z",
+      "event": "review_recorded",
+      "taskId": "W1",
+      "by": "claude-checker",
+      "reason": "Task review recorded with pass.",
+      "revision": 5
+    },
+    {
+      "seq": 6,
+      "at": "2026-10-06T22:32:47.398Z",
+      "event": "work_closed",
+      "taskId": null,
+      "by": "claude",
+      "reason": "Tarea verificada",
+      "revision": 6
+    }
+  ],
+  "closure": {
+    "outcome": "completed",
+    "reason": "Tarea verificada",
+    "by": "claude",
+    "closedAt": "2026-10-06T22:32:47.398Z",
+    "briefDigest": "8c32ff1f98c97a30430f079399b864983ba49380f4b0bbf19e5d9a4425727767",
+    "finalRevision": 6
+  },
+  "promotion": null
+}
