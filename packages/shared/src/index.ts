@@ -150,6 +150,16 @@ export interface Project {
   models: ModelSelection;
 }
 
+/** A git repo of a project: the root ('.') or a child repo ignored by the root. */
+export interface ProjectRepo {
+  id: number;
+  projectId: number;
+  /** Path relative to the base clone / worktree; '.' is the root. Only ever comes from detection. */
+  path: string;
+  /** Branch the repo is updated from and merged into; editable per repo. */
+  baseBranch: string;
+}
+
 /** Metadata of a project's development .env; the content never leaves the API. */
 export interface EnvFileInfo {
   /** Relative path inside the worktree, e.g. `.env` or `backend/.env.local`. */
@@ -271,6 +281,20 @@ export interface PullResult {
   /** Local commits origin does not have (kept untouched). */
   ahead: number;
   output: string;
+}
+
+/** Outcome of updating one repo of the base clone: `result` or `error`, never both. */
+export interface RepoPullResult {
+  /** '.' for the root, else the child folder. */
+  path: string;
+  baseBranch: string;
+  result: PullResult | null;
+  error: string | null;
+}
+
+/** The root's pull result (compatible with the old response) plus one result per repo. */
+export interface PullBaseResult extends PullResult {
+  repos: RepoPullResult[];
 }
 
 /** The branch POST /api/projects/:id/kyro-init leaves committed and unpushed. */
@@ -550,4 +574,66 @@ export interface ClaudeAccount {
 export interface NewClaudeAccount {
   name: string;
   configDir: string;
+}
+
+// --- Git operations of a work (GET/POST /api/chats/:id/git, /setup) -------------------------------
+
+/** Status of one repo of a work. */
+export interface RepoStatus {
+  /** '.' for the root, else the child folder name. */
+  path: string;
+  baseBranch: string;
+  branch: string;
+  files: { path: string; status: string }[];
+  ahead: number | null;
+  behind: number | null;
+  /** Set when git failed on this repo; the other repos still answer. */
+  error: string | null;
+}
+
+export interface WorktreeStatus {
+  chatId: number;
+  repos: RepoStatus[];
+}
+
+export type RepoOpResult = 'ok' | 'conflict' | 'error';
+
+/** Outcome of an operation on one repo. */
+export interface RepoOpOutcome {
+  path: string;
+  result: RepoOpResult;
+  output: string;
+  /** Conflicting files of a pull that was aborted. */
+  conflicts?: string[];
+  /** True when the user can hand the conflict to the agent. */
+  askAgent?: boolean;
+  /** True when this pull changed a lockfile. */
+  lockfileChanged?: boolean;
+}
+
+export interface CommitOutcome extends RepoOpOutcome {
+  /** Set when the message is not Conventional Commits; the commit is made anyway. */
+  warning?: string;
+}
+
+export interface PullOutcome {
+  repos: RepoOpOutcome[];
+  /** Result of the automatic reinstall, when a lockfile changed. */
+  reinstall: RepoOpOutcome | null;
+}
+
+export interface PushOutcome {
+  repos: RepoOpOutcome[];
+}
+
+export interface GitCommitRequest {
+  /** Relative path of a repo of the work ('.' for the root). */
+  repo: string;
+  files: string[];
+  message: string;
+}
+
+/** Pull and push: without `repo` they run on every repo of the work. */
+export interface GitRepoRequest {
+  repo?: string;
 }

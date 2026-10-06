@@ -386,6 +386,25 @@ Con eso `http://localhost:3000/api/health` responde desde la PC. Los endpoints p
 
 Si se desarrolla el frontend en la PC, alcanza con el túnel del puerto 3000 y levantar `npm run start -w @agents-panel/web` en la PC: el proxy ya apunta a `127.0.0.1:3000`. `PANEL_ORIGIN` sigue siendo `http://localhost:4200`.
 
+## Probar las operaciones git de un trabajo (API)
+
+Recorrido del sprint 1 de `operaciones-worktree`; la pestaña Git de la web llega en el sprint 3. **Usá un trabajo de prueba** (un Work descartable sobre un repo de prueba con un remoto que no sea el real), nunca `ventas` ni este repo. Con el túnel abierto (sección 4) se maneja con `curl` y una cookie de sesión: `POST /api/auth/login` y el segundo factor dejan la cookie en un archivo, y el token CSRF sale de `GET /api/auth/me`. Las `POST` piden la cookie, el token en el header `X-CSRF-Token` y el header `Origin` igual a `PANEL_ORIGIN`. Ni el token ni la cookie se pegan en docs ni en la bitácora.
+
+| Ruta | Para qué | Cuerpo |
+|---|---|---|
+| `GET /api/chats/:id/git` | Estado por repo: rama, archivos, adelante y atrás | — |
+| `POST /api/chats/:id/git/commit` | Commitea solo los archivos elegidos | `{ "repo": ".", "files": ["README.md"], "message": "docs: ajusta el readme" }` |
+| `POST /api/chats/:id/git/pull-base` | `git pull --no-rebase origin <base del repo>` | `{ "repo": "be-ventas" }` o `{}` para todos |
+| `POST /api/chats/:id/git/pull-branch` | `git pull --no-rebase origin <rama del trabajo>` | ídem |
+| `POST /api/chats/:id/git/push` | `git push -u origin <rama del trabajo>`, sin `--force` | ídem |
+| `POST /api/chats/:id/setup` | Reinstala dependencias (el setup del proyecto) | — |
+
+- `repo` es `.` (la raíz) o una carpeta de primer nivel del trabajo; cualquier otra cosa da 404 (un path con `..` o absoluto, 400).
+- **Sin sesión 401; `POST` sin CSRF 403.** Con el agente del trabajo corriendo o el piloto en `active`, `queued` o `waiting_quota`, 409 con el motivo y el repo no cambia: pausá el piloto o esperá el fin del turno. `files` vacío o `message` vacío dan 400.
+- **422** cuando git rechaza: un push con el remoto adelantado devuelve la salida de git en `error` y no reintenta; cuando conviene traer antes la propia rama (`pull-branch`). Un pull con conflicto se aborta y responde 200 con los archivos en conflicto.
+- Si un pull cambia un lockfile, la respuesta trae `reinstall` con el resultado del setup.
+- Cada operación queda en `GET /api/chats/:id/timeline` con actor `user`.
+
 ## Problemas frecuentes
 
 | Síntoma | Causa y arreglo |

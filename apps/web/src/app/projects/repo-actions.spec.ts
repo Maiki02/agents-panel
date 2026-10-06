@@ -31,6 +31,22 @@ describe('pullSummary', () => {
   });
 });
 
+describe('pullSummary with repos', () => {
+  it('names the repos that were rejected', () => {
+    const text = pullSummary({
+      ...result,
+      status: 'updated',
+      commits: 1,
+      ahead: 0,
+      repos: [
+        { path: '.', baseBranch: 'main', result: null, error: null },
+        { path: 'be', baseBranch: 'dev', result: null, error: 'El clon tiene cambios locales' },
+      ],
+    });
+    expect(text).toBe('Se trajeron 1 commit de GitHub. be: El clon tiene cambios locales.');
+  });
+});
+
 describe('kyroBranchSummary', () => {
   it('names the branch and tells the user it still has to be merged', () => {
     const text = kyroBranchSummary(

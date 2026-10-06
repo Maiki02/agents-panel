@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { FastifyInstance } from 'fastify';
@@ -8,7 +8,7 @@ import { SESSION_COOKIE, SessionService } from '../src/auth/sessions.js';
 import { UserRepository } from '../src/auth/users.js';
 import { PullRejectedError, pullFastForward } from '../src/projects/git.js';
 import { ProjectRepository } from '../src/projects/repo.js';
-import { PASSWORD, makeApp, makeGitRepo, mutatingHeaders } from './helpers.js';
+import { ORIGIN, PASSWORD, makeApp, makeGitRepo, mutatingHeaders } from './helpers.js';
 
 const IDENTITY = ['-c', 'user.name=t', '-c', 'user.email=t@t'];
 const git = (repo: string, ...args: string[]) =>
@@ -185,6 +185,196 @@ describe('POST /api/projects/:id/pull', () => {
     execFileSync('git', ['-C', project.repoPath, 'remote', 'set-url', 'origin', origin + '-gone']);
     const res = await pull(project.id);
     expect(res.statusCode).toBe(502);
+  });
+});
+
+describe('pull and repos routes with a child repo on another base', () => {
+  /** Root on main (origin A) with an ignored child `be` on dev (origin B). */
+  async function setupWorkspace() {
+    const made = makeApp();
+    app = made.app;
+    await app.ready();
+    const user = await new UserRepository(made.db).create('alice', PASSWORD);
+    const { token, csrfToken } = new SessionService(made.db, {
+      idleTtlSeconds: 1800,
+      absoluteTtlSeconds: 43200,
+    }).create(user.id);
+    const headers = mutatingHeaders(`${SESSION_COOKIE}=${token}`, csrfToken);
+    const remote = makeRemote();
+    const childRoot = mkdtempSync(join(tmpdir(), 'panel-child-'));
+    const childSeed = join(childRoot, 'seed');
+    execFileSync('git', ['init', '-q', '-b', 'dev', childSeed]);
+    writeFileSync(join(childSeed, 'c.txt'), 'c\n');
+    git(childSeed, 'add', '.');
+    git(childSeed, 'commit', '-q', '-m', 'seed');
+    const childOrigin = join(childRoot, 'origin.git');
+    execFileSync('git', ['clone', '-q', '--bare', childSeed, childOrigin]);
+    const childClone = join(remote.clone, 'be');
+    execFileSync('git', ['clone', '-q', childOrigin, childClone]);
+    writeFileSync(join(remote.clone, '.git', 'info', 'exclude'), 'be/\n');
+    const pushChild = (file: string) => {
+      writeFileSync(join(childSeed, file), 'x\n');
+      git(childSeed, 'add', file);
+      git(childSeed, 'commit', '-q', '-m', `add ${file}`);
+      git(childSeed, 'push', '-q', childOrigin, 'dev');
+    };
+    const project = await new ProjectRepository(made.db).add({
+      name: 'ws',
+      repoPath: remote.clone,
+      baseBranch: 'main',
+    });
+    const server = app;
+    const call = (method: 'GET' | 'POST' | 'PATCH', url: string, payload?: object) =>
+      server.inject({
+        method,
+        url,
+        headers: method === 'GET' ? { cookie: headers['cookie'] ?? '' } : headers,
+        ...(payload ? { payload } : {}),
+      });
+    const detect = () => call('POST', `/api/projects/${String(project.id)}/repos/detect`);
+    const pull = () => call('POST', `/api/projects/${String(project.id)}/pull`);
+    return { ...made, ...remote, project, childClone, pushChild, call, detect, pull, headers };
+  }
+
+  interface RepoRow {
+    id: number;
+    path: string;
+    baseBranch: string;
+  }
+
+  function second(rows: RepoRow[]): RepoRow {
+    const row = rows[1];
+    if (!row) throw new Error('expected a second repo');
+    return row;
+  }
+
+  it('detects the repos and pulls each one from its own base, one result per repo', async () => {
+    const { detect, pull, call, project, pushChild, pushCommit, clone, childClone } =
+      await setupWorkspace();
+    const detected = await detect();
+    expect(detected.statusCode).toBe(200);
+    const rows = detected.json<RepoRow[]>();
+    expect(rows.map((r) => [r.path, r.baseBranch])).toEqual([
+      ['.', 'main'],
+      ['be', 'main'],
+    ]);
+    const child = second(rows);
+    const patched = await call(
+      'PATCH',
+      `/api/projects/${String(project.id)}/repos/${String(child.id)}`,
+      {
+        baseBranch: 'dev',
+      },
+    );
+    expect(patched.statusCode).toBe(200);
+    expect(
+      (await call('GET', `/api/projects/${String(project.id)}/repos`)).json<RepoRow[]>()[1],
+    ).toMatchObject({ path: 'be', baseBranch: 'dev' });
+
+    pushCommit('root.txt');
+    pushChild('child.txt');
+    const res = await pull();
+    expect(res.statusCode).toBe(200);
+    const body = res.json<{
+      status: string;
+      commits: number;
+      repos: {
+        path: string;
+        baseBranch: string;
+        result: { commits: number } | null;
+        error: string | null;
+      }[];
+    }>();
+    expect(body).toMatchObject({ status: 'updated', commits: 1 });
+    expect(body.repos.map((r) => [r.path, r.baseBranch, r.result?.commits, r.error])).toEqual([
+      ['.', 'main', 1, null],
+      ['be', 'dev', 1, null],
+    ]);
+    expect(git(clone, 'ls-files')).toContain('root.txt');
+    expect(git(childClone, 'ls-files')).toContain('child.txt');
+  });
+
+  it('rejects a child with local changes without stopping the root', async () => {
+    const { detect, pull, call, project, pushChild, pushCommit, clone, childClone } =
+      await setupWorkspace();
+    const child = second((await detect()).json<RepoRow[]>());
+    await call('PATCH', `/api/projects/${String(project.id)}/repos/${String(child.id)}`, {
+      baseBranch: 'dev',
+    });
+    pushCommit('root.txt');
+    pushChild('child.txt');
+    writeFileSync(join(childClone, 'c.txt'), 'edited\n');
+    const res = await pull();
+    expect(res.statusCode).toBe(200);
+    const body = res.json<{ repos: { path: string; result: unknown; error: string | null }[] }>();
+    const be = body.repos.find((r) => r.path === 'be');
+    expect(be?.result).toBeNull();
+    expect(be?.error).toContain('cambios locales');
+    expect(body.repos.find((r) => r.path === '.')?.error).toBeNull();
+    expect(git(clone, 'ls-files')).toContain('root.txt');
+    expect(git(childClone, 'ls-files')).not.toContain('child.txt');
+  });
+
+  it('answers 401 without session and 403 without CSRF on the new routes, running nothing', async () => {
+    const { project, detect, db, headers, app: server } = await setupWorkspace();
+    const base = `/api/projects/${String(project.id)}`;
+    const routes = [
+      { method: 'GET', url: `${base}/repos` },
+      { method: 'POST', url: `${base}/repos/detect` },
+      { method: 'PATCH', url: `${base}/repos/1`, payload: { baseBranch: 'dev' } },
+      { method: 'POST', url: `${base}/pull` },
+    ] as const;
+    for (const route of routes) {
+      const anonymous = await server.inject({ ...route, headers: { origin: ORIGIN } });
+      expect(anonymous.statusCode, `${route.method} ${route.url}`).toBe(401);
+    }
+    // Nothing was detected by the rejected calls.
+    expect(db.prepare('SELECT count(*) AS n FROM project_repos').get()).toEqual({ n: 0 });
+    await detect();
+    for (const route of routes.filter((r) => r.method !== 'GET')) {
+      const noCsrf = await server.inject({
+        ...route,
+        headers: { cookie: headers['cookie'] ?? '', origin: ORIGIN },
+      });
+      expect(noCsrf.statusCode, `${route.method} ${route.url}`).toBe(403);
+    }
+  });
+
+  it('reports a missing child folder as that repo error', async () => {
+    const { detect, pull, childClone } = await setupWorkspace();
+    await detect();
+    rmSync(childClone, { recursive: true, force: true });
+    const body = (await pull()).json<{ repos: { path: string; error: string | null }[] }>();
+    expect(body.repos.find((r) => r.path === 'be')?.error).toContain('Falta la carpeta');
+    expect(body.repos.find((r) => r.path === '.')?.error).toBeNull();
+  });
+
+  it('PATCH answers 400 for a bad base, 404 for another project repo, and keeps a valid one', async () => {
+    const { detect, call, project, db } = await setupWorkspace();
+    const rows = (await detect()).json<RepoRow[]>();
+    const child = second(rows);
+    const url = `/api/projects/${String(project.id)}/repos/${String(child.id)}`;
+    expect((await call('PATCH', url, { baseBranch: '--upload-pack=x' })).statusCode).toBe(400);
+    expect((await call('PATCH', url, { baseBranch: 'a..b' })).statusCode).toBe(400);
+    expect((await call('PATCH', url, { baseBranch: '' })).statusCode).toBe(400);
+    expect((await call('PATCH', url, { baseBranch: 'dev', extra: 1 })).statusCode).toBe(400);
+    const other = await new ProjectRepository(db).add({
+      name: 'other',
+      repoPath: makeRemote().clone,
+      baseBranch: 'main',
+    });
+    const foreign = `/api/projects/${String(other.id)}/repos/${String(child.id)}`;
+    expect((await call('PATCH', foreign, { baseBranch: 'dev' })).statusCode).toBe(404);
+    expect(
+      (await call('PATCH', `/api/projects/${String(project.id)}/repos/9999`, { baseBranch: 'dev' }))
+        .statusCode,
+    ).toBe(404);
+    expect((await call('GET', '/api/projects/9999/repos')).statusCode).toBe(404);
+    expect((await call('PATCH', url, { baseBranch: 'dev' })).statusCode).toBe(200);
+    expect(
+      (await call('GET', `/api/projects/${String(project.id)}/repos`)).json<RepoRow[]>()[1]
+        ?.baseBranch,
+    ).toBe('dev');
   });
 });
 

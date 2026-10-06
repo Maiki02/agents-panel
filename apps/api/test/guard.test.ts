@@ -46,6 +46,30 @@ describe('deny-by-default guard', () => {
       'GET /api/projects/:id/env',
       'PUT /api/projects/:id/env',
       'DELETE /api/projects/:id/env',
+      'GET /api/projects/:id/repos',
+      'POST /api/projects/:id/repos/detect',
+      'PATCH /api/projects/:id/repos/:repoId',
+      'POST /api/projects/:id/pull',
+    ]) {
+      expect(seen).toContain(expected);
+    }
+    expect(routes.every((r) => !r.public)).toBe(true);
+  });
+
+  it('registers the git routes of a work and keeps them non-public', async () => {
+    app = makeApp().app;
+    await app.ready();
+    const routes = app.registeredRoutes.filter(
+      (r) => r.url.startsWith('/api/chats/:id/git') || r.url === '/api/chats/:id/setup',
+    );
+    const seen = routes.map((r) => `${r.method} ${r.url}`);
+    for (const expected of [
+      'GET /api/chats/:id/git',
+      'POST /api/chats/:id/git/commit',
+      'POST /api/chats/:id/git/pull-base',
+      'POST /api/chats/:id/git/pull-branch',
+      'POST /api/chats/:id/git/push',
+      'POST /api/chats/:id/setup',
     ]) {
       expect(seen).toContain(expected);
     }

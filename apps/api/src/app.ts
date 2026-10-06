@@ -36,6 +36,8 @@ import { DebtAcceptance } from './pilot/accept-debt.js';
 import type { MergeGit, PilotGit } from './pilot/git-ops.js';
 import type { PilotGh } from './pilot/github-cli.js';
 import { registerChatRoutes } from './chats/routes.js';
+import { registerChatGitRoutes } from './chats/git-routes.js';
+import { WorktreeOps } from './worktrees/ops.js';
 import { registerStreamRoute } from './chats/stream.js';
 import { ChatService } from './chats/service.js';
 import { registerGuard } from './auth/guard.js';
@@ -53,6 +55,7 @@ import {
 import { EnvFileRepository } from './env-files/repo.js';
 import { registerEnvFileRoutes } from './env-files/routes.js';
 import { ProjectRepository } from './projects/repo.js';
+import { ProjectRepoRepository } from './projects/repos-repo.js';
 import { ProjectService } from './projects/service.js';
 import { KyroBranchService } from './projects/kyro-branch.js';
 import type { KyroInitializer } from './projects/service.js';
@@ -61,6 +64,7 @@ import { ProjectDeleter } from './projects/delete.js';
 import { registerDeleteRoutes } from './projects/delete-routes.js';
 import { PullService } from './projects/pull.js';
 import { registerPullRoutes } from './projects/pull-routes.js';
+import { registerRepoRoutes } from './projects/repos-routes.js';
 import { registerProjectRoutes } from './projects/routes.js';
 import { UserRepository } from './auth/users.js';
 import { hasWebBuild, isWebRequest, registerWebStatic } from './web-static.js';
@@ -264,8 +268,15 @@ export function buildApp(deps: AppDeps, options: FastifyServerOptions = {}): Fas
     ...(deps.kyroScriptRunner ? { runner: deps.kyroScriptRunner } : {}),
   });
 
+  const projectRepos = new ProjectRepoRepository(deps.db, now);
   const projectService =
-    deps.projectService ?? new ProjectService({ repo: projects, config: deps.config, kyroLock });
+    deps.projectService ??
+    new ProjectService({
+      repo: projects,
+      config: deps.config,
+      kyroLock,
+      projectRepos,
+    });
   // Clones that were running when the server stopped can never finish: mark them as errors.
   app.addHook('onReady', async () => {
     await projectService.recoverInterrupted();
@@ -276,7 +287,8 @@ export function buildApp(deps: AppDeps, options: FastifyServerOptions = {}): Fas
   });
 
   registerProjectRoutes(app, { projects, service: projectService });
-  registerPullRoutes(app, { service: new PullService({ projects, manager }) });
+  registerRepoRoutes(app, { projects, repos: projectRepos });
+  registerPullRoutes(app, { service: new PullService({ projects, manager, projectRepos }) });
   const reauth = new ReauthVerifier({ users, secondFactor, audit, now });
   // A plugin, like the auth routes, so the per-route rate limit applies.
   const kyroBranch = new KyroBranchService({
@@ -325,6 +337,19 @@ export function buildApp(deps: AppDeps, options: FastifyServerOptions = {}): Fas
     worktreeState,
     ideas: ideaScanner,
     ideaActions,
+  });
+  // A plugin: its own error handler maps the git operation errors without touching the others.
+  const worktreeOps = new WorktreeOps({
+    chats,
+    projects,
+    projectRepos,
+    manager,
+    autopilot: autopilotRuns,
+    state: worktreeState,
+    envFiles,
+  });
+  void app.register((instance) => {
+    registerChatGitRoutes(instance, { ops: worktreeOps });
   });
   registerAutopilotRoutes(app, {
     service: chatService,

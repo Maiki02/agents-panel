@@ -512,6 +512,25 @@ export const migrations: readonly Migration[] = [
         ADD COLUMN account_id INTEGER REFERENCES claude_accounts(id) ON DELETE SET NULL;
     `,
   },
+  {
+    version: 20,
+    name: 'project_repos',
+    // Repos of a project: the root ('.', the project's base) plus the child repos found in the
+    // base clone. The path is relative and only ever comes from detection, never from the user.
+    sql: `
+      CREATE TABLE project_repos (
+        id INTEGER PRIMARY KEY,
+        project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        path TEXT NOT NULL,
+        base_branch TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        UNIQUE (project_id, path)
+      );
+      INSERT INTO project_repos (project_id, path, base_branch, created_at, updated_at)
+        SELECT id, '.', base_branch, created_at, created_at FROM projects;
+    `,
+  },
 ];
 
 /** Applies pending migrations in order, each in its own transaction. Safe to run repeatedly. */

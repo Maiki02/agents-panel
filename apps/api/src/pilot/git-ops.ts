@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { isAbsolute, join, relative, resolve } from 'node:path';
 import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
@@ -55,6 +55,36 @@ export interface MergeGit {
   isAncestor(cwd: string, ref: string): Promise<boolean>;
 }
 
+/** One changed path of `git status`: the two-letter porcelain code (index, worktree) and the path. */
+export interface GitFileStatus {
+  path: string;
+  /** Porcelain v1 `XY` code, e.g. ' M', 'A ', '??', 'UU'. */
+  status: string;
+}
+
+export interface GitStatus {
+  /** Checked-out branch ('' when HEAD is detached). */
+  branch: string;
+  files: GitFileStatus[];
+  /** Commits ahead of `origin/<branch>`; null when that remote branch does not exist. */
+  ahead: number | null;
+  /** Commits behind `origin/<branch>`; null when that remote branch does not exist. */
+  behind: number | null;
+}
+
+/** The git operations of the manual per-work actions (status, commit of chosen files, pulls). */
+export interface RepoGit {
+  status(cwd: string): Promise<GitStatus>;
+  /** Commits only the given files; rejects bad, outside or ignored paths without committing. */
+  commitFiles(cwd: string, files: string[], message: string): Promise<void>;
+  /** `git pull --no-rebase --no-edit origin <branch>`; rejects with the git output on failure. */
+  pullBranch(cwd: string, branch: string): Promise<string>;
+  /** `git merge --abort`. */
+  abortMerge(cwd: string): Promise<void>;
+  /** Paths that differ between two refs. */
+  changedFiles(cwd: string, from: string, to: string): Promise<string[]>;
+}
+
 const BRANCH = /^[A-Za-z0-9][A-Za-z0-9._/-]*$/;
 
 function checkBranch(branch: string, what: string): void {
@@ -88,7 +118,7 @@ function failure(args: string[], error: unknown): Error {
 }
 
 /** The real operations, over an `exec` that tests can replace to see every argv. */
-export function createGit(exec: Exec = defaultExec): PilotGit & MergeGit {
+export function createGit(exec: Exec = defaultExec): PilotGit & MergeGit & RepoGit {
   const git = async (cwd: string, args: string[], timeout = GIT_TIMEOUT_MS): Promise<string> => {
     try {
       return (await exec('git', ['-C', cwd, ...args], { timeout })).stdout;
@@ -96,7 +126,78 @@ export function createGit(exec: Exec = defaultExec): PilotGit & MergeGit {
       throw failure(args, error);
     }
   };
+  const currentBranch = async (cwd: string): Promise<string> =>
+    (await git(cwd, ['rev-parse', '--abbrev-ref', 'HEAD'])).trim().replace(/^HEAD$/, '');
+  const isIgnored = async (cwd: string, file: string): Promise<boolean> => {
+    try {
+      await git(cwd, ['check-ignore', '-q', '--', file]);
+      return true;
+    } catch {
+      return false; // exit 1: not ignored
+    }
+  };
   return {
+    async status(cwd) {
+      const branch = await currentBranch(cwd);
+      const raw = (await git(cwd, ['status', '--porcelain=v1', '-z'])).split('\0');
+      const files: GitFileStatus[] = [];
+      for (let i = 0; i < raw.length; i++) {
+        const entry = raw[i] ?? '';
+        if (entry.length < 4) continue;
+        const status = entry.slice(0, 2);
+        files.push({ status, path: entry.slice(3) });
+        if (status.includes('R') || status.includes('C')) i++; // the next entry is the origin path
+      }
+      let ahead: number | null = null;
+      let behind: number | null = null;
+      if (branch !== '' && BRANCH.test(branch)) {
+        try {
+          await git(cwd, ['rev-parse', '--verify', '--quiet', 'refs/remotes/origin/' + branch]);
+          const counts = (
+            await git(cwd, ['rev-list', '--left-right', '--count', 'HEAD...origin/' + branch])
+          )
+            .trim()
+            .split(/\s+/);
+          ahead = Number(counts[0]);
+          behind = Number(counts[1]);
+        } catch {
+          // No remote branch: ahead and behind stay null.
+        }
+      }
+      return { branch, files, ahead, behind };
+    },
+    async commitFiles(cwd, files, message) {
+      if (files.length === 0) throw new Error('No hay archivos elegidos para commitear');
+      if (message.trim() === '') throw new Error('El mensaje del commit está vacío');
+      const root = resolve(cwd);
+      for (const file of files) {
+        if (file === '' || file.includes('\0')) throw new Error('Ruta no válida');
+        if (isAbsolute(file)) throw new Error('Ruta absoluta no permitida: ' + file);
+        if (file.split(/[\\/]/).includes('..')) {
+          throw new Error("Ruta con '..' no permitida: " + file);
+        }
+        const rel = relative(root, resolve(root, file));
+        if (rel === '' || rel.startsWith('..') || isAbsolute(rel)) {
+          throw new Error('Ruta fuera del repositorio: ' + file);
+        }
+        if (await isIgnored(cwd, file)) throw new Error('Archivo ignorado por git: ' + file);
+      }
+      await git(cwd, ['add', '--', ...files]);
+      await git(cwd, ['commit', '-m', message, '--', ...files]);
+    },
+    async pullBranch(cwd, branch) {
+      const out = await git(cwd, pullArgs(branch), GIT_NETWORK_TIMEOUT_MS);
+      return out.trim().slice(0, 2000);
+    },
+    async abortMerge(cwd) {
+      await git(cwd, ['merge', '--abort']);
+    },
+    async changedFiles(cwd, from, to) {
+      checkBranch(from, 'el diff');
+      checkBranch(to, 'el diff');
+      const out = await git(cwd, ['diff', '--name-only', '-z', from, to, '--']);
+      return out.split('\0').filter((file) => file !== '');
+    },
     async commitKyro(cwd, message) {
       if (!existsSync(join(cwd, '.agents', 'kyro'))) return { committed: false };
       await git(cwd, ['add', '--', '.agents/kyro']);
@@ -144,9 +245,7 @@ export function createGit(exec: Exec = defaultExec): PilotGit & MergeGit {
       const out = await git(cwd, ['diff', '--name-only', '--diff-filter=U', '-z']);
       return out.split('\0').filter((file) => file !== '');
     },
-    async currentBranch(cwd) {
-      return (await git(cwd, ['rev-parse', '--abbrev-ref', 'HEAD'])).trim().replace(/^HEAD$/, '');
-    },
+    currentBranch,
     async isAncestor(cwd, ref) {
       try {
         await git(cwd, ['merge-base', '--is-ancestor', 'HEAD', ref]);
@@ -166,4 +265,4 @@ export function createGit(exec: Exec = defaultExec): PilotGit & MergeGit {
   };
 }
 
-export const realGit: PilotGit & MergeGit = createGit();
+export const realGit: PilotGit & MergeGit & RepoGit = createGit();

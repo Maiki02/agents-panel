@@ -86,6 +86,20 @@ async function run(
   }
 }
 
+/**
+ * Runs the project's setup_command (no shell) inside a worktree; no command, nothing to do. Used
+ * when the work is created and again when the user reinstalls its dependencies.
+ */
+export async function runSetup(
+  project: Pick<Project, 'setupCommand'>,
+  path: string,
+  log: WorktreeLog = () => undefined,
+): Promise<void> {
+  if (!project.setupCommand) return;
+  const [file, ...args] = splitCommand(project.setupCommand);
+  if (file) await run(file, args, path, log, 'setup');
+}
+
 async function branchExists(repoPath: string, branch: string): Promise<boolean> {
   try {
     await execFileAsync('git', [
@@ -133,10 +147,7 @@ export async function createWorktree(
       log,
       'git worktree add',
     );
-    if (project.setupCommand && !options.skipSetup) {
-      const [file, ...args] = splitCommand(project.setupCommand);
-      if (file) await run(file, args, path, log, 'setup');
-    }
+    if (!options.skipSetup) await runSetup(project, path, log);
   } catch (error) {
     await rollback(project.repoPath, path, branch);
     throw error;

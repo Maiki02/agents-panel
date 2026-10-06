@@ -87,6 +87,31 @@ export interface ChatServiceDeps {
   onAutopilotStart?: (chatId: number) => void;
 }
 
+/**
+ * Writes the project's development .env files into a worktree, after setup (it may create the
+ * folders, e.g. child repos): the agent never starts without them, so any failure, an unreadable
+ * file included, aborts. Events carry paths only. Shared by create and by the manual reinstall.
+ */
+export async function writeProjectEnv(
+  envFiles: Pick<EnvFileRepository, 'readAll'>,
+  projectId: number,
+  worktreePath: string,
+  buffered: { type: string; payload: Record<string, unknown> }[],
+): Promise<void> {
+  const files = envFiles.readAll(projectId);
+  if (files.length === 0) return;
+  try {
+    await writeEnvFiles(worktreePath, files);
+  } catch (error) {
+    if (error instanceof EnvFileError) throw new ChatError(error.message, 422);
+    throw error;
+  }
+  buffered.push({
+    type: 'worktree_output',
+    payload: { step: 'env', paths: files.map((file) => file.path) },
+  });
+}
+
 export class ChatService {
   constructor(private readonly deps: ChatServiceDeps) {}
 
@@ -204,27 +229,12 @@ export class ChatService {
     }
   }
 
-  /**
-   * After setup (it may create the folders, e.g. child repos): the agent never starts without its
-   * .env files, so any failure, an unreadable file included, aborts the create. Events carry paths only.
-   */
   private async writeEnv(
     projectId: number,
     worktreePath: string,
     buffered: { type: string; payload: Record<string, unknown> }[],
   ): Promise<void> {
-    const files = this.deps.envFiles.readAll(projectId);
-    if (files.length === 0) return;
-    try {
-      await writeEnvFiles(worktreePath, files);
-    } catch (error) {
-      if (error instanceof EnvFileError) throw new ChatError(error.message, 422);
-      throw error;
-    }
-    buffered.push({
-      type: 'worktree_output',
-      payload: { step: 'env', paths: files.map((file) => file.path) },
-    });
+    await writeProjectEnv(this.deps.envFiles, projectId, worktreePath, buffered);
   }
 
   sendMessage(chatId: number, text: string): void {

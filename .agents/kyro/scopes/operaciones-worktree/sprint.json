@@ -1,0 +1,290 @@
+{
+  "schemaVersion": 4,
+  "scope": "operaciones-worktree",
+  "title": "Operaciones manuales por trabajo y uso de proveedores",
+  "status": "planning",
+  "objective": "Que toda acción que hace el agente o el piloto tenga su botón en la web, usando el mismo servicio que el piloto (D26), y que el uso de los proveedores se vea desde cualquier pantalla.",
+  "successCriteria": [
+    "Desde la web, sin SSH, un usuario puede ver el estado de cada repo de un trabajo, commitear archivos elegidos, traer la base, traer su rama, pushear, reinstalar dependencias y abrir la PR, y cada operación queda en el Timeline con quién la hizo y su resultado.",
+    "Cada acción del catálogo de paridad manual (D26) que ejecuta el piloto tiene una ruta manual equivalente, verificado por un test que recorre el catálogo.",
+    "El pull del clon base actualiza la raíz y cada repo hijo en su propia rama base, con resultado por repo.",
+    "Un icono visible en todas las pantallas muestra el porcentaje de uso de la ventana de 5 h de la cuenta activa y, al abrirlo, las ventanas de 5 h y semanal con su hora de reinicio; si la lectura falla, se muestra el último dato con su antigüedad.",
+    "Ninguna operación manual corre mientras el agente del trabajo está corriendo o el piloto está activo sin pausa (responde 409 con el motivo), y ninguna fuerza un push, hace rebase ni toca archivos ignorados."
+  ],
+  "spec": {
+    "requirements": [
+      {
+        "id": "R1",
+        "statement": "Repos del proyecto: el panel conoce la raíz y los repos hijos de cada proyecto, cada uno con su rama base editable, y el pull del clon base (Configuración → Repositorio) actualiza cada repo en su base con resultado por repo.",
+        "priority": "must",
+        "rationale": "D20: el clon base es fuente de los worktrees y referencia de los clones; solo se actualiza (pull --ff-only, rechaza cambios locales o divergencia), nunca se commitea ni se instala en él. ventas tiene bases distintas por repo (raíz main; fe-ventas y be-ventas en dev). Repos = raíz + carpetas de primer nivel que son repos git e ignoradas por la raíz, detectadas al registrar o con 'Detectar repos' y guardadas editables (tabla project_repos). El merge genérico (D13) y 'Traer base' usan la base de cada repo. Hoy existe PullService.pullBase solo para la raíz (finding 02). Validación: test con clon base y repo hijo ignorado con otra base; resultado por repo."
+      },
+      {
+        "id": "R2",
+        "statement": "Operaciones git por trabajo: por cada repo del worktree, ver el estado (rama, cambios, adelante/atrás del remoto), commitear archivos elegidos con mensaje, traer la rama base, traer la propia rama, pushear y reinstalar dependencias; un pull con conflicto se aborta y lista los archivos ofreciendo pedirle al agente que lo resuelva.",
+        "priority": "must",
+        "rationale": "D19: pedido del usuario (commit, pull y push según worktree o proyecto). Commit valida Conventional Commits con aviso, no bloqueo. Traer base = git pull --no-rebase origin <base del repo>; traer mi rama = git pull --no-rebase origin <rama>. Todo por execFile sin shell; ramas y rutas salen de la base de datos, no del usuario; resultado por repo; cada operación en el Timeline con salida recortada. D22: no hay instalación en el clon base; tras traer base o rama, si cambió un lockfile (package-lock.json, go.sum, uv.lock, pnpm-lock.yaml, yarn.lock) el panel reinstala solo. Validación: tests con repos temporales y remoto bare (commit de archivos elegidos, pull con conflicto abortado, push sin --force, lockfile cambiado → setup corrido)."
+      },
+      {
+        "id": "R3",
+        "statement": "Crear PR desde la web: por cada repo del trabajo con commits que no están en su base, push y PR hacia la base del repo con título y cuerpo prellenados y editables; si la PR ya existe muestra su link y el push la actualiza; en proyectos con merge-dev propia el botón principal es Correr merge-dev.",
+        "priority": "must",
+        "rationale": "D25: 'por si el agente se olvida de hacer la PR'. Título del scope/work en formato Conventional Commits, cuerpo desde git log <base>..HEAD --no-merges. Antes trae la base (L8); con conflicto frena como en D19. Correr merge-dev lanza al agente con esa skill (pasos propios como la versión y el merge de la raíz). Resultado por repo con link en el Timeline. Reusa github-cli.ts y la búsqueda de secretos del piloto (finding 01). Validación: tests con gh falso (PR nueva y existente) y una PR real en agents-panel."
+      },
+      {
+        "id": "R4",
+        "statement": "Ver cambios, descartar y borrar trabajo: diff de solo lectura por repo (sin commitear y contra la base), descartar cambios de archivos elegidos y borrar el trabajo (worktree y ramas locales; las remotas solo si se marca), con confirmación danger.",
+        "priority": "must",
+        "rationale": "D27: revisar desde el celular antes de commitear o abrir una PR; recorte por archivo con 'ver más'; nunca muestra archivos ignorados (los .env); también desde los modales de Commit y Crear PR. D28: deshacer lo que dejó el agente sin SSH; el modal nombra cada archivo o rama; rechaza archivos ignorados; Borrar trabajo exige que no haya sesión corriendo y avisa si hay commits sin pushear. Validación: tests de descarte (rechaza ignorados) y de borrado (rechaza con sesión corriendo)."
+      },
+      {
+        "id": "R5",
+        "statement": "Paridad manual: un único servicio de acciones con actor (vos, piloto, agente) lo usan el orquestador y la API; cada acción del catálogo de D26 que hace el piloto tiene su botón, y los pasos que necesitan razonar son botones que lanzan ese paso del agente.",
+        "priority": "must",
+        "rationale": "D26: 'toda función que haga el agente también debe estar manual'; un solo servicio garantiza que manual y automático hacen lo mismo. Mientras el piloto o el agente corren, los botones se ven deshabilitados con el motivo; para usarlos se pausa el piloto. Cada fila nueva del piloto debe sumar su botón. Validación: test que recorre el catálogo y verifica que cada acción del orquestador tiene ruta manual; el Timeline registra el actor."
+      },
+      {
+        "id": "R6",
+        "statement": "Indicador de uso de proveedores: icono en el header de todas las pantallas con el porcentaje de la ventana de 5 h de la cuenta activa y su tono; al abrirlo, por proveedor, barras y hora de reinicio de la ventana de 5 h, la semanal y las semanales por modelo si vienen, con 'actualizado hace X'.",
+        "priority": "must",
+        "rationale": "D24: pedido del usuario ('como en Orca'); los datos son de la cuenta e incluyen el uso desde la PC y el celular. Tono: ok < 70 %, warn ≥ 70 %, danger ≥ 90 % o rejected. Fuentes: a pedido, la lectura de uso del SDK en una sesión corta sin prompt, con caché de 60 s; pasiva, el último rate_limit_event de cualquier sesión, guardado en la base. La llamada es experimental: si falla queda el dato pasivo con su antigüedad (degradado, no roto). GET /api/usage con sesión. El piloto pasa a retomar sin_cupo_de_uso a la hora de resetsAt cuando la conoce (antes cada 15 min). Por CLAUDE.md (Cuentas de Claude), el uso se mide por account_id (finding 03). Sin costo. Validación: tests con fixtures de la respuesta y del evento, degradado si falla, spec del tono por umbral."
+      },
+      {
+        "id": "R7",
+        "statement": "Web de operaciones: la sidebar Chats tiene los filtros Activos · Te toca · Terminados · Todos, la vista del trabajo suma la pestaña Git con todas las operaciones por repo, y Configuración → Repositorio muestra los repos con su base y el Pull por repo.",
+        "priority": "must",
+        "rationale": "D18: no se agrega una sección Worktrees; la sidebar Chats es la lista de trabajos (chat ↔ worktree 1:1) y se filtra. D19/D20 definen el contenido de la pestaña Git y de Repositorio. D23: criterios de UI de docs/identidad-visual.md (tarjetas, colores por actor, confirmaciones, operaciones largas, estados vacíos, celular). Validación: specs de componentes, build de la web y recorrido manual en un worktree de ventas (raíz y repos hijos)."
+      },
+      {
+        "id": "R8",
+        "statement": "Seguridad de las operaciones: toda ruta nueva exige sesión y CSRF, responde 409 si el agente del trabajo está corriendo o el piloto está activo sin pausa, y ninguna operación fuerza un push, hace rebase, pushea una rama que no sea la del trabajo, commitea o instala en el clon base, ni lee o toca archivos ignorados.",
+        "priority": "must",
+        "rationale": "Invariantes L3/L7/L8 y seguridad del panel (CLAUDE.md): la URL es pública; la allowlist pública de la API no cambia. Riesgo 'operación git de la web pisa al agente' → 409 con motivo (D19). El push sigue la regla del piloto (pushArgs: nunca --force, --force-with-lease, +refspec ni opciones). La búsqueda de secretos frena el push y la PR. Validación: guard test de cada ruta nueva, test de 409 con agente corriendo y con piloto activo, test de push sin --force."
+      },
+      {
+        "id": "R9",
+        "statement": "Documentación: docs/plan.md, docs/estados.md (si cambian estados o eventos), docs/panel-desarrollo.md y CLAUDE.md reflejan las operaciones manuales, la tabla de repos, el indicador de uso y el cierre de la etapa 6 que corresponda.",
+        "priority": "should",
+        "rationale": "WS10 del plan (uno por scope) y la regla de CLAUDE.md: si una decisión cambia, se actualiza el doc en el mismo cambio. Si algo toca la VM, docs/vm-setup.md y su bitácora (Costos: US$0). Validación: revisión de que D18–D28 quedan reflejadas en un doc."
+      }
+    ],
+    "scenarios": [
+      {
+        "id": "S1",
+        "requirement": "R1",
+        "given": "un clon base con raíz en main y un repo hijo ignorado por la raíz cuya base es dev",
+        "when": "se detectan los repos y se pide el pull del clon base",
+        "then": "project_repos tiene la raíz con la base del proyecto y el hijo con su base editable, cada repo hace pull --ff-only en su base y la respuesta trae un resultado por repo, y un repo con cambios locales queda rechazado sin frenar a los demás"
+      },
+      {
+        "id": "S2",
+        "requirement": "R2",
+        "given": "un worktree con dos archivos cambiados",
+        "when": "el usuario commitea eligiendo solo uno con un mensaje",
+        "then": "el commit contiene solo ese archivo, el otro sigue pendiente y el Timeline registra la operación con actor user"
+      },
+      {
+        "id": "S3",
+        "requirement": "R2",
+        "given": "la base remota tiene un cambio que choca con un commit del trabajo",
+        "when": "el usuario pide Traer base",
+        "then": "el merge se aborta, el repo queda como estaba y la respuesta lista los archivos en conflicto ofreciendo pedírselo al agente"
+      },
+      {
+        "id": "S4",
+        "requirement": "R2",
+        "given": "la base remota trae un cambio en un lockfile",
+        "when": "el usuario pide Traer base o Traer mi rama",
+        "then": "el panel vuelve a correr el setup del proyecto y lo registra en el Timeline, y sin lockfile cambiado no lo corre"
+      },
+      {
+        "id": "S5",
+        "requirement": "R8",
+        "given": "el agente del trabajo está corriendo o el piloto está en active, queued o waiting_quota",
+        "when": "el usuario pide cualquier operación git o reinstalar dependencias",
+        "then": "la API responde 409 con el motivo y el repo no cambia"
+      },
+      {
+        "id": "S6",
+        "requirement": "R8",
+        "given": "un trabajo con commits sin pushear",
+        "when": "el usuario pide Push",
+        "then": "el panel corre git push -u origin <rama del trabajo> sin --force y, si el remoto está adelantado, responde con la salida de git sin reintentar"
+      },
+      {
+        "id": "S7",
+        "requirement": "R8",
+        "given": "un pedido sin sesión o una operación mutante sin token CSRF",
+        "when": "llega a una ruta nueva de repos o de git por chat",
+        "then": "la API responde 401 o 403 y no ejecuta nada"
+      },
+      {
+        "id": "S8",
+        "requirement": "R2",
+        "given": "un worktree con la raíz y un repo hijo",
+        "when": "el usuario pide el estado git del trabajo",
+        "then": "recibe por repo la rama, los archivos cambiados y cuántos commits está adelante y atrás de su remoto"
+      }
+    ],
+    "nonGoals": [
+      "Mergear PRs en GitHub desde el panel: las revisa y mergea el usuario.",
+      "Correr comandos arbitrarios desde la web: las validaciones (build, tests) se le piden al agente.",
+      "Resolver conflictos de git desde la web: un pull con conflicto se aborta y se ofrece pedírselo al agente.",
+      "Commitear, pushear o instalar dependencias en el clon base del proyecto.",
+      "Otros proveedores además de Claude (el modelo de datos los admite, no se implementan).",
+      "Limpieza automática de worktrees mergeados, checks de PR y pr_cambios_pedidos.",
+      "Backup de SQLite y topes configurables (resto de la etapa 6).",
+      "Consumo por scope y topes de uso de la suscripción."
+    ],
+    "openQuestions": []
+  },
+  "clarifications": [],
+  "conventions": [],
+  "adrs": [
+    {
+      "id": "ADR-0001",
+      "title": "Scope sembrado desde el plan existente, sin re-entrevista",
+      "status": "accepted",
+      "date": "2026-10-06",
+      "context": "El usuario pidió usar la planificación existente. El plan .agents/kyro/plan/2026-10-04-autopiloto-kyro.md trae el Forge handoff del scope 2 con objetivo, R1-R7, no objetivos, orden S1 WS11, S2 WS14, S3 WS13+WS16, S4 WS10 y las decisiones cerradas D18-D28.",
+      "decision": "Crear operaciones-worktree con ese handoff: requisitos R1-R7 del plan, más R8 de seguridad separado de las invariantes L3, L7 y L8, y R9 de docs. Roadmap de 4 sprints en el orden sugerido. Sin preguntas abiertas porque todas las decisiones de producto están cerradas en el plan.",
+      "consequences": [
+        "El scope arranca en plan_sprint sin clarify",
+        "Las invariantes de seguridad quedan como requisito propio y verificable"
+      ],
+      "alternatives": [
+        "Re-entrevistar al usuario para cada requisito",
+        "Partir el scope en más sprints"
+      ]
+    },
+    {
+      "id": "ADR-0002",
+      "title": "Uso de proveedores medido por cuenta de Claude",
+      "status": "accepted",
+      "date": "2026-10-06",
+      "context": "D24 se escribió cuando el panel tenía una sola cuenta. Hoy CLAUDE.md, sección Cuentas de Claude, exige que lo que mida uso lo haga por account_id, y el panel corre con una cuenta activa elegida en la web.",
+      "decision": "provider_usage guarda account_id, el icono del header muestra la cuenta activa y cada rate_limit_event se guarda con la cuenta de la sesión que lo emitió.",
+      "consequences": [
+        "Cambiar de cuenta cambia el indicador sin mezclar datos",
+        "El reintento del piloto por resetsAt usa la cuenta del run"
+      ],
+      "alternatives": [
+        "Un único indicador global sin cuenta, que contradice CLAUDE.md"
+      ]
+    },
+    {
+      "id": "ADR-0003",
+      "title": "Piloto activo sin pausa bloquea las operaciones manuales",
+      "status": "accepted",
+      "date": "2026-10-06",
+      "context": "D19 dice 409 si el agente del worktree está corriendo o el piloto no está en pausa. AUTOPILOT_STATUSES tiene active, paused, off, stopped, waiting_quota, queued y finished.",
+      "decision": "Bloquean con 409 los estados que el piloto retoma solo: active, queued y waiting_quota. Permiten operar paused, off, stopped, finished o sin run. Además bloquean el agente corriendo, el mantenimiento de Kyro y otra operación en curso en el mismo chat.",
+      "consequences": [
+        "Un piloto frenado con motivo deja usar los botones para destrabarlo sin apagarlo",
+        "Un piloto en cola o esperando cupo hay que pausarlo antes de operar a mano"
+      ],
+      "alternatives": [
+        "Bloquear todo estado distinto de paused",
+        "Bloquear solo active"
+      ]
+    },
+    {
+      "id": "ADR-0004",
+      "title": "Siembra de project_repos y deteccion opcional",
+      "status": "accepted",
+      "date": "2026-10-06",
+      "context": "La migracion 20 corre sobre bases con proyectos ya registrados y el CLI y los tests crean el servicio sin repos",
+      "decision": "La migracion inserta la fila raiz de cada proyecto existente. El servicio recibe projectRepos como dependencia opcional y detecta en modo best effort al quedar ready. Al cambiar la base del proyecto se actualiza la fila raiz",
+      "consequences": [
+        "Los proyectos existentes tienen su raiz sin detectar hijos",
+        "Un fallo de deteccion no rompe el alta"
+      ],
+      "alternatives": [
+        "Sembrar solo al detectar manualmente",
+        "Dependencia obligatoria"
+      ]
+    },
+    {
+      "id": "ADR-0005",
+      "title": "Respuesta del pull del clon base: raíz al tope más repos",
+      "status": "accepted",
+      "date": "2026-10-06",
+      "context": "La web lee el PullResult de la raíz y había que sumar el resultado por repo sin romperla",
+      "decision": "POST pull devuelve los campos de PullResult de la raíz más repos con path, baseBranch, result o error. Si falla la raíz se lanza su error (409 o 502) después de actualizar los demás repos",
+      "consequences": [
+        "La web sigue compilando y suma los repos rechazados al resumen",
+        "Si la raíz falla la respuesta no trae el detalle de los hijos"
+      ],
+      "alternatives": [
+        "Responder 200 siempre con solo repos y adaptar toda la web",
+        "Endpoint nuevo por repo"
+      ]
+    }
+  ],
+  "roadmap": {
+    "plannedSprintCount": 4,
+    "sizingRationale": "Orden del Forge handoff del plan (.agents/kyro/plan/2026-10-04-autopiloto-kyro.md, scope 2): S1 WS11 · S2 WS14 · S3 WS13+WS16 · S4 WS10 y cierre. Cadena de dependencias: WS11 (repos y operaciones git por API) es la base de WS14 (servicio único de acciones, Crear PR, diff, descartar, borrar), y WS16 (web de operaciones) necesita las rutas de ambos; WS13 (uso) es independiente y se junta con la web porque su entrega visible es el icono del header. Disparadores de corte: S1 cambia el modelo de datos (migración project_repos) y abre rutas nuevas con riesgo de pisar al agente, y se prueba solo con repos temporales; S2 refactoriza el piloto para compartir el servicio de acciones y se revisa aparte; S3 es todo web más un servicio experimental del SDK; S4 es documentación y cierre. Ejecución con el piloto como primera prueba real, vigilada por el usuario (D31). Dependencias cumplidas: scope autopiloto-kyro completado (estado fino, Timeline, actor) y pull del clon base de proyectos-y-versiones.",
+    "sprints": [
+      {
+        "n": 1,
+        "slug": "repos-y-git-por-trabajo",
+        "title": "Repos del proyecto y operaciones git por trabajo (WS11)",
+        "state": "closed"
+      },
+      {
+        "n": 2,
+        "slug": "paridad-manual-y-pr",
+        "title": "Servicio único de acciones, Crear PR, ver cambios, descartar y borrar (WS14)",
+        "state": "planned"
+      },
+      {
+        "n": 3,
+        "slug": "web-operaciones-y-uso",
+        "title": "Uso de proveedores y web de operaciones (WS13 + WS16)",
+        "state": "planned"
+      },
+      {
+        "n": 4,
+        "slug": "docs-y-cierre",
+        "title": "Documentación y cierre (WS10)",
+        "state": "planned"
+      }
+    ]
+  },
+  "ledger": [
+    {
+      "n": 1,
+      "slug": "repos-y-git-por-trabajo",
+      "outcome": "shipped",
+      "closedAt": "2026-10-06",
+      "archive": "archive/sprint-001-repos-y-git-por-trabajo.md",
+      "snapshot": "archive/sprint-001-repos-y-git-por-trabajo.json",
+      "checkpoint": "archive/sprint-001-repos-y-git-por-trabajo.checkpoint.json",
+      "recommendations": [
+        "Vincular escenarios a R3-R9 al planificar los próximos sprints"
+      ],
+      "checkpointSha256": "5642cd4b71ce8b4a653d4698cfffb124625c7f0a21734a2efe157f1e03ad6d54"
+    }
+  ],
+  "previousSprint": {
+    "n": 1,
+    "slug": "repos-y-git-por-trabajo",
+    "outcome": "shipped",
+    "summary": "Que la API conozca los repos de cada proyecto con su rama base, actualice el clon base repo por repo, y ofrezca por trabajo estado, commit de archivos elegidos, traer base, traer la propia rama, push y reinstalar dependencias, seguras frente al agente y al piloto y registradas en el Timeline."
+  },
+  "activeSprint": null,
+  "debt": [],
+  "handoff": {
+    "nextAction": "plan_sprint",
+    "nextTaskId": null,
+    "blockers": [],
+    "note": "Sprint 1 cerrado: repos y git por trabajo (R1, R2). Siguiente: crear PR desde la web (R3).",
+    "lastUpdated": "2026-10-06"
+  },
+  "author": {
+    "name": "Maiki02",
+    "email": "miqueasdavidgentile@gmail.com",
+    "source": "git",
+    "capturedAt": "2026-10-06T02:33:55.207Z"
+  }
+}

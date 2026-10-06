@@ -1,0 +1,392 @@
+{
+  "n": 1,
+  "slug": "repos-y-git-por-trabajo",
+  "title": "Repos del proyecto y operaciones git por trabajo (WS11)",
+  "objective": "Que la API conozca los repos de cada proyecto con su rama base, actualice el clon base repo por repo, y ofrezca por trabajo estado, commit de archivos elegidos, traer base, traer la propia rama, push y reinstalar dependencias, seguras frente al agente y al piloto y registradas en el Timeline.",
+  "status": "complete",
+  "phases": [
+    {
+      "id": "P1",
+      "title": "Repos del proyecto",
+      "objective": "Tabla project_repos con detección de repos hijos, rama base por repo y pull del clon base por repo (R1).",
+      "status": "done",
+      "tasks": [
+        {
+          "id": "T1.1",
+          "title": "Migración project_repos, repositorio y detección de repos hijos",
+          "description": "Agregar la migración 20 `project_repos` (id, project_id con ON DELETE CASCADE, path relativo, base_branch, created_at, updated_at, UNIQUE(project_id, path)). La fila de la raíz usa path '.' y la base del proyecto. Crear `ProjectRepoRepository` (listar por proyecto, upsert de detección que conserva la base editada de filas existentes y borra las que ya no existen salvo la raíz, actualizar base_branch). Crear `detectRepos(repoPath)` que devuelve las carpetas de primer nivel (no ocultas) que contienen `.git` y que la raíz ignora (`git check-ignore -q -- <carpeta>` por execFile). Al quedar un proyecto en `ready` (alta o clonado) se corre la detección; los hijos nuevos toman la base del proyecto por defecto. Sumar el tipo `ProjectRepo` a `packages/shared`.",
+          "files_to_touch": [
+            "apps/api/src/db/migrations.ts",
+            "apps/api/src/projects/repos-repo.ts",
+            "apps/api/src/projects/repos.ts",
+            "apps/api/src/projects/service.ts",
+            "packages/shared/src/index.ts",
+            "apps/api/test/project-repos.test.ts",
+            "apps/api/test/db.test.ts"
+          ],
+          "context": "La última migración es la 19 (`claude_accounts`) en `apps/api/src/db/migrations.ts`, todas en un solo archivo. `childRepos(worktree)` en `apps/api/src/pilot/merge-phase.ts` ya detecta carpetas de primer nivel con `.git` sobre un worktree; la detección nueva corre sobre el clon base y además exige que la raíz las ignore (D20: así se distingue un repo hijo de un submódulo o de una carpeta versionada). Todo git por execFile, sin shell (CLAUDE.md). Una ruta de repo nunca sale del usuario: solo de la detección. En ventas la raíz está en main y fe-ventas / be-ventas en dev: por eso la base es por repo y editable. Validar la base con el mismo patrón de nombre de rama simple que usa `pushArgs` en `apps/api/src/pilot/git-ops.ts` (sin espacios, sin '..', sin empezar con '-').",
+          "acceptance_criteria": [
+            "La migración 20 crea project_repos y el test de migraciones pasa sobre una base existente sin perder filas.",
+            "detectRepos sobre un repo temporal con un hijo ignorado, un hijo no ignorado y una carpeta sin .git devuelve solo el hijo ignorado.",
+            "Repetir la detección conserva la base_branch editada de un hijo existente y quita un hijo que ya no está, sin tocar la fila '.'.",
+            "Al quedar un proyecto ready se crean la fila '.' con la base del proyecto y una fila por hijo detectado.",
+            "npm run typecheck y npm run test -w @agents-panel/api pasan."
+          ],
+          "depends_on": [],
+          "scenario_refs": [
+            "S1"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "Migracion 20 project_repos con siembra de la raiz, ProjectRepoRepository, detectRepos con check-ignore, deteccion al quedar ready y tipo ProjectRepo en shared",
+            "validation": [
+              "npm run typecheck: ok",
+              "npm run test -w @agents-panel/api: 1076 passed"
+            ],
+            "files_changed": [
+              "apps/api/src/db/migrations.ts",
+              "apps/api/src/projects/repos-repo.ts",
+              "apps/api/src/projects/repos.ts",
+              "apps/api/src/projects/service.ts",
+              "packages/shared/src/index.ts",
+              "apps/api/test/project-repos.test.ts",
+              "apps/api/test/db.test.ts",
+              "apps/api/src/app.ts",
+              "apps/api/src/cli/commands.ts"
+            ],
+            "by": "maker-agent",
+            "recordedAt": "2026-10-06T02:41:49.534Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "La migración 20 crea project_repos y el test de migraciones pasa sobre una base existente sin perder filas.",
+              "detectRepos sobre un repo temporal con un hijo ignorado, un hijo no ignorado y una carpeta sin .git devuelve solo el hijo ignorado.",
+              "Repetir la detección conserva la base_branch editada de un hijo existente y quita un hijo que ya no está, sin tocar la fila '.'.",
+              "Al quedar un proyecto ready se crean la fila '.' con la base del proyecto y una fila por hijo detectado.",
+              "npm run typecheck y npm run test -w @agents-panel/api pasan."
+            ],
+            "findings": [],
+            "by": "checker-agent",
+            "reviewedAt": "2026-10-06T02:42:00.798Z",
+            "requestDigest": "3dab3ac9eddfde4f0c80ff8ff734138edfc3426d056cd93a86c3913b68167b93",
+            "reviewedMaterialDigest": "fe854f827be305714113d4658d7598a32c8a7d6847244ad5c6a9dfc57876d074"
+          }
+        },
+        {
+          "id": "T1.2",
+          "title": "Rutas de repos y pull del clon base por repo",
+          "description": "Rutas `GET /api/projects/:id/repos`, `POST /api/projects/:id/repos/detect` y `PATCH /api/projects/:id/repos/:repoId` (solo `baseBranch`, validada; 400 si es inválida, 404 si el repo no es del proyecto). Extender `PullService.pullBase` para que corra `pullFastForward` en cada repo de project_repos (la raíz primero) con su base y devuelva el resultado por repo (`{ path, baseBranch, result | error }`); un repo rechazado (cambios locales, divergencia, falta la carpeta) no corta a los demás. Mantener la compatibilidad de la respuesta actual para la raíz que usa la web (`apps/web/src/app/projects/repo-actions.ts`) o adaptarla en el mismo cambio.",
+          "files_to_touch": [
+            "apps/api/src/projects/pull.ts",
+            "apps/api/src/projects/pull-routes.ts",
+            "apps/api/src/projects/repos-routes.ts",
+            "apps/api/src/app.ts",
+            "packages/shared/src/index.ts",
+            "apps/web/src/app/projects/repo-actions.ts",
+            "apps/api/test/project-pull.test.ts",
+            "apps/api/test/project-repos.test.ts",
+            "apps/api/test/guard.test.ts"
+          ],
+          "context": "`PullService` (`apps/api/src/projects/pull.ts`) hoy solo hace pull de la raíz con `pullFastForward(repoPath, baseBranch)` (`apps/api/src/projects/git.ts`, --ff-only, rechaza cambios locales o divergencia) y ya frena con mantenimiento de Kyro o un pull en curso. El clon base solo se actualiza: nunca commit, push ni instalación (D20, D22). Toda ruta nueva exige sesión; las mutantes, CSRF (`mutatingHeaders` en `apps/api/test/helpers.ts`); la allowlist pública no cambia (sumar las rutas al guard test). `apps/api/test/project-pull.test.ts` ya monta un origin bare, un clon base y un segundo clon. La UI de Repositorio (lista editable) es del sprint 3; acá solo se adapta la llamada existente si cambia la forma de la respuesta.",
+          "acceptance_criteria": [
+            "Con un clon base de raíz main y un hijo en dev, el pull trae los commits nuevos de cada uno desde su propia base y la respuesta trae un resultado por repo.",
+            "Si un hijo tiene cambios locales, su resultado es un error con motivo y la raíz igual se actualiza.",
+            "PATCH con una base inválida da 400, con un repo de otro proyecto da 404, y una base válida queda guardada y la usa el siguiente pull.",
+            "Las tres rutas nuevas dan 401 sin sesión y las mutantes 403 sin CSRF (guard test actualizado).",
+            "La web sigue compilando (npm run build -w @agents-panel/web) y los tests de api pasan."
+          ],
+          "depends_on": [
+            "T1.1"
+          ],
+          "scenario_refs": [
+            "S1",
+            "S7"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "Rutas GET repos, POST repos detect y PATCH repos por id. PullService pullBase hace pull ff-only por repo con la raíz primero y resultado por repo sin cortar a los demás. Web adaptada con PullBaseResult",
+            "validation": [
+              "npm run typecheck -w @agents-panel/api: ok",
+              "npm test -w @agents-panel/api: 62 archivos pasan",
+              "npm run build -w @agents-panel/web: ok"
+            ],
+            "files_changed": [
+              "apps/api/src/projects/pull.ts",
+              "apps/api/src/projects/repos-routes.ts",
+              "apps/api/src/app.ts",
+              "packages/shared/src/index.ts",
+              "apps/web/src/app/projects/repo-actions.ts",
+              "apps/api/test/project-pull.test.ts",
+              "apps/api/test/guard.test.ts",
+              "apps/api/test/cli.test.ts"
+            ],
+            "by": "maker-agent",
+            "recordedAt": "2026-10-06T02:51:54.041Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "Con un clon base de raíz main y un hijo en dev, el pull trae los commits nuevos de cada uno desde su propia base y la respuesta trae un resultado por repo.",
+              "Si un hijo tiene cambios locales, su resultado es un error con motivo y la raíz igual se actualiza.",
+              "PATCH con una base inválida da 400, con un repo de otro proyecto da 404, y una base válida queda guardada y la usa el siguiente pull.",
+              "Las tres rutas nuevas dan 401 sin sesión y las mutantes 403 sin CSRF (guard test actualizado).",
+              "La web sigue compilando (npm run build -w @agents-panel/web) y los tests de api pasan."
+            ],
+            "findings": [],
+            "by": "checker-agent",
+            "reviewedAt": "2026-10-06T02:51:58.749Z",
+            "requestDigest": "921e115ca62b5a0320f4f8996e50958610b1bace4b0ad0d08af0cd8a43e16b7e",
+            "reviewedMaterialDigest": "9857ab7f5b9360706289e6bc76bb91690e7aaf7788f8ac6a297a90d8d6581787"
+          }
+        }
+      ]
+    },
+    {
+      "id": "P2",
+      "title": "Operaciones git por trabajo",
+      "objective": "Servicio y rutas por chat para estado, commit, traer base, traer rama, push y reinstalar dependencias, con 409 frente al agente o el piloto y entrada en el Timeline (R2, R8).",
+      "status": "done",
+      "tasks": [
+        {
+          "id": "T2.1",
+          "title": "Primitivas git compartidas y helper de remoto bare para tests",
+          "description": "Extender `createGit` en `apps/api/src/pilot/git-ops.ts` (la misma fuente que usa el piloto, D26) con: `status(cwd)` (rama, archivos de `git status --porcelain=v1 -z` con su estado, y adelante/atrás de `origin/<rama>` con `git rev-list --left-right --count`, null si no hay remota), `commitFiles(cwd, files, message)` (`git add -- <archivos>` y `git commit -m <mensaje> -- <archivos>`; rechaza lista vacía, rutas absolutas, segmentos '..', rutas fuera del repo y archivos ignorados por `git check-ignore`), `pullBranch(cwd, branch)` (`git pull --no-rebase --no-edit origin <rama>`, nombre validado como en `pushArgs`), `abortMerge(cwd)` (`git merge --abort`) y `changedFiles(cwd, from, to)` (`git diff --name-only from to`). Llevar a `apps/api/test/helpers.ts` un helper `makeRepoWithRemote()` (origin bare, clon de trabajo en una rama feature y un segundo clon para simular cambios remotos) a partir de los montajes de `pilot-git-ops.test.ts` / `pilot-merge.test.ts`.",
+          "files_to_touch": [
+            "apps/api/src/pilot/git-ops.ts",
+            "apps/api/test/helpers.ts",
+            "apps/api/test/pilot-git-ops.test.ts"
+          ],
+          "context": "`pushArgs` ya garantiza nunca `--force`, `--force-with-lease`, `+refspec` ni opciones; `pullArgs` hace `pull --no-rebase --no-edit origin <base>`. No hay rebase en ningún camino (CLAUDE.md, Git). Todo por execFile con timeout. Los mensajes de commit son argv, nunca pasan por un shell. Un archivo ignorado (los `.env` que escribe el panel con modo 600) nunca entra en un commit manual (R8).",
+          "acceptance_criteria": [
+            "status devuelve rama, archivos con su estado y adelante/atrás correctos sobre un repo con remoto bare, y null de adelante/atrás sin rama remota.",
+            "commitFiles con dos archivos cambiados y uno elegido deja un commit con solo ese archivo y el otro sigue pendiente.",
+            "commitFiles rechaza una ruta con '..', una absoluta y un archivo ignorado sin crear commit.",
+            "pullBranch trae un commit pusheado desde el segundo clon y rechaza un nombre de rama con opciones o espacios.",
+            "Los tests existentes del piloto siguen pasando."
+          ],
+          "depends_on": [],
+          "scenario_refs": [
+            "S2",
+            "S8"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "Primitivas RepoGit en createGit y makeRepoWithRemote con 5 tests de remoto bare",
+            "validation": "typecheck y vitest test/pilot 187 passed",
+            "files_changed": [
+              "apps/api/src/pilot/git-ops.ts",
+              "apps/api/test/helpers.ts",
+              "apps/api/test/pilot-git-ops.test.ts"
+            ],
+            "by": "maker-agent",
+            "recordedAt": "2026-10-06T02:55:49.700Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "status devuelve rama, archivos con su estado y adelante/atrás correctos sobre un repo con remoto bare, y null de adelante/atrás sin rama remota.",
+              "commitFiles con dos archivos cambiados y uno elegido deja un commit con solo ese archivo y el otro sigue pendiente.",
+              "commitFiles rechaza una ruta con '..', una absoluta y un archivo ignorado sin crear commit.",
+              "pullBranch trae un commit pusheado desde el segundo clon y rechaza un nombre de rama con opciones o espacios.",
+              "Los tests existentes del piloto siguen pasando."
+            ],
+            "findings": [],
+            "by": "checker-agent",
+            "reviewedAt": "2026-10-06T02:55:57.371Z",
+            "requestDigest": "9781054a0b06db73785845f19006c4d39be8b15a43ac29b2233b90dec58c8bf3",
+            "reviewedMaterialDigest": "3fe33d045487b649cd4d65f91fa91cc8b6a46c5905dfb34ab708debaa7dc9ef8"
+          }
+        },
+        {
+          "id": "T2.2",
+          "title": "Servicio WorktreeOps: guardas, repos del trabajo, operaciones y Timeline",
+          "description": "Crear `apps/api/src/worktrees/ops.ts` con `WorktreeOps`, que resuelve el chat a su worktree y sus repos (raíz + `childRepos(worktree)`, cada uno con la base de project_repos por path; un hijo sin fila usa la base del proyecto) y expone: `status(chatId)`, `commit(chatId, repo, files, message)`, `pullBase(chatId, repo?)`, `pullBranch(chatId, repo?)`, `push(chatId, repo?)` y `reinstall(chatId)`. Guardas: 404 si el chat no tiene worktree; 409 con motivo si `AgentManager.isRunning(chatId)`, si el run del piloto está en `active`, `queued` o `waiting_quota`, si hay mantenimiento de Kyro, o si ya hay una operación en curso en ese chat. Pull con conflicto: `git merge --abort`, devuelve los archivos en conflicto y `askAgent: true`. Tras un pull que cambió `package-lock.json`, `go.sum`, `uv.lock`, `pnpm-lock.yaml` o `yarn.lock` en cualquier repo, corre `reinstall` sola (D22). `reinstall` extrae de `createWorktree` una función `runSetup(project, path, log)` y vuelve a escribir los `.env` del proyecto como al crear el trabajo. La rama de push de un hijo es su rama actual (validada). Commit: valida Conventional Commits y devuelve un aviso si no cumple, sin bloquear. Cada operación registra una transición con `actor: 'user'`, `record: true`, `data.{op, repo, result}` y la salida recortada a 8000 caracteres, sin cambiar el estado fino del trabajo.",
+          "files_to_touch": [
+            "apps/api/src/worktrees/ops.ts",
+            "apps/api/src/worktrees/create.ts",
+            "apps/api/src/chats/service.ts",
+            "apps/api/test/worktree-ops.test.ts"
+          ],
+          "context": "`AgentManager.isRunning(chatId)` e `inMaintenance` están en `apps/api/src/agent/manager.ts`. Estados del piloto en `AUTOPILOT_STATUSES` (`packages/shared/src/index.ts`) y `AutopilotRunRepository` en `apps/api/src/pilot/runs-repo.ts`: `paused`, `off`, `stopped` y `finished` permiten operar; `active`, `queued` y `waiting_quota` no, porque el piloto los retoma solo (ADR del sprint). `TransitionInput` con `record: true` está en `apps/api/src/worktrees/state-repo.ts` (actores `user|pilot|agent|system`). La escritura de `.env` está en `ChatService.writeEnv` / `writeEnvFiles` (`apps/api/src/env-files/write.ts`); reutilizarla, no duplicarla. El setup se corre sin shell con `splitCommand`. `validationEventPayload` en `apps/api/src/worktrees/validate.ts` ya recorta salida: seguir el mismo criterio. Las rutas son de T2.3; acá el servicio se prueba directo con repos temporales (helper de T2.1).",
+          "acceptance_criteria": [
+            "status de un worktree con un hijo devuelve un resultado por repo con rama, cambios y adelante/atrás, y la base del hijo sale de project_repos.",
+            "Con el agente corriendo o el piloto en active, queued o waiting_quota, cada operación tira el error de conflicto con motivo y el repo no cambia; con el piloto en paused funciona.",
+            "pullBase con un conflicto deja el repo sin merge en curso y sin cambios nuevos, y devuelve los archivos en conflicto con askAgent true.",
+            "pullBase que trae un package-lock.json cambiado corre el setup del proyecto y lo registra; sin lockfile cambiado no lo corre.",
+            "Cada operación deja una entrada del Timeline con actor user, la operación, el repo y la salida recortada.",
+            "Un mensaje que no es Conventional Commits commitea igual y devuelve un aviso."
+          ],
+          "depends_on": [
+            "T1.1",
+            "T2.1"
+          ],
+          "scenario_refs": [
+            "S2",
+            "S3",
+            "S4",
+            "S5",
+            "S6",
+            "S8"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "Servicio WorktreeOps con status, commit, pullBase, pullBranch, push y reinstall. Guardas 404 y 409, conflicto abortado con askAgent, reinstalacion automatica por lockfile, aviso de Conventional Commits y Timeline con actor user. runSetup extraido de createWorktree y writeProjectEnv compartido con ChatService.",
+            "validation": [
+              "npm run test en apps/api: 63 archivos y 1101 tests OK",
+              "npm run typecheck en apps/api OK",
+              "eslint sin errores en los archivos de T2.2"
+            ],
+            "files_changed": [
+              "apps/api/src/worktrees/ops.ts",
+              "apps/api/src/worktrees/create.ts",
+              "apps/api/src/chats/service.ts",
+              "apps/api/test/worktree-ops.test.ts"
+            ],
+            "notes": "Sin fila de estado fino no se escribe entrada de Timeline. El actor de la fila de estado pasa a user al registrar. Errores de lint previos de T2.1 en pull.ts y project-pull.test.ts no se tocaron.",
+            "by": "maker-agent",
+            "recordedAt": "2026-10-06T03:06:26.883Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "status de un worktree con un hijo devuelve un resultado por repo con rama, cambios y adelante/atrás, y la base del hijo sale de project_repos.",
+              "Con el agente corriendo o el piloto en active, queued o waiting_quota, cada operación tira el error de conflicto con motivo y el repo no cambia; con el piloto en paused funciona.",
+              "pullBase con un conflicto deja el repo sin merge en curso y sin cambios nuevos, y devuelve los archivos en conflicto con askAgent true.",
+              "pullBase que trae un package-lock.json cambiado corre el setup del proyecto y lo registra; sin lockfile cambiado no lo corre.",
+              "Cada operación deja una entrada del Timeline con actor user, la operación, el repo y la salida recortada.",
+              "Un mensaje que no es Conventional Commits commitea igual y devuelve un aviso."
+            ],
+            "findings": [],
+            "by": "checker-agent",
+            "reviewedAt": "2026-10-06T03:06:31.247Z",
+            "requestDigest": "683102f85f6b04abe592397512c82ad1649cac0017fc006df2fe9f68af0ad401",
+            "reviewedMaterialDigest": "a732ea025b54c388e46c58a67bc18d686e07709a6bcdd64bc3a63479c0e859b4"
+          }
+        },
+        {
+          "id": "T2.3",
+          "title": "Rutas git por chat",
+          "description": "Registrar `GET /api/chats/:id/git` (estado por repo), `POST /api/chats/:id/git/commit` (`{ repo, files, message }`), `POST /api/chats/:id/git/pull-base` y `POST /api/chats/:id/git/pull-branch` (`{ repo? }`), `POST /api/chats/:id/git/push` (`{ repo? }`) y `POST /api/chats/:id/setup`. Validar el body con el esquema de Fastify (repo es un path relativo que tiene que coincidir con uno de los repos del trabajo, nunca una ruta libre; files es un arreglo no vacío de strings; message no vacío y acotado). Mapear errores: 404 chat o repo inexistente, 409 guardas, 400 entrada inválida, 422 git rechazó (push rechazado, sin remoto) con la salida recortada. Sumar las rutas al guard test.",
+          "files_to_touch": [
+            "apps/api/src/chats/git-routes.ts",
+            "apps/api/src/app.ts",
+            "packages/shared/src/index.ts",
+            "apps/api/test/worktree-git-routes.test.ts",
+            "apps/api/test/guard.test.ts"
+          ],
+          "context": "Las rutas de chats están en `apps/api/src/chats/routes.ts` y las del piloto en `apps/api/src/pilot/routes.ts`; seguir su forma de registro y de errores. Seguridad del panel (CLAUDE.md): ninguna ruta sin sesión; las mutantes con CSRF; la allowlist pública sigue en tres rutas. Los tipos de request/response van a `packages/shared` para que la web del sprint 3 los use. Un push nunca fuerza ni empuja otra rama que la del repo del trabajo (R8).",
+          "acceptance_criteria": [
+            "Cada ruta da 401 sin sesión y las POST 403 sin CSRF (guard test).",
+            "POST commit con un repo que no es del trabajo da 404 y con files vacío da 400.",
+            "POST push sobre un worktree con remoto bare deja la rama en el remoto y un push rechazado por remoto adelantado da 422 con la salida de git, sin reintentar.",
+            "Con el agente corriendo cualquier POST da 409 con el motivo.",
+            "npm run typecheck, npm run lint y npm test pasan."
+          ],
+          "depends_on": [
+            "T2.2"
+          ],
+          "scenario_refs": [
+            "S5",
+            "S6",
+            "S7"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "Rutas git por chat con esquema Fastify, mapeo de errores 404 409 400 422, guard test y cli test actualizados",
+            "validation": [
+              "npm run typecheck",
+              "npm run lint",
+              "npm test"
+            ],
+            "files_changed": [
+              "apps/api/src/chats/git-routes.ts",
+              "apps/api/src/app.ts",
+              "packages/shared/src/index.ts",
+              "apps/api/test/worktree-git-routes.test.ts",
+              "apps/api/test/guard.test.ts"
+            ],
+            "by": "maker",
+            "recordedAt": "2026-10-06T03:34:59.800Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "Cada ruta da 401 sin sesión y las POST 403 sin CSRF (guard test).",
+              "POST commit con un repo que no es del trabajo da 404 y con files vacío da 400.",
+              "POST push sobre un worktree con remoto bare deja la rama en el remoto y un push rechazado por remoto adelantado da 422 con la salida de git, sin reintentar.",
+              "Con el agente corriendo cualquier POST da 409 con el motivo.",
+              "npm run typecheck, npm run lint y npm test pasan."
+            ],
+            "findings": [],
+            "by": "checker-agent",
+            "reviewedAt": "2026-10-06T03:35:02.761Z",
+            "requestDigest": "d868396b93023cbf641107a9744c1f8d7ef980d4a178a693a12da05386f85065",
+            "reviewedMaterialDigest": "9b1f8c19350303e7a898199e638db040859e7366f7e124492e2be931a0ac8bfe"
+          }
+        }
+      ]
+    },
+    {
+      "id": "P3",
+      "title": "Docs del sprint",
+      "objective": "Dejar escrito lo que cambió en la API y el modelo de datos.",
+      "status": "done",
+      "tasks": [
+        {
+          "id": "T3.1",
+          "title": "Documentar repos del proyecto y operaciones git por trabajo",
+          "description": "Sumar a `docs/plan.md` (etapa 6 / scope operaciones-worktree) una entrada con project_repos, la detección, el pull por repo, las rutas git por chat, las guardas 409 y la reinstalación por lockfile. Si alguna transición o evento nuevo se muestra en el Timeline, describirlo en `docs/estados.md`. Agregar a `docs/panel-desarrollo.md` cómo probar las rutas desde el túnel (curl con cookie y CSRF) si aplica.",
+          "files_to_touch": [
+            "docs/plan.md",
+            "docs/estados.md",
+            "docs/panel-desarrollo.md"
+          ],
+          "context": "Los docs se escriben en español y el código en inglés (CLAUDE.md). No pegar secretos. Mantener el estilo de las entradas existentes de `docs/plan.md` (fecha, scope y sprint, qué hace y qué no).",
+          "acceptance_criteria": [
+            "docs/plan.md describe project_repos, el pull por repo y las seis rutas git por chat con sus guardas.",
+            "docs/estados.md menciona las entradas de Timeline de las operaciones manuales (actor user, sin cambio de estado fino).",
+            "No hay secretos ni valores de .env en los docs."
+          ],
+          "depends_on": [
+            "T1.2",
+            "T2.3"
+          ],
+          "scenario_refs": [],
+          "status": "done",
+          "evidence": {
+            "summary": "Documentacion de repos del proyecto y rutas git por trabajo en los tres docs",
+            "validation": "Revision manual sin secretos",
+            "files_changed": [
+              "docs/plan.md",
+              "docs/estados.md",
+              "docs/panel-desarrollo.md"
+            ],
+            "by": "maker",
+            "recordedAt": "2026-10-06T03:36:20.994Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "docs/plan.md describe project_repos, el pull por repo y las seis rutas git por chat con sus guardas.",
+              "docs/estados.md menciona las entradas de Timeline de las operaciones manuales (actor user, sin cambio de estado fino).",
+              "No hay secretos ni valores de .env en los docs."
+            ],
+            "findings": [],
+            "by": "checker-agent",
+            "reviewedAt": "2026-10-06T03:36:24.268Z",
+            "requestDigest": "cf1a3a90a257724e1e6850f14509a435cde7b7beb11968ffb3057dfd7c566516",
+            "reviewedMaterialDigest": "5d7291b826adfa585a333c8a4c989978d561751ef14d52d47f7393fceb1a2b0e"
+          }
+        }
+      ]
+    }
+  ],
+  "emergentTasks": [],
+  "definitionOfDone": [
+    "Todas las tareas en done con evidencia y review pass.",
+    "npm run typecheck, npm run lint y npm test pasan en la raíz.",
+    "Ninguna ruta nueva es pública y todas las mutantes exigen CSRF.",
+    "Ningún camino nuevo usa --force, rebase ni toca archivos ignorados."
+  ]
+}

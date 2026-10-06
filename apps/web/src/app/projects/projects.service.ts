@@ -6,7 +6,7 @@ import type {
   ModelSelection,
   Project,
   ProjectPermissions,
-  PullResult,
+  PullBaseResult,
 } from '@agents-panel/shared';
 import { firstValueFrom } from 'rxjs';
 
@@ -49,8 +49,8 @@ export class ProjectsService {
   }
 
   /** Fast-forward only, so it needs no code. */
-  pull(id: number): Promise<PullResult> {
-    return firstValueFrom(this.http.post<PullResult>(`/api/projects/${String(id)}/pull`, {}));
+  pull(id: number): Promise<PullBaseResult> {
+    return firstValueFrom(this.http.post<PullBaseResult>(`/api/projects/${String(id)}/pull`, {}));
   }
 
   initKyro(id: number, code: string): Promise<KyroBranchResult> {

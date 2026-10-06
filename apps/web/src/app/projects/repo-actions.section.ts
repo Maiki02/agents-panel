@@ -7,7 +7,7 @@ import {
   output,
   signal,
 } from '@angular/core';
-import type { KyroBranchResult, Project, PullResult } from '@agents-panel/shared';
+import type { KyroBranchResult, Project, PullBaseResult } from '@agents-panel/shared';
 import { apiErrorMessage, isInvalidTotp } from '../chats/chats.service';
 import { TotpModal } from '../shared/totp-modal';
 import { Button } from '../ui/button';
@@ -127,7 +127,7 @@ export class RepoActionsSection {
   readonly refresh = output();
 
   protected readonly pulling = signal(false);
-  protected readonly pullResult = signal<PullResult | null>(null);
+  protected readonly pullResult = signal<PullBaseResult | null>(null);
   protected readonly pullError = signal<string | null>(null);
 
   protected readonly initAsking = signal(false);
@@ -147,7 +147,7 @@ export class RepoActionsSection {
     return this.project().status === 'ready';
   }
 
-  protected summary(result: PullResult): string {
+  protected summary(result: PullBaseResult): string {
     return pullSummary(result);
   }
 

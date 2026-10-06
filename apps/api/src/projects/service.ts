@@ -9,6 +9,8 @@ import type { Config } from '../config.js';
 import { KyroLock } from '../maintenance/lock.js';
 import { splitCommand } from '../worktrees/create.js';
 import { normalizeOrigin, parseGithubRepo, type GithubRepo } from './github.js';
+import { detectRepos } from './repos.js';
+import type { ProjectRepoRepository } from './repos-repo.js';
 import {
   PROJECT_NAME_RE,
   ProjectConflictError,
@@ -103,6 +105,8 @@ export interface ProjectServiceDeps {
   kyroInit?: KyroInitializer;
   /** Shared with the Kyro updater so `kyro install` and `kyro update` never overlap. */
   kyroLock?: KyroLock;
+  /** When present, repos (root + children) are detected each time a project becomes ready. */
+  projectRepos?: ProjectRepoRepository;
 }
 
 function trimDetail(text: string): string {
@@ -156,6 +160,7 @@ export class ProjectService {
   private readonly freeSpace: FreeSpace;
   private readonly kyroInit: KyroInitializer;
   private readonly kyroLock: KyroLock;
+  private readonly projectRepos: ProjectRepoRepository | undefined;
   private readonly pending = new Map<number, Promise<void>>();
 
   constructor(deps: ProjectServiceDeps) {
@@ -165,14 +170,31 @@ export class ProjectService {
     this.freeSpace = deps.freeSpace ?? diskFreeBytes;
     this.kyroInit = deps.kyroInit ?? kyroInstall;
     this.kyroLock = deps.kyroLock ?? new KyroLock();
+    this.projectRepos = deps.projectRepos;
   }
 
   /**
    * Registers a folder that is already cloned (CLI `project:add`): same checks as ProjectRepository.add
    * (git repo, base branch exists, kebab-case name), project `ready` right away.
    */
-  adopt(input: AdoptProjectInput): Promise<Project> {
-    return this.repo.add(input);
+  async adopt(input: AdoptProjectInput): Promise<Project> {
+    const project = await this.repo.add(input);
+    await this.syncRepos(project);
+    return project;
+  }
+
+  /**
+   * Detects the child repos of the base clone and stores root + children in project_repos
+   * (new children take the project's base). Best effort: a failure never breaks the project.
+   */
+  async syncRepos(project: Pick<Project, 'id' | 'repoPath' | 'baseBranch'>): Promise<void> {
+    if (!this.projectRepos) return;
+    try {
+      const children = await detectRepos(project.repoPath);
+      this.projectRepos.syncDetected(project.id, project.baseBranch, children);
+    } catch {
+      // The project stays usable without its repo list; "Detectar repos" can run it again.
+    }
   }
 
   /** Resolves when every clone in flight has finished (tests wait on this instead of sleeping). */
@@ -209,6 +231,7 @@ export class ProjectService {
         status: 'ready',
         statusDetail: null,
       });
+      await this.syncRepos(adopted);
       await this.initKyro(adopted);
       return this.require(adopted.id);
     }
@@ -243,6 +266,7 @@ export class ProjectService {
           project.baseBranch === '' ? null : project.baseBranch,
         );
         this.repo.setStatus(id, 'ready', null, branch);
+        await this.syncRepos(this.require(id));
         await this.initKyro(this.require(id));
       } catch (error) {
         this.repo.setStatus(id, 'error', failureDetail(error));
@@ -290,6 +314,10 @@ export class ProjectService {
       ...(validateCommand !== undefined ? { validateCommand } : {}),
       ...(baseBranch !== undefined ? { baseBranch } : {}),
     });
+    if (baseBranch !== undefined && this.projectRepos) {
+      const root = this.projectRepos.listByProject(id).find((repo) => repo.path === '.');
+      if (root) this.projectRepos.updateBase(root.id, baseBranch);
+    }
     return this.require(id);
   }
 
@@ -404,6 +432,7 @@ export class ProjectService {
         project.baseBranch === '' ? null : project.baseBranch,
       );
       this.repo.setStatus(project.id, 'ready', null, branch);
+      await this.syncRepos({ ...project, baseBranch: branch });
     } catch (error) {
       if (created) await this.removeOwnFolder(dest);
       this.repo.setStatus(project.id, 'error', failureDetail(error));
