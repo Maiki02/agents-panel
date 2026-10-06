@@ -92,6 +92,26 @@ describe('AutopilotRunRepository', () => {
     expect(runs.resume(chat.id).status).toBe('active');
   });
 
+  it('restarts the session count after an execution that closed a task, not after a fix', async () => {
+    const { runs, chat } = await repo();
+    runs.create(chat.id);
+    const begin = (step: 'execute' | 'fix', tasksDone: number) =>
+      runs.beginSession(chat.id, {
+        step,
+        sprintN: 1,
+        fingerprint: { tasksDone },
+        policyVersion: 1,
+      }).sessionsInSprint;
+    expect(begin('execute', 0)).toBe(1);
+    // The execution closed a task (0 -> 1): the next session starts a new count.
+    expect(begin('execute', 1)).toBe(1);
+    // No task closed in between: it keeps counting.
+    expect(begin('execute', 1)).toBe(2);
+    expect(begin('fix', 1)).toBe(3);
+    // A fix never restarts the count, even when tasksDone moved.
+    expect(begin('fix', 2)).toBe(4);
+  });
+
   it('remembers the phase and the PRs of the run, without duplicates', async () => {
     const { runs, chat } = await repo();
     expect(runs.create(chat.id)).toMatchObject({ phase: null, prUrls: [], seedPath: null });

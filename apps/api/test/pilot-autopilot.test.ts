@@ -870,7 +870,39 @@ describe('loop guards, capabilities, queue and usage limit', () => {
       blockedReason: 'tope_de_sesiones',
     });
     expect(t.runs.get(t.chat.id)?.sessionsInSprint).toBe(2);
-    expect(t.sessions.listByChat(t.chat.id).map((s) => s.step)).toEqual(['plan', 'execute', 'fix']);
+    // The execution closed a task, which restarted the count: the fixes are what the cap counts.
+    expect(t.sessions.listByChat(t.chat.id).map((s) => s.step)).toEqual([
+      'plan',
+      'execute',
+      'fix',
+      'fix',
+    ]);
+  });
+
+  it('a sprint with more tasks than the cap runs to its close, because every execution closes a task', async () => {
+    const t = await setup({ total: 1, maxSessions: 2 });
+    // Five tasks in the sprint: each execution session closes one and Kyro keeps routing execute.
+    let left = 4;
+    const apply = t.kyro.apply.bind(t.kyro);
+    t.kyro.apply = (step: string) => {
+      apply(step);
+      if (step === 'execute' && left > 0) {
+        left--;
+        t.kyro.state.nextAction = 'execute_task';
+        t.kyro.state.nextTaskId = `T1.${String(5 - left)}`;
+      }
+    };
+    await t.pilot.drive(t.chat.id);
+    expect(t.sessions.listByChat(t.chat.id).map((s) => s.step)).toEqual([
+      'plan',
+      'execute',
+      'execute',
+      'execute',
+      'execute',
+      'execute',
+      'close',
+    ]);
+    expect(t.runs.get(t.chat.id)).toMatchObject({ status: 'finished' });
   });
 
   it('a sprint that used the whole cap and closed does not stop the next one from being planned', async () => {
