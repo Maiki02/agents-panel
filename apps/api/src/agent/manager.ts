@@ -60,6 +60,13 @@ interface ActiveSession {
   done: Promise<void>;
 }
 
+/** The Claude account a turn runs with (see AccountService.activeForRun). */
+export interface RunAccount {
+  id: number;
+  name: string;
+  configDir: string | null;
+}
+
 /** A turn blocked inside AskUserQuestion until the user answers. */
 interface QuestionWaiter {
   chatId: number;
@@ -93,6 +100,8 @@ export class AgentManager {
     private readonly observer?: TurnObserver,
     /** The project's extra Bash commands and curl hosts; read at the start of every turn. */
     private readonly bashExtras?: (projectId: number) => BashExtras,
+    /** Claude account active when a turn starts; absent runs every turn with the default one. */
+    private readonly accountOf?: () => RunAccount,
   ) {}
 
   get runningCount(): number {
@@ -151,15 +160,23 @@ export class AgentManager {
     const role = options.role ?? 'executor';
     const model = chat.models[role];
     const pilot = options.pilot;
+    // Read once per turn: switching the active account applies to the next turn, never mid-turn.
+    const account = this.accountOf?.() ?? null;
     const sessionRowId =
-      this.sessions?.open(chatId, role, chat.models.provider, model, pilot?.sprintN ?? null, {
-        step: pilot?.step ?? 'manual',
-        policyVersion: pilot?.policyVersion ?? null,
-      }) ?? null;
+      this.sessions?.open(
+        chatId,
+        role,
+        chat.models.provider,
+        model,
+        pilot?.sprintN ?? null,
+        { step: pilot?.step ?? 'manual', policyVersion: pilot?.policyVersion ?? null },
+        account?.id ?? null,
+      ) ?? null;
     this.record(chatId, 'session_started', {
       role,
       provider: chat.models.provider,
       model,
+      ...(account ? { account: account.name } : {}),
       ...(pilot ? { step: pilot.step, policyVersion: pilot.policyVersion } : {}),
     });
     const turnInfo: TurnInfo = {
@@ -172,7 +189,7 @@ export class AgentManager {
     const done = this.consume(
       chat,
       text,
-      { ...turnInfo, sessionRowId },
+      { ...turnInfo, sessionRowId, configDir: account?.configDir ?? null },
       controller,
       options.freshSession === true,
     ).finally(() => {
@@ -274,7 +291,7 @@ export class AgentManager {
   private async consume(
     chat: Chat,
     prompt: string,
-    turn: TurnInfo & { sessionRowId: number | null },
+    turn: TurnInfo & { sessionRowId: number | null; configDir: string | null },
     controller: AbortController,
     freshSession: boolean,
   ): Promise<void> {
@@ -289,6 +306,7 @@ export class AgentManager {
         prompt,
         model: turn.model,
         role: turn.role,
+        configDir: turn.configDir,
         // A pilot step opens a new SDK session instead of continuing the previous one.
         ...(chat.sdkSessionId && !freshSession ? { resumeSessionId: chat.sdkSessionId } : {}),
         signal: controller.signal,

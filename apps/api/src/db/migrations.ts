@@ -492,6 +492,26 @@ export const migrations: readonly Migration[] = [
       );
     `,
   },
+  {
+    version: 19,
+    name: 'claude_accounts',
+    // Claude Code logins the panel can use. config_dir NULL is the default account (~/.claude),
+    // created active; exactly one row is active (enforced by the partial unique index).
+    sql: `
+      CREATE TABLE claude_accounts (
+        id INTEGER PRIMARY KEY,
+        name TEXT NOT NULL UNIQUE,
+        config_dir TEXT UNIQUE,
+        active INTEGER NOT NULL DEFAULT 0 CHECK (active IN (0, 1)),
+        created_at INTEGER NOT NULL
+      );
+      CREATE UNIQUE INDEX claude_accounts_one_active ON claude_accounts (active) WHERE active = 1;
+      INSERT INTO claude_accounts (name, config_dir, active, created_at)
+        VALUES ('Cuenta principal', NULL, 1, CAST(strftime('%s', 'now') AS INTEGER) * 1000);
+      ALTER TABLE agent_sessions
+        ADD COLUMN account_id INTEGER REFERENCES claude_accounts(id) ON DELETE SET NULL;
+    `,
+  },
 ];
 
 /** Applies pending migrations in order, each in its own transaction. Safe to run repeatedly. */

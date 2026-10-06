@@ -108,6 +108,8 @@ export interface AgentSession {
   provider: ModelProvider;
   model: string;
   sdkSessionId: string | null;
+  /** Claude account the session ran with; null for sessions older than the accounts. */
+  accountId: number | null;
   /** Sprint the session worked on; null until the pilot assigns one. */
   sprintN: number | null;
   /** What the session was for; `manual` for the ones the user started by hand. */
@@ -522,3 +524,30 @@ export const WORKTREE_STATE_INFO: Record<WorktreeStateId, { label: string; who: 
   cerrando: { label: 'Cerrando', who: 'working' },
   terminado: { label: 'Terminado', who: 'ok' },
 };
+
+/**
+ * A Claude Code login the panel can run sessions with. `configDir` null is the default account
+ * (~/.claude); the others are a CLAUDE_CONFIG_DIR. Exactly one is active for the whole panel.
+ */
+export interface ClaudeAccount {
+  id: number;
+  name: string;
+  configDir: string | null;
+  active: boolean;
+  /** From `oauthAccount` of the account's .claude.json; null when it cannot be read. */
+  email: string | null;
+  organization: string | null;
+  /** The directory has a login (.credentials.json). */
+  loggedIn: boolean;
+  /**
+   * Its projects/ is the one of ~/.claude (scripts/vm/11-claude-cuentas.sh): it can resume a
+   * session started with another account. Always true for the default account.
+   */
+  linked: boolean;
+  createdAt: number;
+}
+
+export interface NewClaudeAccount {
+  name: string;
+  configDir: string;
+}

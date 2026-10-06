@@ -1,7 +1,12 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { AgentManager, AlreadyRunningError, SessionLimitError } from '../src/agent/manager.js';
+import {
+  AgentManager,
+  AlreadyRunningError,
+  SessionLimitError,
+  type RunAccount,
+} from '../src/agent/manager.js';
 import { createPreToolUseHook } from '../src/agent/sdk-runner.js';
 import { ALLOWED_TOOLS, decide } from '../src/agent/permissions.js';
 import { ChatEventBus } from '../src/chats/events.js';
@@ -657,5 +662,45 @@ describe('no unrestricted permission modes', () => {
     };
     walk(join(import.meta.dirname, '../src'));
     expect(offenders).toEqual([]);
+  });
+});
+
+describe('AgentManager with Claude accounts', () => {
+  it('runs each turn with the account active when it starts and records it', async () => {
+    const { chats, runner, bus, questions, sessions, newChat } = await setup();
+    let active: RunAccount = { id: 1, name: 'Cuenta principal', configDir: null };
+    const manager = new AgentManager(
+      chats,
+      runner,
+      bus,
+      undefined,
+      questions,
+      sessions,
+      undefined,
+      undefined,
+      () => active,
+    );
+    const chat = newChat('cuentas');
+    manager.start(chat.id, 'uno');
+    await manager.waitForIdle(chat.id);
+    const db = (sessions as unknown as { db: import('../src/db/index.js').Db }).db;
+    const two = Number(
+      db
+        .prepare(
+          "INSERT INTO claude_accounts (name, config_dir, created_at) VALUES ('Bimtrazer', '/home/u/.claude2', 1)",
+        )
+        .run().lastInsertRowid,
+    );
+    active = { id: two, name: 'Bimtrazer', configDir: '/home/u/.claude2' };
+    manager.start(chat.id, 'dos');
+    await manager.waitForIdle(chat.id);
+
+    expect(runner.calls.map((call) => call.configDir)).toEqual([null, '/home/u/.claude2']);
+    expect(sessions.listByChat(chat.id).map((session) => session.accountId)).toEqual([1, two]);
+    const started = chats
+      .eventsAfter(chat.id)
+      .filter((event) => event.type === 'session_started')
+      .map((event) => (event.payload as { account?: string }).account);
+    expect(started).toEqual(['Cuenta principal', 'Bimtrazer']);
   });
 });

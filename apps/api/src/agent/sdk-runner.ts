@@ -48,6 +48,21 @@ function toEvent(message: SDKMessage): AgentEvent {
 }
 
 /**
+ * Environment of the Claude Code process: the API's own, with CLAUDE_CONFIG_DIR set to the
+ * account's directory or removed for the default account. Setting it to ~/.claude would not be the
+ * same: Claude Code would look for .claude.json inside the directory instead of ~/.claude.json.
+ */
+export function accountEnv(
+  configDir: string | null | undefined,
+  base: NodeJS.ProcessEnv = process.env,
+): Record<string, string | undefined> {
+  const env: Record<string, string | undefined> = { ...base };
+  delete env['CLAUDE_CONFIG_DIR'];
+  if (configDir) env['CLAUDE_CONFIG_DIR'] = configDir;
+  return env;
+}
+
+/**
  * SDK options for one turn. Pure so it can be tested: permissions stay on (acceptEdits plus an
  * allowlist) and no mode that skips permission checks is ever an option.
  */
@@ -55,6 +70,7 @@ export function buildQueryOptions(params: RunParams, abortController: AbortContr
   return {
     cwd: params.cwd,
     model: params.model,
+    env: accountEnv(params.configDir),
     settingSources: ['project', 'user'],
     permissionMode: 'acceptEdits',
     allowedTools: ALLOWED_TOOLS,

@@ -78,6 +78,11 @@ Los proyectos se dan de alta desde la web (**Proyectos → Nuevo proyecto**, con
 - Un proyecto sin Kyro (sin `.agents/kyro/` en el repo) solo admite chats de tipo **Pedido directo**; para usar Work o Scope se inicializa desde la web (**Configuración → Repositorio → Inicializar Kyro**), que deja la rama `chore/kyro-init` para revisar, pushear y mergear a la rama base.
 - Borrar un proyecto desde la web nunca pierde trabajo: se rechaza si hay algo sin commitear o sin pushear (detalle en `docs/plan.md`).
 
+## Cuentas de Claude
+
+- La VM tiene más de un login de Claude Code: `~/.claude` es la principal y la fuente de la verdad; las demás (`~/.claude2`, …) enlazan su config con `scripts/vm/11-claude-cuentas.sh` (paso 17 de `docs/vm-setup.md`). Nunca se enlazan ni se copian `.credentials.json` ni `.claude.json`.
+- El panel corre cada turno con la cuenta activa (una para todo el panel, se elige en la web): `CLAUDE_CONFIG_DIR` de la cuenta, o la variable quitada para la principal. Toda sesión guarda su `account_id`; lo que mida uso (tokens, cupo) lo hace por cuenta.
+
 ## Seguridad del panel
 
 La URL es pública (Tailscale Funnel), así que el login es la única puerta:

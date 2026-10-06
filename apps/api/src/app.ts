@@ -4,6 +4,9 @@ import Fastify, { type FastifyInstance, type FastifyServerOptions } from 'fastif
 import type { HealthResponse } from '@agents-panel/shared';
 import { LoginAudit } from './auth/attempts.js';
 import { ChallengeService } from './auth/challenge.js';
+import { AccountRepository } from './accounts/repo.js';
+import { registerAccountRoutes } from './accounts/routes.js';
+import { AccountService } from './accounts/service.js';
 import { AgentManager } from './agent/manager.js';
 import { KyroLock } from './maintenance/lock.js';
 import { registerMaintenanceRoutes } from './maintenance/routes.js';
@@ -113,6 +116,8 @@ export interface AppDeps {
   pushSender?: PushSender;
   /** Runs `kyro work create` when an idea is approved as a work; tests replace it. */
   kyroRunner?: CommandRunner;
+  /** Home where the Claude accounts live (~/.claude, ~/.claude.json); tests use a temporary one. */
+  accountsHome?: string;
 }
 
 export function buildApp(deps: AppDeps, options: FastifyServerOptions = {}): FastifyInstance {
@@ -175,6 +180,7 @@ export function buildApp(deps: AppDeps, options: FastifyServerOptions = {}): Fas
   };
   const tracker = new WorktreeStateTracker(worktreeState, kyroReader, ideaScanner, questions);
   const agentSessions = new AgentSessionRepository(deps.db, now);
+  const accounts = new AccountService(new AccountRepository(deps.db, now), deps.accountsHome);
   const manager =
     deps.manager ??
     new AgentManager(
@@ -186,6 +192,7 @@ export function buildApp(deps: AppDeps, options: FastifyServerOptions = {}): Fas
       agentSessions,
       tracker,
       (projectId) => projects.getBashExtras(projectId),
+      () => accounts.activeForRun(),
     );
   // Nothing survives a restart: sessions that were running when the server stopped are interrupted
   // and the questions they were waiting on are cancelled (the resumed agent asks again).
@@ -361,6 +368,7 @@ export function buildApp(deps: AppDeps, options: FastifyServerOptions = {}): Fas
     notifier.close();
   });
   registerPushRoutes(app, { push, subscriptions: pushSubscriptions });
+  registerAccountRoutes(app, accounts);
   registerStreamRoute(app, {
     chats,
     bus,

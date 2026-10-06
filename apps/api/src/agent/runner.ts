@@ -31,6 +31,11 @@ export interface RunParams {
   /** Model the SDK runs this turn with (the one configured for `role`). */
   model: string;
   role: ModelRole;
+  /**
+   * CLAUDE_CONFIG_DIR of the Claude account the turn runs with; null or absent is the default
+   * account (~/.claude), which runs with the variable unset.
+   */
+  configDir?: string | null;
   /** SDK session to continue; absent for the first turn. */
   resumeSessionId?: string;
   signal: AbortSignal;

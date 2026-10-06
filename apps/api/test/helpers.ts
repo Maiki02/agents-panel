@@ -35,6 +35,7 @@ export function makeApp(
       | 'pilotGit'
       | 'pilotGh'
       | 'pushSender'
+      | 'accountsHome'
     >
   > = {},
 ): {
@@ -69,6 +70,7 @@ export function makeApp(
     ...(extra.pilotGit ? { pilotGit: extra.pilotGit } : {}),
     ...(extra.pilotGh ? { pilotGh: extra.pilotGh } : {}),
     ...(extra.pushSender ? { pushSender: extra.pushSender } : {}),
+    ...(extra.accountsHome ? { accountsHome: extra.accountsHome } : {}),
   });
   return { app, db, worktreesDir, projectsDir };
 }

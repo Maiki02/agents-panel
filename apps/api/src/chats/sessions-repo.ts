@@ -8,6 +8,7 @@ interface SessionRow {
   provider: ModelProvider;
   model: string;
   sdk_session_id: string | null;
+  account_id: number | null;
   sprint_n: number | null;
   step: AutopilotStep;
   policy_version: number | null;
@@ -24,6 +25,7 @@ function toSession(row: SessionRow): AgentSession {
     provider: row.provider,
     model: row.model,
     sdkSessionId: row.sdk_session_id,
+    accountId: row.account_id,
     sprintN: row.sprint_n,
     step: row.step,
     policyVersion: row.policy_version,
@@ -49,13 +51,24 @@ export class AgentSessionRepository {
       step: 'manual',
       policyVersion: null,
     },
+    accountId: number | null = null,
   ): number {
     const result = this.db
       .prepare(
-        `INSERT INTO agent_sessions (chat_id, role, provider, model, sprint_n, step, policy_version, started_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO agent_sessions (chat_id, role, provider, model, sprint_n, step, policy_version, account_id, started_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(chatId, role, provider, model, sprintN, pilot.step, pilot.policyVersion, this.now());
+      .run(
+        chatId,
+        role,
+        provider,
+        model,
+        sprintN,
+        pilot.step,
+        pilot.policyVersion,
+        accountId,
+        this.now(),
+      );
     return Number(result.lastInsertRowid);
   }
 

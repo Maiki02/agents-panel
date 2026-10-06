@@ -295,6 +295,24 @@ El panel deja de correr con `tsx watch` y `ng serve`: la API compilada (`node di
 - **CSP y la web compilada (2026-10-06):** la API manda `default-src 'self'` y ahora también lo aplica a la web. El build de Angular inyectaba CSS crítico y un script en línea y la web salía sin estilos. Se desactivó `inlineCritical` en `apps/web/angular.json` (el `index.html` no lleva `<style>` ni `<script>` en línea) y el CSP permite estilos en línea (`style-src 'self' 'unsafe-inline'`, que Angular necesita para los estilos de componentes); los scripts siguen solo `'self'`.
 - Estado (2026-10-06): **corrido en la VM**. Servicio `active` y `enabled`, `127.0.0.1:3000` solo en loopback, nada en 4200, Funnel en `https://<vm>.<tailnet>.ts.net` → `proxy http://127.0.0.1:3000`, `/api/health` 200 y una ruta con sesión 401 por la URL pública, login con TOTP confirmado por la persona.
 
+### 17. Segunda cuenta de Claude: `scripts/vm/11-claude-cuentas.sh`
+
+Para no frenar cuando una suscripción se queda sin cupo, la VM tiene dos logins de Claude Code: **Miqueas Gentile** en `~/.claude` (la de siempre, fuente de la verdad) y **Miqueas - Bimtrazer** en `~/.claude2`. Claude Code elige el directorio con la variable `CLAUDE_CONFIG_DIR`; sin ella usa `~/.claude` (y `~/.claude.json` afuera de la carpeta).
+
+1. Login de la cuenta nueva (manual, una vez): `CLAUDE_CONFIG_DIR=~/.claude2 claude` y `/login`.
+2. Enlazar la config compartida:
+
+```bash
+bash ~/proyectos/agents-panel/scripts/vm/11-claude-cuentas.sh            # defecto: ~/.claude2
+```
+
+- **Se comparten** (symlink `~/.claude2/<x> → ~/.claude/<x>`): `projects/` (sesiones y memoria: permite retomar con una cuenta una sesión empezada con la otra), `skills/` (Kyro), `agents/`, `commands/`, `plugins/`, `file-history/`, `todos/`, `settings.json` (permisos de `04-claude-permisos.sh`), `history.jsonl` y `CLAUDE.md` si existe.
+- **Quedan por cuenta:** `.credentials.json` (el login), `.claude.json` (cuenta OAuth, confianza por carpeta), `policy-limits*`, `remote-settings.json`, `cache/`, `backups/`, `sessions/`, `session-env/`, `shell-snapshots/`.
+- Lo que la cuenta nueva ya tenía se mezcla en `~/.claude` sin pisar nada: archivos idénticos se descartan, un conflicto queda como `<nombre>.cuenta-extra.<fecha>`, `history.jsonl` se concatena. `plugins/` de la cuenta nueva se descarta (son descargas; se vuelven a bajar). Primero aparta y enlaza, después mezcla, así una sesión abierta sigue escribiendo por la misma ruta.
+- Idempotente: lo ya enlazado dice `ya enlazado`. Para una tercera cuenta: `bash … 11-claude-cuentas.sh ~/.claude3`.
+- **Verificar:** `ls -l ~/.claude2` (los symlinks de arriba), `ls ~/.claude2/skills` (las `kyro-*`) y en `CLAUDE_CONFIG_DIR=~/.claude2 claude` que `/status` muestre la cuenta Bimtrazer y que aparezcan las skills de Kyro.
+- **En el panel:** la cuenta se elige en la web (desplegable del encabezado o **Cuentas**); se da de alta con su directorio después de este paso. Cada turno corre con `CLAUDE_CONFIG_DIR` de la cuenta activa, o sin la variable para la principal (detalle en `docs/plan.md` y `docs/panel-desarrollo.md`). El servicio no necesita cambios.
+
 ### Pendiente (etapas siguientes del plan)
 
 Nada por ahora.
@@ -314,6 +332,7 @@ Regla del repo (`CLAUDE.md`): todo cambio que pueda modificar lo que se paga se 
 | 2026-10-04 | Actualización de Kyro con `08-kyro-update.sh` (paquete npm global, runtime y symlinks locales) | US$0: sin recursos de Oracle ni planes pagos | — |
 | 2026-10-05 | Tailscale (repositorio oficial) y Funnel en 443 hacia la web del panel (`09-tailscale-funnel.sh`, paso 15) | US$0: plan gratis de Tailscale (Personal), sin recursos de Oracle | Miqueas, 2026-10-05 (adelantado de la etapa 6) |
 | 2026-10-06 | Servicio systemd `agents-panel` (API + web compilada en 127.0.0.1:3000) y Funnel hacia el puerto 3000 (`10-panel-service.sh`, paso 16) | US$0: sin recursos de Oracle ni planes pagos; sin cambios de shape, disco ni IPs | Miqueas, 2026-10-06 |
+| 2026-10-06 | Segunda cuenta de Claude Code en `~/.claude2` con la config enlazada a `~/.claude` (`11-claude-cuentas.sh`, paso 17) | US$0 en Oracle: symlinks locales. La suscripción de la segunda cuenta la paga la persona por fuera de la VM | Miqueas, 2026-10-06 |
 
 ## Bitácora
 
@@ -354,3 +373,4 @@ Regla del repo (`CLAUDE.md`): todo cambio que pueda modificar lo que se paga se 
 | 2026-10-06 | Paso 16: se escribieron `scripts/vm/10-panel-service.sh` y la plantilla `scripts/vm/agents-panel.service`; `09-tailscale-funnel.sh` pasa a publicar el puerto 3000 por defecto (antes 4200) | Probado con stubs (`apps/api/test/panel-service.test.ts` y `funnel.test.ts`): 2ª corrida sin cambios, `--restart` y cambio de unidad reinician, puerto ocupado frena. **Sin correr todavía en la VM** (sudo y parar el desarrollo). Sin costo |
 | 2026-10-06 | Paso 16 corrido por la persona: paró `panel-api` y `panel-web` (tmux), `10-panel-service.sh` (npm ci + build, unidad instalada, servicio habilitado y arrancado) y `09-tailscale-funnel.sh` (Funnel pasó de 4200 a 3000). La web salió sin CSS por el CSP: se desactivó `inlineCritical`, se agregó `style-src 'self' 'unsafe-inline'` y se reinició el servicio (`sudo systemctl restart agents-panel`) | OK: `active`/`enabled`, 3000 solo en 127.0.0.1, `funnel status` solo hacia 3000, `/api/health` 200 y `/api/projects` 401 por Funnel, login con TOTP confirmado. Sin costo |
 | 2026-10-06 | Paso 16: `10-panel-service.sh --restart` tras compilar la política v3 del piloto | OK: el servicio reinició (`NRestarts=0`, `journalctl` muestra `Server listening at http://127.0.0.1:3000`) y la unidad quedó intacta (`/etc/systemd/system/agents-panel.service` conserva la fecha de su instalación). Sin costo |
+| 2026-10-06 | Paso 17: login de la segunda cuenta (`CLAUDE_CONFIG_DIR=~/.claude2 claude`, manual) y `11-claude-cuentas.sh` (primera corrida y segunda sin cambios). La 1ª versión mezcló también `plugins/` y dejó unas 540 copias `*.cuenta-extra.*` en `~/.claude/plugins/marketplaces`: se borraron (`find ~/.claude/plugins -name "*.cuenta-extra.*"` + `rm`) y el script pasó a descartar `plugins/` de la cuenta extra y los archivos idénticos | OK: `~/.claude2` con 9 symlinks a `~/.claude`, las 8 skills `kyro-*` visibles, sesiones de `projects/` mezcladas (incluida la abierta), `settings.json` propio de la cuenta 2 (`model: opus`) apartado como `settings.json.cuenta-extra.*`. Test `apps/api/test/claude-cuentas.test.ts`. Sin costo |

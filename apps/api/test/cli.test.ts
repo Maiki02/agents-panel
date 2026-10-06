@@ -123,7 +123,7 @@ describe('CLI', () => {
 });
 
 describe('no web route manages users', () => {
-  it('registers no route that creates or edits users (only auth steps, chat actions (incl. answering a question, the autopilot switch and the plan decision of an idea), project actions (incl. models and permissions), push subscriptions, .env files, the Kyro init branch and the Kyro update mutate)', async () => {
+  it('registers no route that creates or edits users (only auth steps, chat actions (incl. answering a question, the autopilot switch and the plan decision of an idea), project actions (incl. models and permissions), push subscriptions, Claude accounts, .env files, the Kyro init branch and the Kyro update mutate)', async () => {
     const made = makeApp();
     app = made.app;
     await app.ready();
@@ -131,6 +131,10 @@ describe('no web route manages users', () => {
       .filter((r) => !['GET', 'HEAD', 'OPTIONS'].includes(r.method))
       .map((r) => r.url);
     expect(unsafe.sort()).toEqual([
+      '/api/accounts',
+      '/api/accounts/:id',
+      '/api/accounts/:id',
+      '/api/accounts/active',
       '/api/auth/login',
       '/api/auth/logout',
       '/api/auth/totp',

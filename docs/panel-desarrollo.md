@@ -175,6 +175,18 @@ Si algún proyecto tiene cambios locales fuera de `.agents/kyro/`, esa raíz se 
 
 Para probarlo en desarrollo sin tocar el Kyro real de la VM, apuntar `PANEL_KYRO_UPDATE_SCRIPT` en `apps/api/.env` a un script propio (por ejemplo uno que imprima `KYRO_VERSION=9.9.9` y salga con 0 o con 1) y reiniciar la API. Mientras la corrida está `running`, crear un chat o mandar un mensaje responde 409. Para correr el script verdadero a mano: `bash scripts/vm/08-kyro-update.sh ~/proyectos/agents-panel` (ver `vm-setup.md`, paso 14).
 
+### Cuentas de Claude
+
+El encabezado muestra la cuenta de Claude con la que corren los turnos nuevos; elegir otra en el desplegable la deja activa para todo el panel. La página **Cuentas** lista los logins (email, organización, directorio) y avisa si alguno no tiene login o no está enlazado.
+
+Agregar una cuenta:
+
+1. En la VM, login con su directorio: `CLAUDE_CONFIG_DIR=~/.claude2 claude` y `/login`.
+2. Compartir la config con la principal: `bash scripts/vm/11-claude-cuentas.sh ~/.claude2` (paso 17 de `vm-setup.md`).
+3. En la web, **Cuentas → Agregar cuenta**: nombre (por ejemplo «Miqueas - Bimtrazer») y directorio absoluto (`/home/ubuntu/.claude2`). Se rechaza si no está dentro del home, no existe, no tiene `.credentials.json` o es `~/.claude` (esa es la principal; se puede renombrar).
+
+Referencia de la API: `GET /api/accounts`, `POST /api/accounts` `{ "name", "configDir" }` (**201**, **400** ruta no absoluta o directorio inválido, **409** nombre o directorio repetido), `PATCH /api/accounts/:id` `{ "name" }`, `DELETE /api/accounts/:id` (**204**, **409** para la principal o la activa; **404** si el id no existe, igual que en PATCH y PUT) y `PUT /api/accounts/active` `{ "id" }` (**409** sin login). Si la API se levanta en desarrollo desde una terminal con `CLAUDE_CONFIG_DIR` exportada, no importa: el panel arma el entorno de cada turno según la cuenta activa.
+
 ### Probar una pregunta del agente
 
 Para ver de punta a punta que el agente pregunta y que tu respuesta vuelve a su sesión (con la API y la web levantadas, sección 4):
