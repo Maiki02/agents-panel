@@ -107,7 +107,7 @@ describe('09-tailscale-funnel.sh', () => {
     const first = run();
     expect(first).toContain(`FUNNEL_URL=${FUNNEL}`);
     expect(calls().filter((c) => c.startsWith('tailscale funnel --bg'))).toEqual([
-      'tailscale funnel --bg 4200',
+      'tailscale funnel --bg 3000',
     ]);
     const before = calls().length;
     const second = run();

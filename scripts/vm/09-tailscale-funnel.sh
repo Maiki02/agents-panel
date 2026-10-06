@@ -4,12 +4,12 @@
 # El login (sudo tailscale up) es manual, una sola vez, con la cuenta del usuario: sin sesión el
 # script instala, habilita el servicio, avisa qué falta y sale con 0 (se vuelve a correr después).
 # No usa authkeys: ningún secreto pasa por este script.
-# Documentado en docs/vm-setup.md (paso 15).
-# Uso (en la VM):  bash scripts/vm/09-tailscale-funnel.sh [<puerto-de-la-web>]   (por defecto 4200)
+# Documentado en docs/vm-setup.md (pasos 15 y 16).
+# Uso (en la VM):  bash scripts/vm/09-tailscale-funnel.sh [<puerto-de-la-web>]   (por defecto 3000, la API que sirve la web)
 # La última línea es FUNNEL_URL=<url> cuando quedó publicado, o FUNNEL_URL= si falta el login.
 set -euo pipefail
 
-PORT="${1:-4200}"
+PORT="${1:-3000}"
 case "$PORT" in
   '' | *[!0-9]*) echo "ERROR: el puerto '$PORT' no es un número" >&2; exit 1 ;;
 esac

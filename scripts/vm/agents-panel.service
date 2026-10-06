@@ -1,0 +1,25 @@
+# Plantilla de /etc/systemd/system/agents-panel.service (la instala scripts/vm/10-panel-service.sh).
+# @REPO@, @NODE@ y @HOME@ se reemplazan al instalar. Los secretos viven en apps/api/.env, no acá.
+[Unit]
+Description=agents-panel (API + web compilada)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=@REPO@/apps/api
+# Sin npm ni watch: un cambio en el código no reinicia al piloto en medio de una corrida.
+ExecStart=@NODE@ --env-file-if-exists=.env dist/main.js
+Environment=NODE_ENV=production
+Environment=HOST=127.0.0.1
+Environment=PORT=3000
+Environment=PANEL_WEB_DIR=@REPO@/apps/web/dist/web/browser
+# El agente corre claude, kyro, gh y git: tienen que estar en el PATH del servicio.
+Environment=PATH=@HOME@/.local/bin:@HOME@/.npm-global/bin:/usr/local/go/bin:/usr/local/bin:/usr/bin:/bin
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
