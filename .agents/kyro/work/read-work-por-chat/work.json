@@ -1,0 +1,253 @@
+{
+  "schemaVersion": 1,
+  "kind": "organic-work",
+  "id": "read-work-por-chat",
+  "title": "El piloto encuentra el scope o work del chat por su nombre",
+  "objective": "Que el piloto pueda llevar un scope o work que **ya existe en el repo** (y los trabajos nuevos de un repo que ya tiene works), sin depender de `local.json` (git-ignorado, vacío en un worktree nuevo) ni de que haya un solo Work en la carpeta.",
+  "brief": {
+    "path": "brief.md",
+    "digest": "01119e1c8833d0d0c13f5874ddc365f43e7292c449682a4658f0d06cce2bd724",
+    "sourceIdea": null
+  },
+  "state": "closed",
+  "revision": 9,
+  "createdAt": "2026-10-06T01:20:02.144Z",
+  "updatedAt": "2026-10-06T01:25:51.947Z",
+  "handoff": {
+    "nextAction": "done",
+    "nextTaskId": null,
+    "blockedReason": null
+  },
+  "tasks": [
+    {
+      "id": "W1",
+      "title": "KyroReader elige el scope y el work por el slug del chat y la fecha de creación",
+      "description": "readScope(cwd, preferred?) usa el scope cuyo nombre es el slug del chat si existe su sprint.json y si no activeScope de local.json. readWork(cwd, work?, hints?: { preferred?, since? }) elige: el work dado, la carpeta con el nombre del slug, o las carpetas con createdAt de work.json mayor o igual a since; una sola se usa, ninguna da no_target con mensaje claro y varias son ambiguas. Sin pistas, igual que antes.",
+      "context": "agents-panel tiene dos works commiteados y local.json no viaja con git. El slug de un chat de Idea aprobada ya es el nombre del scope que se crea, así que preferir el slug no cambia ese flujo.",
+      "filesToTouch": [
+        "apps/api/src/kyro/reader.ts",
+        "apps/api/test/kyro-reader.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "Con dos works en la carpeta, el del slug del chat es el que se lee",
+        "Con dos works y sin coincidencia de nombre se lee el único creado desde la fecha del chat; con ninguno da no_target y con varios es ambiguo",
+        "readScope usa el scope del slug aunque local.json no tenga activeScope, y sin esa carpeta usa local.json como antes",
+        "Sin slug ni fecha el comportamiento es el anterior (los tests existentes siguen verdes)"
+      ],
+      "dependsOn": [],
+      "definitionRevision": 1,
+      "status": "verified",
+      "blocker": null,
+      "evidence": {
+        "summary": "KyroReader.readScope(cwd, preferred) usa el scope con el nombre del slug del chat si existe su sprint.json (si no, activeScope de local.json) y readWork(cwd, work, hints) elige el work dado, la carpeta con el nombre del slug o el único creado desde la fecha del chat; ninguno da no_target con mensaje claro y varios es ambiguo. Sin pistas, igual que antes.",
+        "validations": [
+          {
+            "command": "npx vitest run test/kyro-reader.test.ts",
+            "result": "passed",
+            "note": "21 tests: slug con dos works, único creado desde la fecha del chat, ninguno y varios, work.json ilegible, sin pistas y work explícito, readScope con y sin local.json"
+          },
+          {
+            "command": "npx eslint apps/api && tsc --noEmit",
+            "result": "passed",
+            "note": "limpios"
+          }
+        ],
+        "filesChanged": [
+          "apps/api/src/kyro/reader.ts",
+          "apps/api/test/kyro-reader.test.ts"
+        ],
+        "notes": null,
+        "by": "claude-maker",
+        "recordedAt": "2026-10-06T01:21:57.719Z",
+        "definitionRevision": 1,
+        "materialDigest": "e84c39df69a48964242368be805d31e4605e6c3e100b38957ceb8d539df02ab3"
+      },
+      "verdict": {
+        "result": "pass",
+        "checkedCriteria": [
+          "Con dos works en la carpeta, el del slug del chat es el que se lee",
+          "Con dos works y sin coincidencia de nombre se lee el único creado desde la fecha del chat; con ninguno da no_target y con varios es ambiguo",
+          "readScope usa el scope del slug aunque local.json no tenga activeScope, y sin esa carpeta usa local.json como antes",
+          "Sin slug ni fecha el comportamiento es el anterior (los tests existentes siguen verdes)"
+        ],
+        "findings": [],
+        "by": "claude-checker",
+        "reviewedAt": "2026-10-06T01:21:59.045Z",
+        "definitionRevision": 1,
+        "evidenceDigest": "422c5a3c349d7453a8b87e1ece1c1a018663af15acfc7c2602c01558c1a7eac1",
+        "reviewedMaterialDigest": "e84c39df69a48964242368be805d31e4605e6c3e100b38957ceb8d539df02ab3"
+      },
+      "disposition": null
+    },
+    {
+      "id": "W2",
+      "title": "El piloto y el seguimiento de estado pasan el slug y la fecha del chat",
+      "description": "autopilot.ts, worktrees/state-tracker.ts y pilot/accept-debt.ts llaman a readScope y readWork con chat.slug y chat.createdAt; las interfaces KyroStateReader y la de accept-debt aceptan los parámetros opcionales. Documentar la regla en docs/plan.md y en docs/panel-desarrollo.md (cómo continuar un scope o work existente).",
+      "context": "Los fakes de los tests ignoran los parámetros extra. No cambia la política ni el flujo de las Ideas.",
+      "filesToTouch": [
+        "apps/api/src/pilot/autopilot.ts",
+        "apps/api/src/worktrees/state-tracker.ts",
+        "apps/api/src/pilot/accept-debt.ts",
+        "apps/api/test/pilot-autopilot.test.ts",
+        "docs/plan.md",
+        "docs/panel-desarrollo.md"
+      ],
+      "acceptanceCriteria": [
+        "Los tres llamadores pasan chat.slug y chat.createdAt (test: el lector recibe los argumentos del chat)",
+        "docs/plan.md y docs/panel-desarrollo.md explican cómo se continúa un scope o work existente (slug igual al nombre) y qué elige el piloto",
+        "typecheck, lint, format:check y tests de apps/api en verde"
+      ],
+      "dependsOn": [
+        "W1"
+      ],
+      "definitionRevision": 1,
+      "status": "verified",
+      "blocker": null,
+      "evidence": {
+        "summary": "autopilot.ts, worktrees/state-tracker.ts y pilot/accept-debt.ts llaman a readScope y readWork con chat.slug y chat.createdAt; las interfaces aceptan los parámetros opcionales. docs/plan.md describe la regla y docs/panel-desarrollo.md tiene la sección 'Continuar un scope o work que ya existe en el repo'.",
+        "validations": [
+          {
+            "command": "npx vitest run test/pilot-routes.test.ts",
+            "result": "passed",
+            "note": "el lector recibe ['scope','mi-scope'] y ['work', undefined, {preferred:'mi-work', since: createdAt del chat}]"
+          },
+          {
+            "command": "npm run typecheck && npx eslint . && npm run format:check",
+            "result": "passed",
+            "note": "limpios"
+          },
+          {
+            "command": "npm test",
+            "result": "passed",
+            "note": "apps/api 1055 y apps/web 255 en verde"
+          },
+          {
+            "command": "npm run build",
+            "result": "passed",
+            "note": "completo"
+          }
+        ],
+        "filesChanged": [
+          "apps/api/src/pilot/autopilot.ts",
+          "apps/api/src/worktrees/state-tracker.ts",
+          "apps/api/src/pilot/accept-debt.ts",
+          "apps/api/test/pilot-routes.test.ts",
+          "docs/plan.md",
+          "docs/panel-desarrollo.md"
+        ],
+        "notes": "El servicio necesita --restart para tomar el cambio.",
+        "by": "claude-maker",
+        "recordedAt": "2026-10-06T01:25:51.502Z",
+        "definitionRevision": 1,
+        "materialDigest": "9a04592fed10bb9c90c0655d54a13702905fc7d5df24ffed23412be7c6a1344d"
+      },
+      "verdict": {
+        "result": "pass",
+        "checkedCriteria": [
+          "Los tres llamadores pasan chat.slug y chat.createdAt (test: el lector recibe los argumentos del chat)",
+          "docs/plan.md y docs/panel-desarrollo.md explican cómo se continúa un scope o work existente (slug igual al nombre) y qué elige el piloto",
+          "typecheck, lint, format:check y tests de apps/api en verde"
+        ],
+        "findings": [],
+        "by": "claude-checker",
+        "reviewedAt": "2026-10-06T01:25:51.726Z",
+        "definitionRevision": 1,
+        "evidenceDigest": "c0eaa79ae9ea68c58bc3b2e8c27eb1fdb7c935dfe124a12a87f07c84586b1928",
+        "reviewedMaterialDigest": "9a04592fed10bb9c90c0655d54a13702905fc7d5df24ffed23412be7c6a1344d"
+      },
+      "disposition": null
+    }
+  ],
+  "activity": [
+    {
+      "seq": 1,
+      "at": "2026-10-06T01:20:02.144Z",
+      "event": "created",
+      "taskId": null,
+      "by": "claude-maker",
+      "reason": "Created through the Work CLI.",
+      "revision": 1
+    },
+    {
+      "seq": 2,
+      "at": "2026-10-06T01:20:02.384Z",
+      "event": "tasks_planned",
+      "taskId": null,
+      "by": "claude-maker",
+      "reason": "Planned 2 Work tasks.",
+      "revision": 2
+    },
+    {
+      "seq": 3,
+      "at": "2026-10-06T01:20:02.607Z",
+      "event": "task_started",
+      "taskId": "W1",
+      "by": "claude-maker",
+      "reason": "Task started through the Work CLI.",
+      "revision": 3
+    },
+    {
+      "seq": 4,
+      "at": "2026-10-06T01:21:57.719Z",
+      "event": "evidence_recorded",
+      "taskId": "W1",
+      "by": "claude-maker",
+      "reason": "Evidence recorded with 2 validation results.",
+      "revision": 4
+    },
+    {
+      "seq": 5,
+      "at": "2026-10-06T01:21:59.045Z",
+      "event": "review_recorded",
+      "taskId": "W1",
+      "by": "claude-checker",
+      "reason": "Task review recorded with pass.",
+      "revision": 5
+    },
+    {
+      "seq": 6,
+      "at": "2026-10-06T01:21:59.266Z",
+      "event": "task_started",
+      "taskId": "W2",
+      "by": "claude-maker",
+      "reason": "Task started through the Work CLI.",
+      "revision": 6
+    },
+    {
+      "seq": 7,
+      "at": "2026-10-06T01:25:51.502Z",
+      "event": "evidence_recorded",
+      "taskId": "W2",
+      "by": "claude-maker",
+      "reason": "Evidence recorded with 4 validation results.",
+      "revision": 7
+    },
+    {
+      "seq": 8,
+      "at": "2026-10-06T01:25:51.726Z",
+      "event": "review_recorded",
+      "taskId": "W2",
+      "by": "claude-checker",
+      "reason": "Task review recorded with pass.",
+      "revision": 8
+    },
+    {
+      "seq": 9,
+      "at": "2026-10-06T01:25:51.947Z",
+      "event": "work_closed",
+      "taskId": null,
+      "by": "claude-maker",
+      "reason": "W1 y W2 verificadas: el piloto encuentra el scope o work del chat por slug y fecha",
+      "revision": 9
+    }
+  ],
+  "closure": {
+    "outcome": "completed",
+    "reason": "W1 y W2 verificadas: el piloto encuentra el scope o work del chat por slug y fecha",
+    "by": "claude-maker",
+    "closedAt": "2026-10-06T01:25:51.947Z",
+    "briefDigest": "01119e1c8833d0d0c13f5874ddc365f43e7292c449682a4658f0d06cce2bd724",
+    "finalRevision": 9
+  },
+  "promotion": null
+}
