@@ -2,6 +2,14 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+/** VAPID identity the panel signs Web Push messages with (secrets: only in the panel's .env). */
+export interface PushVapid {
+  readonly publicKey: string;
+  readonly privateKey: string;
+  /** `mailto:` or `https:` contact the push services may use. */
+  readonly subject: string;
+}
+
 export interface Config {
   readonly dataDir: string;
   /** Root under which worktrees are created: <root>/<project>/<slug>. */
@@ -13,6 +21,8 @@ export interface Config {
   /** Script run by the Kyro update (scripts/vm/08-kyro-update.sh of this repo by default). */
   readonly kyroUpdateScript: string;
   readonly origin: string;
+  /** Every origin the browser may send on a state-changing request: `origin` plus the extras. */
+  readonly allowedOrigins: readonly string[];
   /** Raw key bytes. Never log this object's secretKey. */
   readonly secretKey: Buffer;
   readonly sessionIdleTtlSeconds: number;
@@ -21,6 +31,8 @@ export interface Config {
   readonly pilotMaxSessionsPerSprint: number;
   /** Longest a project's validate_command may run before the pilot stops it. */
   readonly pilotValidateTimeoutMs: number;
+  /** null when the VAPID keys are not set: Web Push stays off and nothing is sent. */
+  readonly pushVapid: PushVapid | null;
 }
 
 export class ConfigError extends Error {
@@ -45,6 +57,20 @@ function expandHome(path: string): string {
   return path === '~' || path.startsWith('~/') ? join(homedir(), path.slice(1)) : path;
 }
 
+function loadVapid(env: Env): PushVapid | null {
+  const publicKey = env['PUSH_VAPID_PUBLIC_KEY'] ?? '';
+  const privateKey = env['PUSH_VAPID_PRIVATE_KEY'] ?? '';
+  const subject = env['PUSH_VAPID_SUBJECT'] ?? '';
+  if (publicKey === '' && privateKey === '') return null;
+  if (publicKey === '' || privateKey === '') {
+    throw new ConfigError('PUSH_VAPID_PUBLIC_KEY and PUSH_VAPID_PRIVATE_KEY go together');
+  }
+  if (!subject.startsWith('mailto:') && !subject.startsWith('https://')) {
+    throw new ConfigError('PUSH_VAPID_SUBJECT must start with mailto: or https://');
+  }
+  return { publicKey, privateKey, subject };
+}
+
 /** Reads and validates the environment. Error messages never include secret values. */
 export function loadConfig(env: Env = process.env): Config {
   const rawKey = env['PANEL_SECRET_KEY'];
@@ -66,6 +92,21 @@ export function loadConfig(env: Env = process.env): Config {
   } catch {
     throw new ConfigError('PANEL_ORIGIN must be a valid URL');
   }
+
+  // Other URLs the same panel is reached by (the Funnel name next to the local tunnel).
+  const extraOrigins = (env['PANEL_EXTRA_ORIGINS'] ?? '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter((value) => value !== '')
+    .map((value) => {
+      try {
+        const url = new URL(value);
+        if (url.protocol !== 'https:' && url.protocol !== 'http:') throw new Error('protocol');
+        return url.origin;
+      } catch {
+        throw new ConfigError('PANEL_EXTRA_ORIGINS must be a comma-separated list of http(s) URLs');
+      }
+    });
 
   const rawDataDir = env['PANEL_DATA_DIR'];
   const dataDir = expandHome(
@@ -95,10 +136,12 @@ export function loadConfig(env: Env = process.env): Config {
     minFreeDiskGb: positiveInt(env, 'PANEL_MIN_FREE_DISK_GB', 10),
     kyroUpdateScript,
     origin,
+    allowedOrigins: [...new Set([origin, ...extraOrigins])],
     secretKey,
     sessionIdleTtlSeconds: positiveInt(env, 'PANEL_SESSION_IDLE_TTL_SECONDS', 30 * 60),
     sessionAbsoluteTtlSeconds: positiveInt(env, 'PANEL_SESSION_ABSOLUTE_TTL_SECONDS', 12 * 60 * 60),
     pilotMaxSessionsPerSprint: positiveInt(env, 'PILOT_MAX_SESSIONS_PER_SPRINT', 6),
     pilotValidateTimeoutMs: positiveInt(env, 'PILOT_VALIDATE_TIMEOUT_MINUTES', 15) * 60 * 1000,
+    pushVapid: loadVapid(env),
   };
 }

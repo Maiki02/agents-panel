@@ -34,6 +34,7 @@ export function makeApp(
       | 'kyroRunner'
       | 'pilotGit'
       | 'pilotGh'
+      | 'pushSender'
     >
   > = {},
 ): {
@@ -67,6 +68,7 @@ export function makeApp(
     ...(extra.kyroRunner ? { kyroRunner: extra.kyroRunner } : {}),
     ...(extra.pilotGit ? { pilotGit: extra.pilotGit } : {}),
     ...(extra.pilotGh ? { pilotGh: extra.pilotGh } : {}),
+    ...(extra.pushSender ? { pushSender: extra.pushSender } : {}),
   });
   return { app, db, worktreesDir, projectsDir };
 }

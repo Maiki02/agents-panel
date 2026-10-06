@@ -462,6 +462,25 @@ export const migrations: readonly Migration[] = [
       ALTER TABLE autopilot_runs_new RENAME TO autopilot_runs;
     `,
   },
+  {
+    version: 17,
+    name: 'push_subscriptions',
+    // One row per browser or phone of a user; the endpoint identifies the subscription.
+    sql: `
+      CREATE TABLE push_subscriptions (
+        id INTEGER PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        endpoint TEXT NOT NULL UNIQUE,
+        p256dh TEXT NOT NULL,
+        auth TEXT NOT NULL,
+        name TEXT NOT NULL,
+        user_agent TEXT,
+        created_at INTEGER NOT NULL,
+        last_success_at INTEGER
+      );
+      CREATE INDEX push_subscriptions_user ON push_subscriptions (user_id);
+    `,
+  },
 ];
 
 /** Applies pending migrations in order, each in its own transaction. Safe to run repeatedly. */

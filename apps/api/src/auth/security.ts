@@ -30,13 +30,17 @@ export function registerHeaders(app: FastifyInstance): void {
  * State-changing requests must come from our own origin. Covers login CSRF, where no
  * session exists yet. Browsers always send Origin (or Sec-Fetch-Site) on these methods.
  */
-export function registerOriginCheck(app: FastifyInstance, allowedOrigin: string): void {
+export function registerOriginCheck(
+  app: FastifyInstance,
+  allowedOrigins: string | readonly string[],
+): void {
+  const allowed = typeof allowedOrigins === 'string' ? [allowedOrigins] : allowedOrigins;
   app.addHook('onRequest', async (request, reply) => {
     if (!UNSAFE_METHODS.has(request.method)) return;
     const origin = request.headers.origin;
     const sameOrigin =
       origin !== undefined
-        ? origin === allowedOrigin
+        ? allowed.includes(origin)
         : request.headers['sec-fetch-site'] === 'same-origin';
     if (!sameOrigin) return reply.code(403).send({ error: 'forbidden_origin' });
   });

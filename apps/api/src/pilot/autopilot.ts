@@ -241,6 +241,24 @@ export class Autopilot {
         return;
       }
       const read = chat.kind === 'scope' ? await kyro.readScope(cwd) : await kyro.readWork(cwd);
+
+      // A session cut by a restart goes on in its own SDK session. When it was the plan or the init
+      // (what creates the scope or work), Kyro has nothing to read yet and that is not a block.
+      const resume = this.pendingResume.get(chatId);
+      if (resume !== undefined && (read.ok || resume.step === 'plan' || resume.step === 'init')) {
+        this.pendingResume.delete(chatId);
+        const resumed = await this.resumeStep(chat, resume, read.ok ? read.state : null);
+        if (resumed === null) return;
+        if (resumed === 'busy') {
+          if (this.tooBusy(chat, ++busy)) return;
+          continue;
+        }
+        busy = 0;
+        last = resumed.last;
+        afterClose = resumed.afterClose;
+        continue;
+      }
+
       if (!read.ok) {
         // The scope of an approved idea is created by the pilot's first session.
         if (chat.kind === 'scope' && run.seedPath !== null && needsScopeInit(read.error, run)) {
@@ -257,21 +275,6 @@ export class Autopilot {
         return;
       }
       const state = read.state;
-
-      const resume = this.pendingResume.get(chatId);
-      if (resume !== undefined) {
-        this.pendingResume.delete(chatId);
-        const resumed = await this.resumeStep(chat, resume, state);
-        if (resumed === null) return;
-        if (resumed === 'busy') {
-          if (this.tooBusy(chat, ++busy)) return;
-          continue;
-        }
-        busy = 0;
-        last = resumed.last;
-        afterClose = resumed.afterClose;
-        continue;
-      }
 
       // A completed work goes to the PR: the phase is stored, so a restart takes it up again.
       if (run.phase === 'merge') {
@@ -772,7 +775,8 @@ export class Autopilot {
   private async resumeStep(
     chat: Chat,
     resume: PendingResume,
-    state: KyroScopeState | KyroWorkState,
+    /** null while Kyro has no scope or work to read yet (the plan or init session was cut). */
+    state: KyroScopeState | KyroWorkState | null,
   ): Promise<{ last: LastSession; afterClose: AfterClose | null } | 'busy' | null> {
     const { chats, runs, manager, questions } = this.deps;
     const fromSeq = chats.lastSeq(chat.id);
@@ -803,7 +807,7 @@ export class Autopilot {
     if (settled === 'exit') return null;
     // The QA check covers the whole step, so it counts from where the interrupted session began.
     const afterClose =
-      resume.step === 'close' && state.kind === 'scope'
+      resume.step === 'close' && state?.kind === 'scope'
         ? {
             closedBefore: state.sprint.closed ?? 0,
             sprintN: resume.sprintN,

@@ -243,6 +243,24 @@ export class QuestionRepository {
     return updated;
   }
 
+  /** Every question still waiting for an answer, whatever its chat (the startup cancels them). */
+  listPending(): PendingQuestion[] {
+    return (
+      this.db
+        .prepare("SELECT * FROM pending_questions WHERE status = 'pending' ORDER BY id")
+        .all() as unknown as QuestionRow[]
+    ).map(toQuestion);
+  }
+
+  /** Every cancelled question (the startup checks each one left its event in the chat). */
+  listCancelled(): PendingQuestion[] {
+    return (
+      this.db
+        .prepare("SELECT * FROM pending_questions WHERE status = 'cancelled' ORDER BY id")
+        .all() as unknown as QuestionRow[]
+    ).map(toQuestion);
+  }
+
   /** Startup: no session survives a restart, so nothing is waiting for an answer anymore. */
   cancelAllPending(): number {
     const result = this.db

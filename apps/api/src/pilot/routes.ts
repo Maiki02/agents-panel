@@ -3,6 +3,7 @@ import type { AutopilotAction, AutopilotInfo } from '@agents-panel/shared';
 import { onlyKeys } from '../http/only-keys.js';
 import { ChatError, type ChatService } from '../chats/service.js';
 import type { DebtAcceptance } from './accept-debt.js';
+import type { WorktreeStateRepository } from '../worktrees/state-repo.js';
 import { AutopilotTransitionError, type AutopilotRunRepository } from './runs-repo.js';
 
 const idParams = {
@@ -16,7 +17,7 @@ const actionBody = {
   required: ['action'],
   additionalProperties: false,
   properties: {
-    action: { enum: ['pause', 'resume', 'off', 'accept_debt'] },
+    action: { enum: ['on', 'pause', 'resume', 'off', 'accept_debt'] },
     reason: { type: 'string', maxLength: 2000 },
   },
 } as const;
@@ -35,14 +36,32 @@ export function registerAutopilotRoutes(
     onResume?: (chatId: number) => void;
     /** Completes a scope with the debt the user accepted (T3.2). */
     debt?: DebtAcceptance;
+    /** Timeline of the work: the user's `on` stays on record under their name. */
+    states?: WorktreeStateRepository;
   },
 ): void {
-  const { service, runs, maxSessionsPerSprint, onResume, debt } = deps;
+  const { service, runs, maxSessionsPerSprint, onResume, debt, states } = deps;
 
   const info = (chatId: number): AutopilotInfo => ({
     run: runs.get(chatId) ?? null,
     maxSessionsPerSprint,
   });
+  /** Why `on` does not apply, as a readable 409; returns normally when it does. */
+  const requireSwitchable = (chatId: number): void => {
+    const chat = service.requireChat(chatId);
+    if (chat.kind === 'direct') throw new ChatError('Un pedido directo no tiene piloto', 409);
+    if (chat.kind === 'idea') {
+      throw new ChatError('Una idea no tiene piloto hasta que se aprueba su plan', 409);
+    }
+    const run = runs.get(chatId);
+    if (run !== undefined && run.status !== 'off') {
+      throw new ChatError('El piloto ya está encendido en este trabajo', 409);
+    }
+    const state = states?.get(chatId)?.state;
+    if (run?.phase === 'merge' && (state === 'pr_lista' || state === 'mergeada')) {
+      throw new ChatError('La PR ya está lista: no queda nada que pilotear', 409);
+    }
+  };
   const requirePilotable = (chatId: number): void => {
     const kind = service.requireChat(chatId).kind;
     if (kind === 'idea') {
@@ -70,6 +89,35 @@ export function registerAutopilotRoutes(
     },
     async (request) => {
       const chatId = request.params.id;
+      if (request.body.action === 'on') {
+        requireSwitchable(chatId);
+        if (runs.get(chatId) === undefined) runs.create(chatId);
+        else runs.resume(chatId);
+        const current = states?.get(chatId);
+        if (states !== undefined && current !== undefined) {
+          states.transition(chatId, {
+            state: current.state,
+            actor: 'user',
+            reason: 'El usuario encendió el piloto',
+            detail: current.detail,
+            phase: current.phase,
+            sprintCurrent: current.sprintCurrent,
+            sprintClosed: current.sprintClosed,
+            sprintTotal: current.sprintTotal,
+            taskDone: current.taskDone,
+            taskTotal: current.taskTotal,
+            openDebt: current.openDebt,
+            blockedReason: current.blockedReason,
+            role: current.role,
+            model: current.model,
+            data: { action: 'on' },
+            record: true,
+          });
+        }
+        // The loop reads Kyro's nextAction and waits for a manual turn in progress to end.
+        onResume?.(chatId);
+        return info(chatId);
+      }
       requirePilotable(chatId);
       if (request.body.action === 'accept_debt') {
         // The guard guarantees a session; the acceptance is always the one of that session's user.

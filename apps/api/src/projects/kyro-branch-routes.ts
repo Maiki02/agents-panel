@@ -36,4 +36,19 @@ export function registerKyroBranchRoutes(
       }
     },
   );
+
+  // Pushes the branch the init left behind. Writes only a branch of the project's own remote, so
+  // like the pull it needs a session and CSRF but no code.
+  app.post<{ Params: { id: number } }>(
+    '/api/projects/:id/kyro-init/push',
+    { schema: { params: idParams } },
+    async (request, reply) => {
+      try {
+        return await respond(reply, () => service.push(request.params.id));
+      } catch (error) {
+        if (error instanceof KyroInitError) return reply.code(500).send({ error: error.message });
+        throw error;
+      }
+    },
+  );
 }

@@ -1,3 +1,4 @@
+import webpush from 'web-push';
 import type { Db } from '../db/index.js';
 import { PasswordPolicyError, assertPasswordPolicy } from '../auth/password.js';
 import { SessionService } from '../auth/sessions.js';
@@ -36,6 +37,7 @@ export const USAGE = `Usage: npm run -w @agents-panel/api cli -- <command>
   user:reset-password <username>  Set a new password and end all sessions
   user:reset-2fa <username>       Enroll a new TOTP secret and recovery codes
   user:unlock <username>          Clear a login lock
+  push:vapid-keys                 Print a VAPID key pair for the Web Push variables of the .env
 
 ${PROJECT_USAGE}`;
 
@@ -142,6 +144,14 @@ export async function runCli(argv: readonly string[], io: CliIo, deps: CliDeps):
       const user = requireUser();
       users.clearFailures(user.id);
       io.print(`Unlocked ${user.username}.`);
+      return;
+    }
+    case 'push:vapid-keys': {
+      const keys = webpush.generateVAPIDKeys();
+      io.print('Paste these into the .env of the panel (the private key is a secret):');
+      io.print(`PUSH_VAPID_PUBLIC_KEY=${keys.publicKey}`);
+      io.print(`PUSH_VAPID_PRIVATE_KEY=${keys.privateKey}`);
+      io.print('PUSH_VAPID_SUBJECT=mailto:you@example.com');
       return;
     }
     default:

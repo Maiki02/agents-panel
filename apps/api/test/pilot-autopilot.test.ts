@@ -1061,6 +1061,45 @@ describe('resuming after a restart (S16)', () => {
     expect(t.runs.get(t.chat.id)).toMatchObject({ status: 'finished' });
   });
 
+  it('resumes a cut plan session even though Kyro has no scope or work to read yet', async () => {
+    const t = await setup({ total: 1 });
+    t.kyro.missing = true;
+    t.runs.beginSession(t.chat.id, {
+      step: 'plan',
+      sprintN: null,
+      fingerprint: {},
+      policyVersion: POLICY_VERSION,
+    });
+    t.sessions.open(t.chat.id, 'thinker', 'claude', 'claude-opus-5-5', null, {
+      step: 'plan',
+      policyVersion: POLICY_VERSION,
+    });
+    t.chats.setSessionId(t.chat.id, 'sess-plan');
+    t.chats.setStatus(t.chat.id, 'interrupted');
+    t.pilot.resumeAll();
+    await t.pilot.drive(t.chat.id);
+
+    expect(t.runner.calls[0]).toMatchObject({ resumeSessionId: 'sess-plan', role: 'thinker' });
+    // The resumed session is a second plan session; the run only stops once it ends with no scope.
+    expect(t.sessions.listByChat(t.chat.id).map((x) => x.step)).toEqual(['plan', 'plan']);
+    expect(t.sessions.listByChat(t.chat.id)[0]).toMatchObject({
+      step: 'plan',
+      result: 'interrupted',
+    });
+  });
+
+  it('still stops when Kyro cannot be read and no plan or init session was cut', async () => {
+    const t = await setup({ total: 1 });
+    t.kyro.missing = true;
+    t.pilot.resumeAll();
+    await t.pilot.drive(t.chat.id);
+    expect(t.runner.calls).toHaveLength(0);
+    expect(t.states.get(t.chat.id)).toMatchObject({
+      state: 'bloqueado',
+      blockedReason: 'kyro_bloqueado',
+    });
+  });
+
   it('does not resume a paused or switched-off run', async () => {
     const paused = await midStep();
     paused.runs.pause(paused.chat.id);

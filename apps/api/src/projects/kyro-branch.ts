@@ -1,10 +1,16 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import type { KyroBranchResult, Project } from '@agents-panel/shared';
+import type { KyroBranchResult, KyroInitPushResult, Project } from '@agents-panel/shared';
+import { realGit, type PilotGit } from '../pilot/git-ops.js';
 import type { AgentManager } from '../agent/manager.js';
 import type { KyroLock } from '../maintenance/lock.js';
 import { createWorktree, removeWorktree, WorktreeError } from '../worktrees/create.js';
-import { ProjectConflictError, ProjectNotFoundError, type ProjectRepository } from './repo.js';
+import {
+  ProjectConflictError,
+  ProjectNotFoundError,
+  pendingKyroInit,
+  type ProjectRepository,
+} from './repo.js';
 import { kyroInstall, type KyroInitializer } from './service.js';
 
 const execFileAsync = promisify(execFile);
@@ -26,6 +32,8 @@ export interface KyroBranchDeps {
   kyroLock: KyroLock;
   manager: Pick<AgentManager, 'inMaintenance'>;
   installer?: KyroInitializer;
+  /** Pushes the init branch; tests replace it so nothing reaches GitHub. */
+  git?: Pick<PilotGit, 'push'>;
 }
 
 async function git(cwd: string, args: string[]): Promise<string> {
@@ -71,6 +79,25 @@ export class KyroBranchService {
     } finally {
       this.running.delete(project.id);
     }
+  }
+
+  /**
+   * Pushes the pending init branch to origin (never forced; `git-ops` only accepts a plain branch
+   * name) and answers the link that opens its PR. The merge itself stays with the user.
+   */
+  async push(projectId: number): Promise<KyroInitPushResult> {
+    const project = this.deps.projects.findById(projectId);
+    if (!project) throw new ProjectNotFoundError(`Project not found: ${String(projectId)}`);
+    const pending = project.hasKyro ? null : pendingKyroInit(project.repoPath, project.repoUrl);
+    if (pending === null) {
+      throw new ProjectConflictError('No hay una rama de Kyro pendiente en este proyecto');
+    }
+    try {
+      await (this.deps.git ?? realGit).push(project.repoPath, pending.branch);
+    } catch (error) {
+      throw new KyroInitError(`No se pudo subir la rama: ${detail(error)}`);
+    }
+    return { branch: pending.branch, prUrl: pending.prUrl };
   }
 
   private assertCanInit(project: Project): void {

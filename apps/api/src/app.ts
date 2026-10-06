@@ -14,6 +14,11 @@ import type { AgentRunner } from './agent/runner.js';
 import { SdkRunner } from './agent/sdk-runner.js';
 import { AgentSessionRepository } from './chats/sessions-repo.js';
 import { registerAutopilotRoutes } from './pilot/routes.js';
+import { PushNotifier } from './push/notifier.js';
+import { registerPushRoutes } from './push/routes.js';
+import { PushSubscriptionRepository } from './push/repo.js';
+import { createWebPushSender, type PushSender } from './push/sender.js';
+import { PushService } from './push/service.js';
 import { Autopilot, type PilotKyro } from './pilot/autopilot.js';
 import { AutopilotRunRepository } from './pilot/runs-repo.js';
 import { ChatEventBus } from './chats/events.js';
@@ -99,6 +104,8 @@ export interface AppDeps {
   pilotGit?: PilotGit & MergeGit;
   /** `gh` of the merge phase; tests replace it so nothing calls GitHub. */
   pilotGh?: PilotGh;
+  /** Sends Web Push messages; tests inject a fake, production uses the VAPID keys of the config. */
+  pushSender?: PushSender;
   /** Runs `kyro work create` when an idea is approved as a work; tests replace it. */
   kyroRunner?: CommandRunner;
 }
@@ -123,7 +130,7 @@ export function buildApp(deps: AppDeps, options: FastifyServerOptions = {}): Fas
   void app.register(cookie);
   void app.register(rateLimit, { global: false });
   registerHeaders(app);
-  registerOriginCheck(app, deps.config.origin);
+  registerOriginCheck(app, deps.config.allowedOrigins);
   registerGuard(app, sessions);
   registerCsrfCheck(app);
 
@@ -179,7 +186,24 @@ export function buildApp(deps: AppDeps, options: FastifyServerOptions = {}): Fas
   const interrupted = chats.listRunning();
   chats.markRunningAsInterrupted();
   tracker.markInterrupted(interrupted);
+  // The web learns it from the event: without it the card of the dead question stays answerable.
+  for (const question of questions.listPending()) {
+    chats.appendEvent(question.chatId, 'question_cancelled', { questionId: question.id });
+  }
   questions.cancelAllPending();
+  // Questions cancelled by an older version left no event: give them one, once, so no chat keeps
+  // showing an answer card for a question that can never be answered.
+  for (const question of questions.listCancelled()) {
+    const hasEvent = chats
+      .allEventsAfter(question.chatId, 0)
+      .some(
+        (event) =>
+          event.type === 'question_cancelled' &&
+          (event.payload as { questionId?: unknown }).questionId === question.id,
+      );
+    if (!hasEvent)
+      chats.appendEvent(question.chatId, 'question_cancelled', { questionId: question.id });
+  }
   const pilot = new Autopilot({
     chats,
     runs: autopilotRuns,
@@ -243,6 +267,7 @@ export function buildApp(deps: AppDeps, options: FastifyServerOptions = {}): Fas
     kyroLock,
     manager,
     ...(deps.kyroInstaller ? { installer: deps.kyroInstaller } : {}),
+    ...(deps.pilotGit ? { git: deps.pilotGit } : {}),
   });
   const projectDeleter = new ProjectDeleter({ projects, chats, manager, config: deps.config });
   void app.register((instance) => {
@@ -285,6 +310,7 @@ export function buildApp(deps: AppDeps, options: FastifyServerOptions = {}): Fas
   });
   registerAutopilotRoutes(app, {
     service: chatService,
+    states: worktreeState,
     runs: autopilotRuns,
     maxSessionsPerSprint: deps.config.pilotMaxSessionsPerSprint,
     onResume: (chatId) => {
@@ -302,6 +328,28 @@ export function buildApp(deps: AppDeps, options: FastifyServerOptions = {}): Fas
       },
     }),
   });
+  const pushSubscriptions = new PushSubscriptionRepository(deps.db, now);
+  // Push is on only with VAPID keys in the config; the sender is replaceable for the tests.
+  const vapid = deps.config.pushVapid;
+  const push = new PushService(
+    pushSubscriptions,
+    vapid ? (deps.pushSender ?? createWebPushSender(vapid)) : null,
+    vapid?.publicKey ?? null,
+  );
+  const notifier = new PushNotifier({
+    bus,
+    chats,
+    states: worktreeState,
+    push,
+    log: (message) => {
+      app.log.warn(message);
+    },
+  });
+  notifier.start();
+  app.addHook('onClose', () => {
+    notifier.close();
+  });
+  registerPushRoutes(app, { push, subscriptions: pushSubscriptions });
   registerStreamRoute(app, {
     chats,
     bus,

@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -8,6 +8,7 @@ import {
   MODEL_CATALOG,
   type ModelProvider,
   type ModelSelection,
+  type KyroInitPending,
   type Project,
   type ProjectStatus,
 } from '@agents-panel/shared';
@@ -32,7 +33,35 @@ interface ProjectRow {
   executor_model: string | null;
 }
 
+const KYRO_INIT_BRANCH = 'chore/kyro-init';
+
+function hasRef(repoPath: string, ref: string): boolean {
+  try {
+    execFileSync('git', ['-C', repoPath, 'rev-parse', '--verify', '--quiet', ref], {
+      stdio: 'ignore',
+      timeout: 5000,
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The init branch is waiting when the clone has no Kyro but still has `chore/kyro-init` (worktree
+ * branches live in the base clone's refs). Local refs only: listing projects never hits the network.
+ */
+export function pendingKyroInit(repoPath: string, repoUrl: string | null): KyroInitPending | null {
+  if (!hasRef(repoPath, `refs/heads/${KYRO_INIT_BRANCH}`)) return null;
+  return {
+    branch: KYRO_INIT_BRANCH,
+    pushed: hasRef(repoPath, `refs/remotes/origin/${KYRO_INIT_BRANCH}`),
+    prUrl: repoUrl === null ? null : `${repoUrl}/pull/new/${KYRO_INIT_BRANCH}`,
+  };
+}
+
 function toProject(row: ProjectRow): Project {
+  const hasKyro = existsSync(join(row.repo_path, '.agents', 'kyro'));
   return {
     id: row.id,
     name: row.name,
@@ -44,7 +73,8 @@ function toProject(row: ProjectRow): Project {
     repoUrl: row.repo_url,
     status: row.status,
     statusDetail: row.status_detail,
-    hasKyro: existsSync(join(row.repo_path, '.agents', 'kyro')),
+    hasKyro,
+    kyroInit: hasKyro ? null : pendingKyroInit(row.repo_path, row.repo_url),
     // A ready project only carries a detail when Kyro setup failed after registering.
     kyroWarning: row.status === 'ready' ? row.status_detail : null,
     models: {
