@@ -1,0 +1,913 @@
+{
+  "n": 5,
+  "slug": "web-piloto-push",
+  "title": "Web del piloto y notificaciones push",
+  "objective": "Que el piloto se maneje entero desde la web (encender, pausar, reanudar, apagar, elegir tipo y modelos, ver el estado por fases y el Timeline) y que cada freno o PR lista avise por Web Push a la PC y al Android, con el panel publicado por Tailscale Funnel.",
+  "status": "complete",
+  "phases": [
+    {
+      "id": "P1",
+      "title": "API: encender el piloto y Web Push",
+      "objective": "Lo que le falta a la API para que la web maneje el piloto y mande avisos push.",
+      "status": "done",
+      "tasks": [
+        {
+          "id": "T1.1",
+          "title": "Encender el piloto en un trabajo existente",
+          "description": "Hoy POST /api/chats/:id/autopilot solo acepta pause, resume, off y accept_debt: un scope o work creado sin piloto (o apagado) no se puede encender. Sumar la acción 'on' a AutopilotAction (packages/shared) y a la ruta: crea o reactiva la corrida del piloto y abre el paso siguiente según las señales de Kyro (mismo camino que autopilot: true en POST /api/chats). Rechazar con 409 y motivo legible si el chat es direct o consulta, si es una idea sin plan aprobado, si el piloto ya está encendido o si el trabajo está en la fase de merge con la PR lista. Actualizar el comentario de newChatInput en apps/web/src/app/chats/chat-kinds.ts si cambia el contrato.",
+          "files_to_touch": [
+            "packages/shared/src/index.ts",
+            "apps/api/src/pilot/routes.ts",
+            "apps/api/src/pilot/autopilot.ts",
+            "apps/api/src/pilot/runs-repo.ts",
+            "apps/api/test/pilot-routes.test.ts"
+          ],
+          "context": "R6 (se puede pausar, reanudar y apagar por trabajo) y R22 (la web elige piloto). Ruta con sesión y CSRF (R24): no se agrega nada a la allowlist pública. R10: encender nunca cambia permissionMode. R7: el primer paso sale de nextAction / kyro work status, no de texto. Si el usuario tiene un turno manual en curso, el piloto espera a que termine (mismo manejo que AlreadyRunningError, debt-7). Convención sec-1 no aplica (no toca la allowlist de Bash).",
+          "acceptance_criteria": [
+            "action 'on' en un scope o work sin piloto o apagado deja la corrida activa y abre el paso que corresponde a nextAction, con transición de actor user en el Timeline.",
+            "'on' en un chat direct, en una idea sin aprobar, con el piloto ya encendido o con la PR lista da 409 con motivo y no cambia nada.",
+            "Sin sesión da 401 y sin CSRF 403; ningún paso abierto por 'on' usa bypassPermissions.",
+            "Tests de la ruta y del servicio con runner y Kyro falsos."
+          ],
+          "depends_on": [],
+          "scenario_refs": [
+            "S39",
+            "S11",
+            "S25"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "Acción 'on' en AutopilotAction y en POST /api/chats/:id/autopilot: crea o reactiva la corrida, registra transición actor user en el Timeline y despierta al piloto; 409 con motivo para direct, idea, piloto ya encendido y PR lista.",
+            "validation": [
+              "npx vitest run test/pilot-routes.test.ts test/pilot-runs.test.ts: 22 passed",
+              "tsc --noEmit apps/api: sin errores",
+              "eslint y prettier sobre los archivos tocados: limpios"
+            ],
+            "files_changed": [
+              "packages/shared/src/index.ts",
+              "apps/api/src/pilot/routes.ts",
+              "apps/api/src/app.ts",
+              "apps/api/test/pilot-routes.test.ts",
+              "apps/web/src/app/chats/chat-kinds.ts"
+            ],
+            "by": "maker",
+            "recordedAt": "2026-10-05T21:56:35.087Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "action 'on' en un scope o work sin piloto o apagado deja la corrida activa y abre el paso que corresponde a nextAction, con transición de actor user en el Timeline.",
+              "'on' en un chat direct, en una idea sin aprobar, con el piloto ya encendido o con la PR lista da 409 con motivo y no cambia nada.",
+              "Sin sesión da 401 y sin CSRF 403; ningún paso abierto por 'on' usa bypassPermissions.",
+              "Tests de la ruta y del servicio con runner y Kyro falsos."
+            ],
+            "findings": [],
+            "by": "checker",
+            "reviewedAt": "2026-10-05T21:56:37.292Z",
+            "requestDigest": "ef395182a7a4a14f9ff13a9cf09866fe0cbdaa8e8fe099ad87c5e1a914671a32",
+            "reviewedMaterialDigest": "c183a8aa39389ec2c317d2061b265387cf967599d5f54d050c21fc9e8ba1d3ca"
+          }
+        },
+        {
+          "id": "T1.2",
+          "title": "Suscripciones Web Push: claves VAPID, tabla y rutas",
+          "description": "Agregar la dependencia web-push a apps/api. Config: PUSH_VAPID_PUBLIC_KEY, PUSH_VAPID_PRIVATE_KEY y PUSH_VAPID_SUBJECT (mailto:) en loadConfig; sin claves el push queda deshabilitado (las rutas responden enabled: false y el notificador no envía), nunca tira al arrancar. Valores falsos en .env.example y un comando del CLI (o script npm) que genere un par de claves para pegar en el .env. Migración nueva push_subscriptions (id, user_id, endpoint UNIQUE, p256dh, auth, name, user_agent, created_at, last_success_at). Rutas, todas con sesión y CSRF: GET /api/push/config (enabled y clave pública), GET /api/push/subscriptions (las del usuario), POST /api/push/subscriptions (alta idempotente por endpoint; si el endpoint ya existe se actualiza y no se duplica), PATCH /api/push/subscriptions/:id (name), DELETE /api/push/subscriptions/:id y POST /api/push/subscriptions/:id/test. Cada usuario solo ve y toca las suyas (otra da 404). Un envío que responde 404 o 410 borra la suscripción.",
+          "files_to_touch": [
+            "apps/api/package.json",
+            "apps/api/src/config.ts",
+            "apps/api/src/db/",
+            "apps/api/src/push/",
+            "apps/api/src/app.ts",
+            "apps/api/.env.example",
+            "packages/shared/src/index.ts",
+            "apps/api/test/push-routes.test.ts"
+          ],
+          "context": "R21 y H3. Las claves VAPID son secretos: solo en el .env del panel, nunca en docs ni bitácora (CLAUDE.md, Secretos). Web Push usa los servicios de push de los navegadores (US$0, R9). R24: rutas nuevas con sesión y CSRF, onlyKeys en los cuerpos como el resto de rutas, sin tocar la allowlist pública. El envío se hace con la librería (HTTP saliente a los push services), no con execFile. El endpoint se valida como URL https. Tests con el envío falso (inyectado), sin red.",
+          "acceptance_criteria": [
+            "Sin claves VAPID el panel arranca, GET /api/push/config da enabled: false y no se envía nada.",
+            "Alta del mismo endpoint dos veces deja una sola fila; renombrar, probar y quitar funcionan solo sobre las del usuario (otra da 404).",
+            "Un envío de prueba que recibe 404 o 410 borra la suscripción y la respuesta lo dice.",
+            "Rutas sin sesión 401 y sin CSRF 403; .env.example solo con valores falsos.",
+            "Tests de rutas y repo con el envío falso."
+          ],
+          "depends_on": [],
+          "scenario_refs": [
+            "S40",
+            "S22",
+            "S25"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "Web Push: dependencia web-push, config VAPID opcional (sin claves queda deshabilitado), migración 17 push_subscriptions, repo/servicio/sender inyectable y rutas /api/push/{config,subscriptions} con sesión+CSRF, aislamiento por usuario, alta idempotente por endpoint y borrado ante 404/410; comando CLI push:vapid-keys y .env.example con valores falsos.",
+            "validation": [
+              "npx vitest run (apps/api): push-routes 12 passed, cli y db actualizados pasan",
+              "tsc --noEmit y eslint de apps/api limpios",
+              "push:vapid-keys imprime un par de claves (privada no registrada)"
+            ],
+            "files_changed": [
+              "apps/api/src/push/sender.ts",
+              "apps/api/src/push/repo.ts",
+              "apps/api/src/push/service.ts",
+              "apps/api/src/push/routes.ts",
+              "apps/api/src/config.ts",
+              "apps/api/src/db/migrations.ts",
+              "apps/api/src/app.ts",
+              "apps/api/src/cli/commands.ts",
+              "apps/api/.env.example",
+              "apps/api/package.json",
+              "packages/shared/src/index.ts",
+              "apps/api/test/push-routes.test.ts"
+            ],
+            "by": "maker",
+            "recordedAt": "2026-10-05T22:03:42.299Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "Sin claves VAPID el panel arranca, GET /api/push/config da enabled: false y no se envía nada.",
+              "Alta del mismo endpoint dos veces deja una sola fila; renombrar, probar y quitar funcionan solo sobre las del usuario (otra da 404).",
+              "Un envío de prueba que recibe 404 o 410 borra la suscripción y la respuesta lo dice.",
+              "Rutas sin sesión 401 y sin CSRF 403; .env.example solo con valores falsos.",
+              "Tests de rutas y repo con el envío falso."
+            ],
+            "findings": [],
+            "by": "checker",
+            "reviewedAt": "2026-10-05T22:03:42.575Z",
+            "requestDigest": "2de11dccac032a1fe343807d3230c0a1c73ca64a4056e381426e67dcff9d73ce",
+            "reviewedMaterialDigest": "47dc17bca476acf7b35e19a8f9751575766df673610cb0c96278c76485480bc9"
+          }
+        },
+        {
+          "id": "T1.3",
+          "title": "Avisar por push cuando el piloto frena o la PR queda lista",
+          "description": "Un notificador escucha las transiciones del estado fino (state-repo / state-tracker) y manda un aviso a todas las suscripciones cuando un trabajo entra en un estado donde le toca al usuario (who = user en work-state: bloqueado con su motivo, esperando_respuesta, esperando_aclaracion, esperando_aprobacion_plan, esperando_aprobacion_cierre, interrumpido, pausado solo si lo pausó el piloto) o en pr_lista. Un aviso por transición (no repetir si el estado no cambia). Payload sin secretos: título con el proyecto y el trabajo, cuerpo con la etiqueta y el motivo, url /projects/:pid/chats/:id y un tag por chat para que el aviso nuevo reemplace al anterior. Un fallo de envío se loguea y nunca frena ni rompe el piloto.",
+          "files_to_touch": [
+            "apps/api/src/push/notifier.ts",
+            "apps/api/src/worktrees/state-repo.ts",
+            "apps/api/src/app.ts",
+            "apps/api/test/push-notifier.test.ts"
+          ],
+          "context": "R20 (frena con el motivo visible y un aviso) y R21 (llega a todos los dispositivos, no solo al que mandó el prompt). Los chats no tienen dueño en la base y todo usuario ve todos los trabajos, así que se avisa a las suscripciones de todos los usuarios del panel; si un día los chats tienen dueño, se filtra por él. El mapa de quién actúa ya existe en la web (apps/web/src/app/chats/work-state.ts); mover la clasificación a packages/shared para que API y web usen la misma y no se desincronicen. sin_cupo_de_uso no avisa (lo hace operaciones-worktree con resetsAt).",
+          "acceptance_criteria": [
+            "Con dos suscripciones, una transición a bloqueado (con motivo) o a pr_lista envía un aviso a cada una con el motivo y la url del chat.",
+            "Transiciones a estados de trabajo en curso (planificando, escribiendo_codigo, qa…) no envían nada, y repetir el mismo estado no reenvía.",
+            "Un envío que falla con 500 no cambia el estado del trabajo ni del piloto; uno con 410 borra la suscripción.",
+            "La clasificación de quién actúa vive en packages/shared y la usan la web y el notificador."
+          ],
+          "depends_on": [
+            "T1.2"
+          ],
+          "scenario_refs": [
+            "S41",
+            "S22"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "PushNotifier escucha state_changed por un canal global del bus y avisa a todas las suscripciones cuando el trabajo pasa a un estado donde le toca al usuario o a pr_lista (pausado solo si lo pausó el piloto), una vez por transición, con título proyecto·trabajo, cuerpo etiqueta+motivo, url y tag por chat; los fallos se loguean. La clasificación label/who pasó a packages/shared (WORKTREE_STATE_INFO) y la usan la web y el notificador.",
+            "validation": [
+              "apps/api vitest run completo: 52 archivos, 993 tests pasan (push-notifier 9)",
+              "apps/web vitest run: pasa",
+              "tsc y eslint de apps/api limpios"
+            ],
+            "files_changed": [
+              "apps/api/src/push/notifier.ts",
+              "apps/api/src/chats/events.ts",
+              "apps/api/src/push/service.ts",
+              "apps/api/src/app.ts",
+              "packages/shared/src/index.ts",
+              "apps/web/src/app/chats/work-state.ts",
+              "apps/api/test/push-notifier.test.ts"
+            ],
+            "by": "maker",
+            "recordedAt": "2026-10-05T22:07:38.229Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "Con dos suscripciones, una transición a bloqueado (con motivo) o a pr_lista envía un aviso a cada una con el motivo y la url del chat.",
+              "Transiciones a estados de trabajo en curso (planificando, escribiendo_codigo, qa…) no envían nada, y repetir el mismo estado no reenvía.",
+              "Un envío que falla con 500 no cambia el estado del trabajo ni del piloto; uno con 410 borra la suscripción.",
+              "La clasificación de quién actúa vive en packages/shared y la usan la web y el notificador."
+            ],
+            "findings": [],
+            "by": "checker",
+            "reviewedAt": "2026-10-05T22:07:41.827Z",
+            "requestDigest": "aa988210fe553b58af64b5de381967b87a5be17f25741256782d9d10b050836f",
+            "reviewedMaterialDigest": "173a5bcc48c450223e9d2ea7b879eeb926e1ae8c40faef9e39ae9211fb669724"
+          }
+        }
+      ]
+    },
+    {
+      "id": "P2",
+      "title": "Web del trabajo: estado, Timeline y piloto",
+      "objective": "Abrir un trabajo muestra en qué fase está, quién hizo qué, y los controles del piloto.",
+      "status": "done",
+      "tasks": [
+        {
+          "id": "T2.1",
+          "title": "Pestañas Chat y Timeline y stepper por fases",
+          "description": "En chat.page, para un trabajo (scope, work o idea) agregar pestañas Chat y Timeline con el componente de tabs compartido (la consulta directa solo muestra el chat). Arriba, un stepper por fases (Idea → Plan → Ejecución → QA → Cierre → Merge → PR) que sale de GET /api/chats/:id/state: fase actual, sprint n/m, tarea n/m, rol y modelo de la sesión, y el badge único del estado arriba a la derecha. El Timeline lista las transiciones (GET /api/chats/:id/timeline) de la más nueva a la más vieja: estado de/a, actor (usuario, piloto, agente), rol y modelo, motivo de freno, deuda postergada y decisiones del piloto (ADR) cuando vengan en data; se actualiza al llegar eventos del stream. Lógica pura (mapeo estado → fase, formateo de cada transición) en archivos *.ts con spec, como el resto de la web.",
+          "files_to_touch": [
+            "apps/web/src/app/chats/chat.page.ts",
+            "apps/web/src/app/chats/timeline.ts",
+            "apps/web/src/app/chats/timeline-logic.ts",
+            "apps/web/src/app/chats/timeline-logic.spec.ts",
+            "apps/web/src/app/chats/phase-stepper.ts",
+            "apps/web/src/app/chats/phase-logic.ts",
+            "apps/web/src/app/chats/phase-logic.spec.ts",
+            "apps/web/src/app/chats/chats.service.ts"
+          ],
+          "context": "R4, R5, R22, R25. Cumplir docs/identidad-visual.md: un solo badge por entidad arriba a la derecha, color por quién actúa, celular primero, tokens de tokens.css (nada de colores sueltos), lista vacía con qué hacer. Las tarjetas de pregunta, idea y deuda que ya existen (question-card, idea-approval.card, debt-approval.card) quedan en la pestaña Chat sin cambiar su lógica. La pestaña Git es de operaciones-worktree (no-goal).",
+          "acceptance_criteria": [
+            "Un scope muestra pestañas Chat y Timeline; una consulta directa no muestra Timeline.",
+            "El stepper marca la fase actual y muestra sprint n/m y tarea n/m cuando el estado los trae; sin datos no inventa números.",
+            "El Timeline muestra actor, rol, modelo y motivo de cada transición, y se actualiza sin recargar cuando llega un evento de estado.",
+            "Specs de la lógica pura (estado → fase, formato de transición) y ningún color fuera de tokens."
+          ],
+          "depends_on": [],
+          "scenario_refs": [
+            "S23",
+            "S6",
+            "S26"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "chat.page muestra pestañas Chat/Timeline y stepper de fases (Idea→PR) para scope, work e idea; la consulta directa solo el chat. Stepper con fase actual, sprint n/m, tarea n/m y rol/modelo desde GET /state (sin inventar números); badge único del estado fino; Timeline de la más nueva a la más vieja con actor, rol, modelo, motivo, deuda y ADR, refrescado en cada state_changed del stream. Lógica pura en phase-logic.ts y timeline-logic.ts con specs; solo clases con tokens.",
+            "validation": [
+              "apps/web vitest run: 199 passed (phase-logic y timeline-logic 12 nuevos)",
+              "tsc -p tsconfig.app.json, eslint src/app/chats y ng build: limpios",
+              "grep de colores hex en phase-stepper.ts y timeline.ts: ninguno"
+            ],
+            "files_changed": [
+              "apps/web/src/app/chats/chat.page.ts",
+              "apps/web/src/app/chats/chats.service.ts",
+              "apps/web/src/app/chats/phase-logic.ts",
+              "apps/web/src/app/chats/phase-logic.spec.ts",
+              "apps/web/src/app/chats/phase-stepper.ts",
+              "apps/web/src/app/chats/timeline-logic.ts",
+              "apps/web/src/app/chats/timeline-logic.spec.ts",
+              "apps/web/src/app/chats/timeline.ts"
+            ],
+            "notes": "No se vio en un navegador: la verificación visual queda para T5.2.",
+            "by": "maker",
+            "recordedAt": "2026-10-05T22:09:58.723Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "Un scope muestra pestañas Chat y Timeline; una consulta directa no muestra Timeline.",
+              "El stepper marca la fase actual y muestra sprint n/m y tarea n/m cuando el estado los trae; sin datos no inventa números.",
+              "El Timeline muestra actor, rol, modelo y motivo de cada transición, y se actualiza sin recargar cuando llega un evento de estado.",
+              "Specs de la lógica pura (estado → fase, formato de transición) y ningún color fuera de tokens."
+            ],
+            "findings": [],
+            "by": "checker",
+            "reviewedAt": "2026-10-05T22:09:58.998Z",
+            "requestDigest": "97a7ad16c65280ef15c74fee4aca734358f3fdf1d1ac94353a34197674125da0",
+            "reviewedMaterialDigest": "b9d5320072d4f7f3c7f75db8f3772f35c6006dc7d62e1f8ada36e41e4294f626"
+          }
+        },
+        {
+          "id": "T2.2",
+          "title": "Controles del piloto en la página del trabajo",
+          "description": "Una barra del piloto en el trabajo: interruptor Encender/Apagar y botones Pausar/Reanudar que llaman a POST /api/chats/:id/autopilot (on, off, pause, resume), con el estado de la corrida (activo, pausado, apagado, en cola, sesiones del sprint n/tope) de GET /api/chats/:id/autopilot. Cada acción no disponible se muestra deshabilitada con el motivo (por ejemplo: idea sin aprobar, PR ya lista, consulta sin Kyro). Apagar pide confirmación porque deja el trabajo en modo manual. Errores 409 se muestran con el mensaje de la API.",
+          "files_to_touch": [
+            "apps/web/src/app/chats/autopilot-bar.ts",
+            "apps/web/src/app/chats/autopilot-logic.ts",
+            "apps/web/src/app/chats/autopilot-logic.spec.ts",
+            "apps/web/src/app/chats/chat.page.ts",
+            "apps/web/src/app/chats/chats.service.ts"
+          ],
+          "context": "R6 y R22. Depende de la acción 'on' (T1.1). Acciones deshabilitadas con motivo y color por quién actúa (identidad-visual.md, R25). La lógica de qué acciones están disponibles es pura y con spec.",
+          "acceptance_criteria": [
+            "Desde la web se enciende, pausa, reanuda y apaga el piloto de un trabajo, y la barra refleja el estado nuevo.",
+            "Cada acción no disponible aparece deshabilitada con un motivo legible; apagar pide confirmación.",
+            "Spec de la lógica de disponibilidad para cada combinación de tipo de chat y estado de la corrida."
+          ],
+          "depends_on": [
+            "T1.1"
+          ],
+          "scenario_refs": [
+            "S39",
+            "S23"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "Barra del piloto (autopilot-bar) en la página del trabajo: estado de la corrida con sesiones n/tope y motivo del freno, y botones Encender/Reanudar/Pausar/Apagar que llaman a POST /autopilot; cada acción no disponible va deshabilitada con su motivo visible, apagar pide confirmación en modal y los 409 muestran el mensaje de la API. Disponibilidad y estado en autopilot-logic.ts con spec por tipo de chat y estado de la corrida.",
+            "validation": [
+              "apps/web vitest run: 207 passed (autopilot-logic 8 nuevos)",
+              "tsc, eslint y ng build de apps/web: limpios"
+            ],
+            "files_changed": [
+              "apps/web/src/app/chats/autopilot-bar.ts",
+              "apps/web/src/app/chats/autopilot-logic.ts",
+              "apps/web/src/app/chats/autopilot-logic.spec.ts",
+              "apps/web/src/app/chats/chat.page.ts",
+              "apps/web/src/app/chats/chats.service.ts"
+            ],
+            "notes": "Sin verificación visual en navegador; queda para T5.2.",
+            "by": "maker",
+            "recordedAt": "2026-10-05T22:11:36.214Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "Desde la web se enciende, pausa, reanuda y apaga el piloto de un trabajo, y la barra refleja el estado nuevo.",
+              "Cada acción no disponible aparece deshabilitada con un motivo legible; apagar pide confirmación.",
+              "Spec de la lógica de disponibilidad para cada combinación de tipo de chat y estado de la corrida."
+            ],
+            "findings": [],
+            "by": "checker",
+            "reviewedAt": "2026-10-05T22:11:36.497Z",
+            "requestDigest": "6f6ee8bda0dcc78c382c9c6ce97b17fc2a31aea5d7880f9a7cc7167a10cff311",
+            "reviewedMaterialDigest": "503216665b419cc2dcef7858992f7160bd5e3dff7fbd2b6286802e8c60b01458"
+          }
+        },
+        {
+          "id": "T2.3",
+          "title": "Chat nuevo: piloto y modelos",
+          "description": "El formulario de chat nuevo ya elige el tipo (Idea, Scope, Work, Pedido directo). Sumar: interruptor Piloto automático para Scope y Work (encendido por defecto; la Idea lo enciende sola al aprobar el plan y el pedido directo no lo tiene, con el motivo visible), y un selector de modelo pensante y ejecutor con el catálogo de packages/shared (MODEL_CATALOG) y el valor del proyecto (GET /api/projects/:id/models) marcado como 'por defecto'. Mandar autopilot y models (solo si difieren del defecto) en POST /api/chats. Mostrar en el chat abierto los modelos guardados del trabajo.",
+          "files_to_touch": [
+            "apps/web/src/app/chats/new-chat.form.ts",
+            "apps/web/src/app/chats/new-chat.form.spec.ts",
+            "apps/web/src/app/chats/chat-kinds.ts",
+            "apps/web/src/app/chats/chat-kinds.spec.ts",
+            "apps/web/src/app/chats/chats.service.ts",
+            "apps/web/src/app/projects/projects.service.ts"
+          ],
+          "context": "R3 (se pueden cambiar al crear un chat) y R22. La API ya acepta autopilot y models en POST /api/chats y devuelve 400 con un modelo fuera del catálogo (S28). Celular primero: los selectores avanzados pueden ir plegados en 'Opciones'.",
+          "acceptance_criteria": [
+            "Un scope o work nuevo sale con el piloto encendido por defecto y se puede apagar antes de crear; idea y pedido directo no muestran el interruptor activo y dicen por qué.",
+            "El selector muestra el catálogo con el modelo del proyecto marcado como por defecto y manda models solo si el usuario cambió algo.",
+            "Specs de newChatInput con piloto y modelos."
+          ],
+          "depends_on": [],
+          "scenario_refs": [
+            "S28",
+            "S23"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "Formulario de chat nuevo: interruptor Piloto automático (encendido por defecto en scope y work; en idea y pedido directo deshabilitado con el motivo visible) y selectores plegados de modelo pensante y ejecutor con MODEL_CATALOG y el modelo del proyecto marcado 'por defecto'. newChatInput manda autopilot:true solo para scope/work y models solo con los roles cambiados. El chat abierto muestra los modelos guardados del trabajo.",
+            "validation": [
+              "apps/web vitest run: 212 passed (5 specs nuevas de newChatInput, pilotSwitch y modelOptions)",
+              "tsc, eslint y ng build de apps/web: limpios"
+            ],
+            "files_changed": [
+              "apps/web/src/app/chats/new-chat.form.ts",
+              "apps/web/src/app/chats/chat-kinds.ts",
+              "apps/web/src/app/chats/chat-kinds.spec.ts",
+              "apps/web/src/app/chats/chats.service.ts",
+              "apps/web/src/app/chats/chat.page.ts"
+            ],
+            "notes": "Sin verificación visual en navegador; queda para T5.2.",
+            "by": "maker",
+            "recordedAt": "2026-10-05T22:12:47.264Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "Un scope o work nuevo sale con el piloto encendido por defecto y se puede apagar antes de crear; idea y pedido directo no muestran el interruptor activo y dicen por qué.",
+              "El selector muestra el catálogo con el modelo del proyecto marcado como por defecto y manda models solo si el usuario cambió algo.",
+              "Specs de newChatInput con piloto y modelos."
+            ],
+            "findings": [],
+            "by": "checker",
+            "reviewedAt": "2026-10-05T22:12:47.546Z",
+            "requestDigest": "2f9b431acd98da80f5249282d3e782740d9025ef9fab5da72495d4592b59004d",
+            "reviewedMaterialDigest": "9a90d0a8e301eb90274a12ceeae7c8aee6755aa87942ac5017fa2c6a484c5c9f"
+          }
+        }
+      ]
+    },
+    {
+      "id": "P3",
+      "title": "Web de configuración: modelos, validación y notificaciones",
+      "objective": "Configurar desde la web lo que hoy solo se toca por la API, y suscribir dispositivos a los avisos.",
+      "status": "done",
+      "tasks": [
+        {
+          "id": "T3.1",
+          "title": "Tab Modelos y campo validate_command",
+          "description": "En la Configuración del proyecto: tab nueva Modelos (proveedor, hoy solo Claude; modelo pensante y ejecutor con la opción 'Por defecto del panel') sobre GET/PUT /api/projects/:id/models, y en General el campo 'Comando de validación' (validate_command, opcional, máximo 500) sobre PATCH /api/projects/:id con validateCommand, con ayuda de qué hace (corre sin shell en el worktree antes de abrir la PR, con timeout; sin comando el merge no valida y el Timeline lo anota). Errores de la API (comilla sin cerrar, modelo fuera del catálogo) se muestran en el campo.",
+          "files_to_touch": [
+            "apps/web/src/app/projects/settings-tabs.ts",
+            "apps/web/src/app/projects/settings-tabs.spec.ts",
+            "apps/web/src/app/projects/settings.page.ts",
+            "apps/web/src/app/projects/models.section.ts",
+            "apps/web/src/app/projects/project-settings.ts",
+            "apps/web/src/app/projects/projects.service.ts"
+          ],
+          "context": "R3, R14 y R22. Las rutas ya existen (sprints 2 y 4). Modelos y validate_command no piden TOTP (no exponen secretos ni cambian costos, R24). Patrón de tab: agregar a SETTINGS_TABS y su @case en settings.page.ts sin tocar las demás.",
+          "acceptance_criteria": [
+            "La tab Modelos guarda pensante y ejecutor (o vuelve al defecto con null) y lo refleja al recargar.",
+            "El campo de validación guarda, borra (null) y muestra el 400 de la API sin perder lo escrito.",
+            "Specs de tabs y de la lógica del formulario."
+          ],
+          "depends_on": [],
+          "scenario_refs": [
+            "S28",
+            "S26"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "Configuración del proyecto: tab Modelos (proveedor Claude, pensante y ejecutor con la opción 'Por defecto del panel' sobre GET/PUT /models, se recarga desde la API) y campo 'Comando de validación' en General sobre PATCH validateCommand (vacío = null, máximo 500), con ayuda de qué hace; el error de la API se muestra junto al campo sin perder lo escrito.",
+            "validation": [
+              "apps/web vitest run: 218 passed (settings-logic y settings-tabs)",
+              "tsc, eslint y ng build de apps/web: limpios"
+            ],
+            "files_changed": [
+              "apps/web/src/app/projects/models.section.ts",
+              "apps/web/src/app/projects/settings-logic.ts",
+              "apps/web/src/app/projects/settings-logic.spec.ts",
+              "apps/web/src/app/projects/settings-tabs.ts",
+              "apps/web/src/app/projects/settings-tabs.spec.ts",
+              "apps/web/src/app/projects/settings.page.ts",
+              "apps/web/src/app/projects/project-settings.ts",
+              "apps/web/src/app/projects/projects.service.ts"
+            ],
+            "notes": "La API de modelos exige proveedor y modelos explícitos (no acepta null), así que 'Por defecto del panel' guarda el modelo por defecto de ese rol (DEFAULT_MODELS) en vez de null. Sin verificación visual en navegador; queda para T5.2.",
+            "by": "maker",
+            "recordedAt": "2026-10-05T22:14:11.394Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "La tab Modelos guarda pensante y ejecutor (o vuelve al defecto con null) y lo refleja al recargar.",
+              "El campo de validación guarda, borra (null) y muestra el 400 de la API sin perder lo escrito.",
+              "Specs de tabs y de la lógica del formulario."
+            ],
+            "findings": [],
+            "by": "checker",
+            "reviewedAt": "2026-10-05T22:14:11.674Z",
+            "requestDigest": "f08f552d783a0aabd0b07a22b949eda21e765edefe61f7d95816a274b205014b",
+            "reviewedMaterialDigest": "7cba47d31629c0c8d9ea286ed8b15ea3b2969c35fd83ab2c0fb102c4f4a19505"
+          }
+        },
+        {
+          "id": "T3.2",
+          "title": "Notificaciones: service worker, manifest y dispositivos",
+          "description": "Un service worker propio (apps/web/public/push-sw.js, servido en la raíz) que maneja push (muestra la notificación con título, cuerpo, tag y url) y notificationclick (enfoca una pestaña del panel o abre la url). Un manifest.webmanifest con nombre, íconos y display standalone para poder agregar el panel a la pantalla de inicio (iOS lo exige). Página global Notificaciones (ruta /settings/notifications, con link en el header junto a Versiones, porque los dispositivos son del usuario y no de un proyecto): botón 'Activar en este dispositivo' (pide permiso, registra el SW, PushManager.subscribe con la clave de GET /api/push/config y POST de la suscripción con un nombre sugerido por el navegador), lista de dispositivos con nombre editable, Probar y Quitar, y estados claros: push deshabilitado en el panel, permiso denegado, navegador sin soporte, iOS fuera de la pantalla de inicio. Lista vacía con qué hacer.",
+          "files_to_touch": [
+            "apps/web/public/push-sw.js",
+            "apps/web/public/manifest.webmanifest",
+            "apps/web/src/index.html",
+            "apps/web/angular.json",
+            "apps/web/src/app/app.routes.ts",
+            "apps/web/src/app/app.ts",
+            "apps/web/src/app/notifications/"
+          ],
+          "context": "R21, R22 (Configuración suma notificaciones) y R25. La Notification API sola no avisa con la pestaña cerrada: hace falta push + SW. Web Push necesita contexto seguro: localhost por el túnel SSH sirve para la PC; el Android usa la URL de Funnel (T4.1). La lógica pura (estado del soporte, nombre sugerido desde el user agent) va en un *.ts con spec. Tokens y criterios de identidad-visual.md.",
+          "acceptance_criteria": [
+            "En la PC por el túnel, 'Activar en este dispositivo' deja una suscripción en la lista y 'Probar' muestra una notificación; tocarla abre el panel.",
+            "Renombrar y quitar funcionan; con push deshabilitado en la API, permiso denegado o navegador sin soporte la página lo dice y el botón queda deshabilitado con el motivo.",
+            "El SW y el manifest se sirven desde la raíz en el build de producción (ng build) y en ng serve.",
+            "Specs de la lógica pura."
+          ],
+          "depends_on": [
+            "T1.2"
+          ],
+          "scenario_refs": [
+            "S22",
+            "S40",
+            "S26"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "Notificaciones push en la web: service worker push-sw.js (push + notificationclick, solo abre rutas internas), manifest.webmanifest con íconos e index.html enlazado, página /settings/notifications con link en el header: activar en este dispositivo (permiso, registro del SW, subscribe con la clave VAPID, alta en la API con nombre sugerido), lista con renombrar, probar y quitar, y estados claros (panel sin VAPID, contexto inseguro, iOS fuera de la pantalla de inicio, navegador sin soporte, permiso denegado). Lógica pura en notifications-logic.ts con spec.",
+            "validation": [
+              "apps/web vitest run: 234 passed (notifications-logic nuevo)",
+              "tsc, eslint y ng build limpios; dist/web/browser contiene push-sw.js, manifest.webmanifest e icons/",
+              "ng serve: GET /push-sw.js 200 text/javascript, /manifest.webmanifest 200, /icons/icon-192.png 200"
+            ],
+            "files_changed": [
+              "apps/web/public/push-sw.js",
+              "apps/web/public/manifest.webmanifest",
+              "apps/web/src/index.html",
+              "apps/web/src/app/app.routes.ts",
+              "apps/web/src/app/app.ts",
+              "apps/web/src/app/notifications/notifications.page.ts",
+              "apps/web/src/app/notifications/notifications.service.ts",
+              "apps/web/src/app/notifications/push-browser.ts",
+              "apps/web/src/app/notifications/notifications-logic.ts",
+              "apps/web/src/app/notifications/notifications-logic.spec.ts"
+            ],
+            "notes": "No se probó el flujo real con un navegador (permiso, suscripción, notificación al tocar): requiere HTTPS/localhost y un dispositivo, queda para T5.2 y T4.1.",
+            "by": "maker",
+            "recordedAt": "2026-10-05T22:17:15.583Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "En la PC por el túnel, 'Activar en este dispositivo' deja una suscripción en la lista y 'Probar' muestra una notificación; tocarla abre el panel.",
+              "Renombrar y quitar funcionan; con push deshabilitado en la API, permiso denegado o navegador sin soporte la página lo dice y el botón queda deshabilitado con el motivo.",
+              "El SW y el manifest se sirven desde la raíz en el build de producción (ng build) y en ng serve.",
+              "Specs de la lógica pura."
+            ],
+            "findings": [],
+            "by": "checker",
+            "reviewedAt": "2026-10-05T22:17:15.863Z",
+            "requestDigest": "2af24fbc3b9cafbccbde75b1f926540b541c5954115f0b66120f052b7df2a066",
+            "reviewedMaterialDigest": "2e6a0e734d8c531b5bc8062d6dab1796ea7bd34a374c0d100b39d55d8de02895"
+          }
+        }
+      ]
+    },
+    {
+      "id": "P4",
+      "title": "VM: Tailscale y Funnel, y confirmación de H3",
+      "objective": "Publicar el panel por HTTPS con Funnel (US$0, aprobado por el usuario el 05/10/2026) para confirmar Web Push en el Android con Chrome cerrado.",
+      "status": "done",
+      "tasks": [
+        {
+          "id": "T4.1",
+          "title": "Instalar Tailscale y publicar el panel con Funnel",
+          "description": "Script idempotente scripts/vm/09-tailscale-funnel.sh (bash, set -euo pipefail, LF): instala Tailscale desde su repositorio oficial si falta, habilita tailscaled y, si el nodo ya está logueado, configura Funnel en 443 en segundo plano apuntando al puerto donde hoy se sirve la web en la VM (ng serve con proxy a la API, mientras systemd sea de la etapa 6). El login (tailscale up) es manual, una sola vez, con la cuenta del usuario. Ajustar lo que el panel necesita para atender por el nombre *.ts.net: allowedHosts del dev server limitado a ese nombre, Origin permitido en la API por configuración (PANEL_PUBLIC_ORIGIN o el que ya exista) y cookies Secure. Runbook: paso 15 en docs/vm-setup.md (qué, comando exacto, por qué, cómo se verifica), línea en la bitácora y fila en Costos (US$0, plan gratis de Tailscale, aprobado por Miqueas el 05/10/2026). Ningún secreto (authkey) en el script ni en los docs.",
+          "files_to_touch": [
+            "scripts/vm/09-tailscale-funnel.sh",
+            "docs/vm-setup.md",
+            "apps/web/angular.json",
+            "apps/api/src/config.ts",
+            "apps/api/.env.example"
+          ],
+          "context": "Regla de oro de la VM y regla de costos de CLAUDE.md: el usuario aprobó adelantar Tailscale + Funnel en este sprint (US$0). La URL queda pública: el login con Argon2id y TOTP es la única puerta (CLAUDE.md, Seguridad); antes de prender Funnel verificar que ninguna ruta nueva quedó sin sesión (S25). sudo lo corre el usuario o esta sesión con su OK, nunca el agente del panel (R9: tailscale y sudo están en los denegados fijos del piloto). systemd y el build de producción siguen en la etapa 6; anotar como riesgo en el runbook que Funnel publica el dev server mientras tanto.",
+          "acceptance_criteria": [
+            "scripts/vm/09-tailscale-funnel.sh corre dos veces sin errores ni cambios en la segunda.",
+            "Desde un dispositivo fuera de la VM, la URL https://<vm>.<tailnet>.ts.net muestra el login y el login con TOTP funciona (Origin y cookies aceptados).",
+            "docs/vm-setup.md tiene el paso 15, la línea de bitácora y la fila de Costos; sin secretos.",
+            "tailscale funnel status muestra solo el puerto de la web."
+          ],
+          "depends_on": [],
+          "scenario_refs": [
+            "S25"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "Tailscale 1.102.4 instalado con 09-tailscale-funnel.sh y Funnel en 443 hacia la web (puerto 4200); PANEL_EXTRA_ORIGINS y allowedHosts .ts.net ajustados; runbook paso 15, bitácora y fila de Costos (US$0) en docs/vm-setup.md, sin secretos. El DNS público no resolvía hasta pedir el certificado con 'sudo tailscale cert' (documentado en el paso 15).",
+            "validation": [
+              "09-tailscale-funnel.sh corrido dos veces: la segunda respondió 'ya publicado' sin cambios",
+              "tailscale funnel status: solo https://vm-ia.tailacdafa.ts.net -> proxy http://127.0.0.1:4200",
+              "curl --resolve a las IPs públicas de Funnel: web 200 con certificado válido, /api/health 200, rutas con sesión 401, login con Origin de Funnel pasa y con Origin ajeno da 403",
+              "Desde el celular del usuario (datos móviles, URL de Funnel): login con TOTP funcionó y la notificación de prueba llegó (confirmado por el usuario)",
+              "apps/api vitest funnel.test.ts: script idempotente con stubs, PANEL_EXTRA_ORIGINS"
+            ],
+            "files_changed": [
+              "scripts/vm/09-tailscale-funnel.sh",
+              "docs/vm-setup.md",
+              "apps/web/angular.json",
+              "apps/api/src/config.ts",
+              "apps/api/.env.example",
+              "apps/api/test/funnel.test.ts"
+            ],
+            "notes": "El usuario no indicó si el celular tenía la app de Tailscale apagada; el camino público se comprobó aparte con curl --resolve.",
+            "by": "maker",
+            "recordedAt": "2026-10-05T23:02:54.045Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "scripts/vm/09-tailscale-funnel.sh corre dos veces sin errores ni cambios en la segunda.",
+              "Desde un dispositivo fuera de la VM, la URL https://<vm>.<tailnet>.ts.net muestra el login y el login con TOTP funciona (Origin y cookies aceptados).",
+              "docs/vm-setup.md tiene el paso 15, la línea de bitácora y la fila de Costos; sin secretos.",
+              "tailscale funnel status muestra solo el puerto de la web."
+            ],
+            "findings": [],
+            "by": "checker",
+            "reviewedAt": "2026-10-05T23:02:54.333Z",
+            "requestDigest": "41da9ef44d913034c60dbbdcd712f5f77de4c5d46f1bd885f6fb7209fa576106",
+            "reviewedMaterialDigest": "4fbd9f5458d27304649b3fc6b2f8eb2fe3673b781dcf4e32847ee0c63461deee"
+          }
+        },
+        {
+          "id": "T4.2",
+          "title": "Confirmar H3: push en la PC y en el Android con Chrome cerrado",
+          "description": "Con el usuario y la URL de Funnel: generar las claves VAPID en el .env del panel en la VM (anotado en vm-setup.md sin valores), suscribir la PC y el Android desde Notificaciones, cerrar Chrome en el Android, provocar un freno en un Work de prueba (repo de prueba, nunca ventas ni este repo; por ejemplo una pregunta del agente) y comprobar que el aviso llega a los dos dispositivos y que tocarlo abre el trabajo. Quitar el permiso en un navegador o borrar su suscripción del lado del navegador y comprobar que el siguiente envío borra la fila (404/410). Si algo no se puede probar en esta sesión, queda como deuda con target 6 junto a debt-1, no como pass.",
+          "files_to_touch": [
+            "docs/panel-desarrollo.md",
+            "docs/vm-setup.md"
+          ],
+          "context": "H3 y S22. D31: el piloto se estrena con el usuario mirando y en un work de prueba. Las claves VAPID son secretos de desarrollo: solo en el .env de la VM. Requiere al usuario con el teléfono.",
+          "acceptance_criteria": [
+            "El aviso de un freno llega a la PC y al Android con Chrome cerrado, con el motivo, y abre el trabajo.",
+            "Una suscripción vencida se borra sola en el envío siguiente.",
+            "docs/panel-desarrollo.md tiene 'Probar las notificaciones push' con los pasos; H3 queda confirmada (o la parte no probada queda como deuda con target 6)."
+          ],
+          "depends_on": [
+            "T1.3",
+            "T3.2",
+            "T4.1"
+          ],
+          "scenario_refs": [
+            "S22"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "H3 confirmada con el usuario: un Work de prueba en test-panel (repo de prueba) avisó por push a la PC (Chrome) y al Android (Chrome cerrado) cuando hizo una pregunta y cuando dejó la PR lista (PR #2), con el motivo, y tocar el aviso abre el trabajo (confirmado por el usuario). La vuelta del Android falló primero por el ahorro de batería de Chrome; se resolvió y el envío pasó a urgency high. docs/panel-desarrollo.md tiene 'Probar las notificaciones push' y el resultado de H3. La parte no probada en real (suscripción vencida con 404/410 que se borra sola) queda como deuda debt-10 con target 6, cubierta por tests automáticos.",
+            "validation": [
+              "Avisos recibidos en PC y Android (Chrome cerrado) por pregunta pendiente y por PR lista, y el toque abre el trabajo (confirmado por el usuario)",
+              "Quitar y volver a suscribir un dispositivo desde Notificaciones funciona (confirmado por el usuario)",
+              "Suscripción vencida con 404/410: solo por tests (push-routes y push-notifier); no probado en real, deuda debt-10"
+            ],
+            "files_changed": [
+              "docs/panel-desarrollo.md",
+              "apps/api/src/push/sender.ts"
+            ],
+            "notes": "La parte no probada queda como deuda con target 6, como indica la tarea; no se marca como probada.",
+            "by": "maker",
+            "recordedAt": "2026-10-05T23:46:52.496Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "El aviso de un freno llega a la PC y al Android con Chrome cerrado, con el motivo, y abre el trabajo.",
+              "Una suscripción vencida se borra sola en el envío siguiente.",
+              "docs/panel-desarrollo.md tiene 'Probar las notificaciones push' con los pasos; H3 queda confirmada (o la parte no probada queda como deuda con target 6)."
+            ],
+            "findings": [],
+            "by": "checker",
+            "reviewedAt": "2026-10-05T23:46:52.782Z",
+            "requestDigest": "5321acb341df36d3d129ad67ac11203abb5c83674d6beac71654c7f11311805a",
+            "reviewedMaterialDigest": "1f385c7e8b0079ac94113334eab1674362f172ccf6ca181fa885da8dc731d11f"
+          }
+        }
+      ]
+    },
+    {
+      "id": "P5",
+      "title": "Docs y verificación",
+      "objective": "Docs al día y gates del repo en verde.",
+      "status": "done",
+      "tasks": [
+        {
+          "id": "T5.1",
+          "title": "Docs del sprint 5",
+          "description": "docs/plan.md: resumen del sprint 5 (web del piloto, acción on, Web Push, Funnel adelantado a la etapa 5 por pedido del usuario) y lo que queda para el sprint 6. docs/estados.md: los tres niveles de estado (proyecto, trabajo, sesión), la etiqueta única por ítem, el mapeo sesión → trabajo y qué estados avisan por push (y que la clasificación de quién actúa vive en packages/shared). docs/panel-desarrollo.md: VAPID (cómo generar las claves, dónde van, sin valores), cómo probar push por el túnel y por Funnel, y actualizar los recorridos de los sprints 2 a 4 que decían 'la web es del sprint 5'. docs/identidad-visual.md si se sumaron patrones (stepper, barra del piloto). CLAUDE.md: Funnel ya activo y cualquier regla nueva.",
+          "files_to_touch": [
+            "docs/plan.md",
+            "docs/estados.md",
+            "docs/panel-desarrollo.md",
+            "docs/identidad-visual.md",
+            "CLAUDE.md"
+          ],
+          "context": "R5, R26. Docs en español; secretos nunca en docs.",
+          "acceptance_criteria": [
+            "estados.md describe los tres niveles y los estados que avisan por push.",
+            "panel-desarrollo.md explica VAPID y la prueba de push sin valores de claves, y no quedan frases 'es del sprint 5'.",
+            "plan.md tiene el resumen del sprint 5 y lo pendiente del 6; prettier --check de docs y CLAUDE.md sin errores."
+          ],
+          "depends_on": [
+            "T1.1",
+            "T1.2",
+            "T1.3",
+            "T2.1",
+            "T2.2",
+            "T2.3",
+            "T3.1",
+            "T3.2",
+            "T4.1"
+          ],
+          "scenario_refs": [
+            "S27"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "Docs del sprint 5: estados.md (tres niveles de estado, etiqueta única, mapeo sesión→trabajo, tono por quién actúa y qué estados avisan por push, con la clasificación en packages/shared), panel-desarrollo.md (probar el piloto desde la web, VAPID sin valores, Probar las notificaciones push, frases 'es del sprint 5' actualizadas), plan.md (resumen del sprint 5 y pendiente del 6), identidad-visual.md (stepper, pestañas, barra del piloto, Timeline) y CLAUDE.md (Funnel, VAPID, rutas públicas, campo de validación en la web). El Timeline pasó a fechas relativas con la fecha completa en title, como pide identidad-visual.md.",
+            "validation": [
+              "prettier --check docs CLAUDE.md: sin errores",
+              "grep de 'es/son/hasta/llega ... sprint 5' en docs y CLAUDE.md: sin frases pendientes",
+              "apps/web vitest: 235 passed"
+            ],
+            "files_changed": [
+              "docs/estados.md",
+              "docs/panel-desarrollo.md",
+              "docs/plan.md",
+              "docs/identidad-visual.md",
+              "CLAUDE.md",
+              "apps/web/src/app/chats/timeline-logic.ts",
+              "apps/web/src/app/chats/timeline.ts"
+            ],
+            "by": "maker",
+            "recordedAt": "2026-10-05T22:23:11.313Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "estados.md describe los tres niveles y los estados que avisan por push.",
+              "panel-desarrollo.md explica VAPID y la prueba de push sin valores de claves, y no quedan frases 'es del sprint 5'.",
+              "plan.md tiene el resumen del sprint 5 y lo pendiente del 6; prettier --check de docs y CLAUDE.md sin errores."
+            ],
+            "findings": [],
+            "by": "checker",
+            "reviewedAt": "2026-10-05T22:23:11.599Z",
+            "requestDigest": "ed14ab613243e2a72ae50178de89d9d6da1d8d331d5bf7f9ee4823c16b2bc0da",
+            "reviewedMaterialDigest": "c7f1172c78f87798a651056383c2886f7a29099c4810a8cabaebcfbe91e6ea71"
+          }
+        },
+        {
+          "id": "T5.2",
+          "title": "Verificación automática del sprint",
+          "description": "Correr typecheck, lint, format:check, test y build del repo. Greps: ningún bypassPermissions ni allowDangerouslySkipPermissions en apps/api/src; ninguna ruta public: true nueva (solo /api/health y los pasos de login); toda ruta nueva de /api/push y la acción on con sesión y CSRF; ningún color fuera de tokens en los componentes nuevos; .env.example sin valores reales. /tmp igual antes y después de los tests. kyro analyze sin CRITICAL ni HIGH.",
+          "files_to_touch": [],
+          "context": "R8, R10, R24, R25. Mismo formato de evidencia que T6.2 del sprint 4.",
+          "acceptance_criteria": [
+            "npm run typecheck, lint, format:check, test y build en verde.",
+            "Greps de seguridad y de tokens sin hallazgos nuevos; /tmp igual antes y después.",
+            "kyro analyze sin CRITICAL ni HIGH."
+          ],
+          "depends_on": [
+            "T5.1",
+            "T4.2"
+          ],
+          "scenario_refs": [
+            "S11",
+            "S25",
+            "S26"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "Verificación del sprint 5 con todos los cambios (incluidos E1, E2, el push de alta prioridad y la prueba real de H3): typecheck, lint, format:check, test (API 1011 y web 239) y build en verde; greps de seguridad sin hallazgos; /tmp sin carpetas panel-* tras los tests; kyro analyze sin CRITICAL ni HIGH.",
+            "validation": [
+              "npm run typecheck, lint, format:check, build: OK",
+              "npm test: apps/api 55 archivos 1011 tests y apps/web 26 archivos 239 tests, todos pasan",
+              "grep bypassPermissions|allowDangerouslySkipPermissions en apps/api/src: 0; public: true: 3 (solo /api/health y los dos pasos del login)",
+              "rutas nuevas (/api/push/*, acción on, /kyro-init/push) con sesión y CSRF: cubiertas por push-routes, pilot-routes y cli.test (401 sin sesión, 403 sin CSRF)",
+              "grep de colores hex o rgb() en apps/web/src/app (sin specs): 0; apps/api/.env.example solo con valores falsos y apps/api/.env no está versionado",
+              "/tmp: 0 carpetas panel-* después de los tests, inodos 2%",
+              "kyro analyze: CRITICAL=0 HIGH=0; 4 hallazgos MEDIUM (fase P5 bloqueada por el estado de la tarea, escenario S20 sin tarea, E1 y E2 sin scenario_refs)"
+            ],
+            "files_changed": [],
+            "notes": "Los hallazgos MEDIUM no bloquean el cierre; E1 y E2 son tareas emergentes sin referencia de escenario.",
+            "by": "maker",
+            "recordedAt": "2026-10-05T23:49:52.767Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "npm run typecheck, lint, format:check, test y build en verde.",
+              "Greps de seguridad y de tokens sin hallazgos nuevos; /tmp igual antes y después.",
+              "kyro analyze sin CRITICAL ni HIGH."
+            ],
+            "findings": [],
+            "by": "checker",
+            "reviewedAt": "2026-10-05T23:49:53.061Z",
+            "requestDigest": "cbc64b8d0d71e7b249c517f34c5f57a6c06a47a854fa5ef39d069fe59a0e05cc",
+            "reviewedMaterialDigest": "31d84fcecbfdafbc46fc710938781b6fec340c569ae35fbba9c51d6b48b29a15"
+          }
+        }
+      ]
+    }
+  ],
+  "emergentTasks": [
+    {
+      "id": "E1",
+      "title": "Inicializar Kyro: mostrar la rama pendiente y no ofrecer el botón de nuevo",
+      "description": "Hoy 'Inicializar Kyro' deja la rama local chore/kyro-init (sin push) y, al volver a entrar, el botón vuelve a aparecer porque hasKyro depende de .agents/kyro/ en el clon base. Detectar la rama pendiente (ref local chore/kyro-init en el clon del proyecto cuando no hay Kyro), exponerla en el proyecto (kyroInitBranch), mostrar un chip 'Pendiente de merge' con los pasos (push, PR, mergear y Pull) y el botón Inicializar Kyro deshabilitado con ese motivo; sumar un botón que suba la rama (git push sin force) y muestre el link para abrir la PR.",
+      "files_to_touch": [],
+      "context": "",
+      "acceptance_criteria": [
+        "Con la rama chore/kyro-init existente y sin Kyro en el clon, el proyecto expone la rama pendiente y la web muestra un chip 'Pendiente de merge' y el botón Inicializar Kyro deshabilitado con el motivo.",
+        "Un botón sube la rama pendiente sin force y devuelve el link para abrir la PR; si falla muestra el error y no cambia nada.",
+        "Tras el merge y el Pull (hasKyro true) el chip y el botón desaparecen; tests de la API y de la lógica de la web."
+      ],
+      "depends_on": [],
+      "scenario_refs": [],
+      "status": "done",
+      "evidence": {
+        "summary": "Inicializar Kyro deja de ser silencioso: el proyecto expone kyroInit (rama chore/kyro-init pendiente, si está en origin y el link de la PR, leído de refs locales sin red) y la web muestra el chip 'Pendiente de merge', los pasos que faltan, el botón Inicializar Kyro deshabilitado con el motivo, un botón para subir la rama (POST /kyro-init/push, sin force, sin TOTP) y 'Ya mergeé: actualizar'; tras Pull o merge el chip desaparece.",
+        "validation": [
+          "apps/api vitest run: 1007 passed (kyro-init-pending 7 nuevos; cli.test con la ruta nueva)",
+          "apps/web vitest run: 239 passed (kyroInitView 4 nuevos)",
+          "tsc, eslint y ng build limpios en api y web"
+        ],
+        "files_changed": [
+          "packages/shared/src/index.ts",
+          "apps/api/src/projects/repo.ts",
+          "apps/api/src/projects/kyro-branch.ts",
+          "apps/api/src/projects/kyro-branch-routes.ts",
+          "apps/api/src/app.ts",
+          "apps/api/test/kyro-init-pending.test.ts",
+          "apps/api/test/cli.test.ts",
+          "apps/web/src/app/projects/repo-actions.ts",
+          "apps/web/src/app/projects/repo-actions.section.ts",
+          "apps/web/src/app/projects/repo-actions.spec.ts",
+          "apps/web/src/app/projects/projects.service.ts",
+          "apps/web/src/app/projects/settings.page.ts"
+        ],
+        "notes": "Sin verificación visual en navegador: el usuario la ve en test-panel.",
+        "by": "maker",
+        "recordedAt": "2026-10-05T23:14:53.982Z"
+      },
+      "verdict": {
+        "result": "pass",
+        "checked_criteria": [
+          "Con la rama chore/kyro-init existente y sin Kyro en el clon, el proyecto expone la rama pendiente y la web muestra un chip 'Pendiente de merge' y el botón Inicializar Kyro deshabilitado con el motivo.",
+          "Un botón sube la rama pendiente sin force y devuelve el link para abrir la PR; si falla muestra el error y no cambia nada.",
+          "Tras el merge y el Pull (hasKyro true) el chip y el botón desaparecen; tests de la API y de la lógica de la web."
+        ],
+        "findings": [],
+        "by": "checker",
+        "reviewedAt": "2026-10-05T23:14:54.262Z",
+        "requestDigest": "12e60293021adb5f821a10a604fc81d8ca20c41fe84249ea97e8b75d4030ae23",
+        "reviewedMaterialDigest": "1ca7d669c449db910ecc1e873d770e24ca982a38da9db2709445c5f286e77e49"
+      }
+    },
+    {
+      "id": "E2",
+      "title": "Reinicio del panel con una pregunta pendiente o un plan cortado (debt-8)",
+      "description": "Al arrancar, cada pregunta pendiente que se cancela deja un evento question_cancelled para que la web no siga mostrando la tarjeta respondible. Si el reinicio cortó la sesión de plan o init (que crea el scope o work), el piloto la reanuda con el resume de su sesión SDK aunque Kyro todavía no tenga nada que leer, en vez de frenar con 'El worktree no tiene Works de Kyro'.",
+      "files_to_touch": [],
+      "context": "",
+      "acceptance_criteria": [
+        "Un reinicio con una pregunta pendiente la cancela y deja el evento question_cancelled en el chat.",
+        "Un run activo cuya sesión de plan o init quedó abierta se reanuda con su sesión SDK aunque Kyro no pueda leerse; sin sesión cortada, el frenado por Kyro no legible se mantiene.",
+        "Tests de la API del reinicio y del piloto."
+      ],
+      "depends_on": [],
+      "scenario_refs": [],
+      "status": "done",
+      "evidence": {
+        "summary": "Al arrancar la API se emite question_cancelled por cada pregunta pendiente que se cancela (QuestionRepository.listPending + evento), y el bucle del piloto reanuda una sesión de plan o init cortada por un reinicio aunque Kyro no tenga scope o work para leer; sin sesión cortada sigue frenando con kyro_bloqueado.",
+        "validation": [
+          "apps/api vitest run: 1010 passed (restart-questions 1 nuevo, pilot-autopilot 2 nuevos)",
+          "tsc y eslint de apps/api limpios"
+        ],
+        "files_changed": [
+          "apps/api/src/app.ts",
+          "apps/api/src/chats/questions-repo.ts",
+          "apps/api/src/pilot/autopilot.ts",
+          "apps/api/test/restart-questions.test.ts",
+          "apps/api/test/pilot-autopilot.test.ts"
+        ],
+        "by": "maker",
+        "recordedAt": "2026-10-05T23:31:27.483Z"
+      },
+      "verdict": {
+        "result": "pass",
+        "checked_criteria": [
+          "Un reinicio con una pregunta pendiente la cancela y deja el evento question_cancelled en el chat.",
+          "Un run activo cuya sesión de plan o init quedó abierta se reanuda con su sesión SDK aunque Kyro no pueda leerse; sin sesión cortada, el frenado por Kyro no legible se mantiene.",
+          "Tests de la API del reinicio y del piloto."
+        ],
+        "findings": [],
+        "by": "checker",
+        "reviewedAt": "2026-10-05T23:31:27.767Z",
+        "requestDigest": "3bed6c822d82bfa2c4682bce1b3153c183a963f54f15add7b2fb4a538ce30c41",
+        "reviewedMaterialDigest": "934482832b367139607f4714365598b418c52e95706fe2e5f5b7e8f8c25faf47"
+      }
+    },
+    {
+      "id": "E3",
+      "title": "Push: aceptar solo endpoints de los servicios de push de los navegadores (SSRF)",
+      "description": "El alta de una suscripción solo valida que el endpoint sea https, así que el servidor puede ser llevado a hacer un POST a cualquier URL https y POST /subscriptions/:id/test devuelve el código de estado. Aceptar solo hosts de servicios de push (fcm.googleapis.com, *.push.services.mozilla.com, *.notify.windows.com, web.push.apple.com, *.push.apple.com), rechazar el resto con 400 y un mensaje claro.",
+      "files_to_touch": [
+        "apps/api/src/push/routes.ts"
+      ],
+      "context": "Required by kyro qa (sprint 5, hallazgo Major 1): .agents/kyro/qa/autopiloto-kyro/sprint-5.md",
+      "acceptance_criteria": [
+        "POST /api/push/subscriptions con un endpoint https de un host que no es un servicio de push (https://127.0.0.1, https://localhost, un host ajeno, un subdominio engañoso como fcm.googleapis.com.evil.example) da 400 y no guarda nada.",
+        "Los endpoints reales de FCM, Mozilla, Windows y Apple siguen aceptándose; los tests existentes de push pasan.",
+        "Test que cubre aceptados y rechazados; typecheck, lint y tests de la API en verde."
+      ],
+      "depends_on": [],
+      "scenario_refs": [],
+      "status": "done",
+      "evidence": {
+        "summary": "El alta de una suscripción push solo acepta endpoints https de los servicios de push de los navegadores (fcm.googleapis.com, *.push.services.mozilla.com, *.notify.windows.com, web.push.apple.com, *.push.apple.com; puerto 443, sin credenciales); el resto da 400 sin guardar nada. Cierra el hallazgo Major 1 del QA del sprint 5.",
+        "validation": [
+          "apps/api vitest run: 1014 passed (isPushServiceEndpoint aceptados y rechazados, incluidos 127.0.0.1, localhost, 169.254.169.254, subdominios engañosos y puerto distinto; 400 sin guardar)",
+          "tsc y eslint de apps/api limpios; prettier --check de CLAUDE.md sin errores"
+        ],
+        "files_changed": [
+          "apps/api/src/push/routes.ts",
+          "apps/api/test/push-routes.test.ts",
+          "CLAUDE.md"
+        ],
+        "by": "maker",
+        "recordedAt": "2026-10-05T23:54:09.880Z"
+      },
+      "verdict": {
+        "result": "pass",
+        "checked_criteria": [
+          "POST /api/push/subscriptions con un endpoint https de un host que no es un servicio de push (https://127.0.0.1, https://localhost, un host ajeno, un subdominio engañoso como fcm.googleapis.com.evil.example) da 400 y no guarda nada.",
+          "Los endpoints reales de FCM, Mozilla, Windows y Apple siguen aceptándose; los tests existentes de push pasan.",
+          "Test que cubre aceptados y rechazados; typecheck, lint y tests de la API en verde."
+        ],
+        "findings": [],
+        "by": "checker",
+        "reviewedAt": "2026-10-05T23:54:10.161Z",
+        "requestDigest": "2315f656b812a019f0b8ffc7dc3ce29b7706b09367afd5894d72e9a1b04b2838",
+        "reviewedMaterialDigest": "c2a03d19087a5637534e22ee70a1e294225da933247bb02e65402bd9fb40e8a4"
+      }
+    }
+  ],
+  "definitionOfDone": [
+    "Todas las tareas terminadas con evidencia y veredicto pass",
+    "typecheck, lint, format:check, test y build en verde; kyro analyze sin CRITICAL ni HIGH",
+    "QA del sprint con kyro-qa APPROVED o APPROVED WITH NOTES",
+    "H3 confirmada en la PC y el Android, o lo no probado registrado como deuda con target 6",
+    "Tailscale + Funnel documentados en vm-setup.md (paso, bitácora y Costos US$0) con script idempotente",
+    "debt-1 y debt-5 siguen con target 6",
+    "Docs al día: plan.md, estados.md, panel-desarrollo.md, vm-setup.md y CLAUDE.md"
+  ]
+}

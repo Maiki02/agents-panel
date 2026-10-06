@@ -436,6 +436,27 @@
         "given": "un piloto activo y un mensaje del usuario que entra entre waitForIdle y start",
         "when": "start tira AlreadyRunningError",
         "then": "el piloto espera a que termine el turno del usuario y abre el paso sin frenar ni contar la sesión fallida"
+      },
+      {
+        "id": "S39",
+        "requirement": "R6",
+        "given": "un scope o work sin piloto o con el piloto apagado, y un chat directo o una idea sin aprobar",
+        "when": "el usuario enciende el piloto desde la web",
+        "then": "el scope o work abre el paso que indica Kyro con transición de actor user, y el chat directo o la idea responden 409 con el motivo sin cambiar nada"
+      },
+      {
+        "id": "S40",
+        "requirement": "R21",
+        "given": "un usuario con una suscripción y otro usuario con la suya",
+        "when": "el primero suscribe el mismo endpoint dos veces, renombra, prueba y quita, e intenta tocar la del otro",
+        "then": "queda una sola fila, las acciones sobre la suya funcionan y la del otro da 404"
+      },
+      {
+        "id": "S41",
+        "requirement": "R20",
+        "given": "un trabajo con piloto y dos dispositivos suscritos",
+        "when": "pasa a bloqueado con un motivo, después a escribiendo_codigo, y al final a pr_lista",
+        "then": "llega un aviso con el motivo al bloquearse, ninguno al seguir trabajando y uno al quedar la PR lista; un envío que falla no cambia el estado del piloto"
       }
     ],
     "nonGoals": [
@@ -494,7 +515,7 @@
         "n": 5,
         "slug": "web-piloto-push",
         "title": "Web del piloto y notificaciones push",
-        "state": "planned"
+        "state": "closed"
       },
       {
         "n": 6,
@@ -552,13 +573,23 @@
       "snapshot": "archive/sprint-004-idea-cierre-merge.json",
       "checkpoint": "archive/sprint-004-idea-cierre-merge.checkpoint.json",
       "checkpointSha256": "9e31c367c85a2117c9a68585124c85528e443cf792119f521e6c7eb3d132c7a2"
+    },
+    {
+      "n": 5,
+      "slug": "web-piloto-push",
+      "outcome": "shipped",
+      "closedAt": "2026-10-05",
+      "archive": "archive/sprint-005-web-piloto-push.md",
+      "snapshot": "archive/sprint-005-web-piloto-push.json",
+      "checkpoint": "archive/sprint-005-web-piloto-push.checkpoint.json",
+      "checkpointSha256": "a472b05b3280b274f3771b7bf4af773a09d20f07fa076927b2700270affd0054"
     }
   ],
   "previousSprint": {
-    "n": 4,
-    "slug": "idea-cierre-merge",
+    "n": 5,
+    "slug": "web-piloto-push",
     "outcome": "shipped",
-    "summary": "Que un trabajo empiece como Idea desde la web, espere la aprobación del plan y, aprobado, el piloto lo lleve solo hasta la PR: push tras cada cierre de sprint, cierre del scope o work (preguntando una sola vez si queda deuda), traer la base, resolver conflictos, validar, buscar secretos y abrir la PR con la merge-dev del proyecto o con el merge genérico."
+    "summary": "Que el piloto se maneje entero desde la web (encender, pausar, reanudar, apagar, elegir tipo y modelos, ver el estado por fases y el Timeline) y que cada freno o PR lista avise por Web Push a la PC y al Android, con el panel publicado por Tailscale Funnel."
   },
   "activeSprint": null,
   "debt": [
@@ -624,13 +655,49 @@
       "status": "resolved",
       "targetSprint": 6,
       "note": "T1.2: reintento ante AlreadyRunningError con tope de 3"
+    },
+    {
+      "id": "debt-8",
+      "title": "Reinicio con una pregunta pendiente: la pregunta se cancela sin evento y la web sigue mostrando la tarjeta respondible (la respuesta falla sin explicar); además el piloto se reanuda y frena con 'El worktree no tiene Works de Kyro' si el agente todavía no había creado el Work, en vez de reabrir el paso de plan. Hallado en la prueba de T4.2 (05/10/2026).",
+      "origin": 5,
+      "priority": "high",
+      "status": "resolved",
+      "targetSprint": null,
+      "note": "Resuelta en E2: evento question_cancelled al reiniciar y reanudación de plan/init cortado sin Kyro legible."
+    },
+    {
+      "id": "debt-9",
+      "title": "Hacer que el reinicio por cambios de código no corte pruebas largas: la API corre con tsx watch en desarrollo y cualquier edición en apps/api reinicia la sesión en curso (documentar o usar node sin watch durante pruebas del piloto).",
+      "origin": 5,
+      "priority": "low",
+      "status": "open",
+      "targetSprint": null,
+      "note": ""
+    },
+    {
+      "id": "debt-10",
+      "title": "Probar en real que una suscripción push vencida (404/410 del servicio de push) se borra sola en el envío siguiente: quitar el permiso de notificaciones del sitio en un navegador y tocar Probar. Hoy solo está cubierto por tests automáticos (T4.2, 05/10/2026).",
+      "origin": 5,
+      "priority": "medium",
+      "status": "open",
+      "targetSprint": 6,
+      "note": ""
+    },
+    {
+      "id": "debt-11",
+      "title": "QA sprint 5, menores: cachear o leer del sistema de archivos el ref de chore/kyro-init (hoy 2 execFileSync por lectura de proyecto sin Kyro); respaldo de question_cancelled recorre eventos en cada arranque; sin tope de suscripciones push por usuario; sender.ts y push-sw.js sin test; mensaje de la acción on con piloto finished; E1/E2 sin scenario_refs y S20 sin tarea.",
+      "origin": 5,
+      "priority": "low",
+      "status": "open",
+      "targetSprint": 6,
+      "note": ""
     }
   ],
   "handoff": {
     "nextAction": "plan_sprint",
     "nextTaskId": null,
     "blockers": [],
-    "note": "Sprint 4 (idea-cierre-merge) closed as shipped. Scope remains open for planning.",
+    "note": "Sprint 5 (web-piloto-push) closed as shipped. Scope remains open for planning.",
     "lastUpdated": "2026-10-05"
   },
   "author": {
