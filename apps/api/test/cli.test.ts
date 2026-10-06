@@ -123,7 +123,7 @@ describe('CLI', () => {
 });
 
 describe('no web route manages users', () => {
-  it('registers no route that creates or edits users (only auth steps, chat actions (incl. answering a question, the autopilot switch and the plan decision of an idea), project actions (incl. models and permissions), push subscriptions, Claude accounts, .env files, the Kyro init branch and the Kyro update mutate)', async () => {
+  it('registers no route that creates or edits users (only auth steps, chat actions (incl. answering a question, the autopilot switch and the plan decision of an idea), project actions (incl. models and permissions), push subscriptions, Claude accounts, .env files, the Kyro init branch, the Kyro update and the panel deploy mutate)', async () => {
     const made = makeApp();
     app = made.app;
     await app.ready();
@@ -160,6 +160,7 @@ describe('no web route manages users', () => {
       '/api/push/subscriptions/:id',
       '/api/push/subscriptions/:id/test',
       '/api/versions/kyro/update',
+      '/api/versions/panel/deploy',
     ]);
     for (const route of app.registeredRoutes) {
       expect(route.url).not.toMatch(/user|register|signup|password/i);

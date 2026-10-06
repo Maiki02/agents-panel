@@ -89,3 +89,8 @@ export const realGh: PilotGh = {
     return url;
   },
 };
+
+/** URLs of every PR of the branch, open, merged or closed (the PR a work left behind). */
+export async function allPrsOf(cwd: string, head: string): Promise<string[]> {
+  return urlsOf(await gh(cwd, ['pr', 'list', '--head', head, '--state', 'all', '--json', 'url']));
+}

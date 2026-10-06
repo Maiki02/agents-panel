@@ -1,4 +1,4 @@
-import type { MaintenanceRun, MaintenanceStatus } from '@agents-panel/shared';
+import type { MaintenanceKind, MaintenanceRun, MaintenanceStatus } from '@agents-panel/shared';
 import type { Db } from '../db/index.js';
 
 export const MAX_OUTPUT_BYTES = 16 * 1024;
@@ -6,7 +6,7 @@ export const TRUNCATION_MARK = '[…salida recortada…]\n';
 
 interface RunRow {
   id: number;
-  kind: 'kyro-update';
+  kind: MaintenanceKind;
   from_version: string | null;
   to_version: string | null;
   status: MaintenanceStatus;
@@ -52,13 +52,13 @@ export class MaintenanceRunRepository {
     private readonly now: () => number = Date.now,
   ) {}
 
-  create(fromVersion: string | null): MaintenanceRun {
+  create(fromVersion: string | null, kind: MaintenanceKind = 'kyro-update'): MaintenanceRun {
     const result = this.db
       .prepare(
         `INSERT INTO maintenance_runs (kind, from_version, status, started_at)
-         VALUES ('kyro-update', ?, 'running', ?)`,
+         VALUES (?, ?, 'running', ?)`,
       )
-      .run(fromVersion, this.now());
+      .run(kind, fromVersion, this.now());
     const run = this.findById(Number(result.lastInsertRowid));
     if (!run) throw new Error('Maintenance run insert failed');
     return run;

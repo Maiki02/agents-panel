@@ -90,6 +90,7 @@ describe('GET /api/versions', () => {
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({
       kyro: { installed: '6.1.0', latest: '6.2.0', updateRunning: false },
+      panel: expect.objectContaining({ deployRunning: false }) as unknown,
     });
   });
 
@@ -97,6 +98,7 @@ describe('GET /api/versions', () => {
     const { versions, update, totp, waitFinished } = await setup({ latest: null });
     expect((await versions()).json()).toEqual({
       kyro: { installed: '6.1.0', latest: null, updateRunning: false },
+      panel: expect.objectContaining({ deployRunning: false }) as unknown,
     });
     const res = await update({ code: totp() });
     expect(res.statusCode).toBe(202);
