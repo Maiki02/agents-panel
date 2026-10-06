@@ -13,6 +13,7 @@ import { EnvFileError } from '../env-files/validate.js';
 import { writeEnvFiles } from '../env-files/write.js';
 import { workToolingHints } from '../pilot/prompts.js';
 import type { WorktreeStateTracker } from '../worktrees/state-tracker.js';
+import type { WorktreeStateRepository } from '../worktrees/state-repo.js';
 import { InvalidModelError, validateModels, type ProjectRepository } from '../projects/repo.js';
 import {
   WorktreeError,
@@ -81,6 +82,8 @@ export interface ChatServiceDeps {
   envFiles: EnvFileRepository;
   /** Fine state of scopes and works; absent in tests that do not track it. */
   tracker?: WorktreeStateTracker;
+  /** Fine state, to refuse writes on an archived work; absent in tests that do not track it. */
+  states?: Pick<WorktreeStateRepository, 'get'>;
   /** Autopilot rows; absent in tests that do not use the pilot. */
   autopilot?: AutopilotRunRepository;
   /** Called once the chat exists and its first turn started, when the autopilot is on. */
@@ -239,6 +242,7 @@ export class ChatService {
 
   sendMessage(chatId: number, text: string): void {
     this.requireChat(chatId);
+    this.assertWritable(chatId);
     this.startTurn(chatId, text);
   }
 
@@ -274,6 +278,13 @@ export class ChatService {
       if (error instanceof QuestionNotPendingError) throw new ChatError(error.message, 409);
       if (error instanceof QuestionAnswerError) throw new ChatError(error.message, 400);
       throw error;
+    }
+  }
+
+  /** An archived work (its worktree was deleted) is read only: 409 for anything that writes. */
+  assertWritable(chatId: number): void {
+    if (this.deps.states?.get(chatId)?.state === 'archivado') {
+      throw new ChatError('El trabajo está archivado: es de solo lectura', 409);
     }
   }
 

@@ -124,6 +124,69 @@
         "given": "un worktree con la raíz y un repo hijo",
         "when": "el usuario pide el estado git del trabajo",
         "then": "recibe por repo la rama, los archivos cambiados y cuántos commits está adelante y atrás de su remoto"
+      },
+      {
+        "id": "S9",
+        "requirement": "R3",
+        "given": "un trabajo cuya raíz tiene commits que no están en su base y no tiene PR abierta",
+        "when": "el usuario pide Crear PR con el título y el cuerpo prellenados",
+        "then": "el panel trae la base, pushea la rama sin force, abre la PR hacia la base del repo con ese título y cuerpo y devuelve su link, que queda en el Timeline"
+      },
+      {
+        "id": "S10",
+        "requirement": "R3",
+        "given": "un repo del trabajo que ya tiene una PR abierta hacia su base",
+        "when": "el usuario pide Crear PR",
+        "then": "el push actualiza la PR existente, no se crea otra y la respuesta trae su link"
+      },
+      {
+        "id": "S11",
+        "requirement": "R3",
+        "given": "un proyecto cuyo worktree trae .claude/skills/merge-dev/SKILL.md",
+        "when": "el usuario pide el prellenado de la PR y después Correr merge-dev",
+        "then": "el prellenado indica hasMergeDev y el panel lanza al agente con el mismo prompt de merge-dev que usa el piloto"
+      },
+      {
+        "id": "S12",
+        "requirement": "R8",
+        "given": "un repo del trabajo con un secreto en sus cambios",
+        "when": "el usuario pide Crear PR",
+        "then": "ese repo no se pushea ni abre PR y la respuesta nombra el archivo"
+      },
+      {
+        "id": "S13",
+        "requirement": "R4",
+        "given": "un repo con un archivo modificado, uno nuevo y un .env ignorado",
+        "when": "el usuario pide Ver cambios",
+        "then": "recibe los dos primeros con su parche recortado por archivo y nunca el .env"
+      },
+      {
+        "id": "S14",
+        "requirement": "R4",
+        "given": "un repo con un archivo modificado, uno nuevo y un .env ignorado",
+        "when": "el usuario descarta los dos primeros, o pide descartar el .env",
+        "then": "los dos primeros vuelven a HEAD o se borran, y el pedido con el .env responde 400 sin tocar nada"
+      },
+      {
+        "id": "S15",
+        "requirement": "R4",
+        "given": "un trabajo con commits sin pushear y sin agente corriendo",
+        "when": "el usuario pide la vista previa y confirma Borrar trabajo sin marcar las ramas remotas",
+        "then": "la vista previa avisa de los commits sin pushear, se borran el worktree y las ramas locales, la remota sigue y el chat queda archivado en solo lectura; con el agente corriendo responde 409 y no borra nada"
+      },
+      {
+        "id": "S16",
+        "requirement": "R5",
+        "given": "el catálogo de paridad manual y la app de la API",
+        "when": "corre el test del catálogo",
+        "then": "cada acción que hace el piloto tiene su ruta manual registrada y el Timeline registra actor pilot o user según quién la hizo"
+      },
+      {
+        "id": "S17",
+        "requirement": "R5",
+        "given": "un scope con el piloto en pausa",
+        "when": "el usuario pide Planificar sprint",
+        "then": "el agente arranca con el mismo prompt que armaría el piloto y el Timeline registra actor user; con el piloto en active responde 409"
       }
     ],
     "nonGoals": [
@@ -219,6 +282,117 @@
         "Responder 200 siempre con solo repos y adaptar toda la web",
         "Endpoint nuevo por repo"
       ]
+    },
+    {
+      "id": "ADR-0006",
+      "title": "Borrar trabajo deja el chat archivado en solo lectura",
+      "status": "accepted",
+      "date": "2026-10-06",
+      "context": "D28 pide Borrar trabajo (worktree y ramas locales, remotas solo si se marca). Chat.worktreePath no admite null y docs/estados.md ya define limpiando y archivado (worktree borrado, chat en solo lectura).",
+      "decision": "El borrado manual pasa el estado por limpiando y termina en archivado; el chat y su historial se conservan en solo lectura y toda operación, mensaje, paso o encendido del piloto responde 409. Un fallo a mitad queda en revisar.",
+      "consequences": [
+        "No se pierde la conversación ni el Timeline al borrar el worktree",
+        "Las rutas que lanzan trabajo tienen que rechazar chats archivados"
+      ],
+      "alternatives": [
+        "Borrar el chat junto con el worktree",
+        "Hacer worktreePath opcional en el modelo"
+      ]
+    },
+    {
+      "id": "ADR-0007",
+      "title": "Servicio de acciones con actor y guardas solo para el usuario",
+      "status": "accepted",
+      "date": "2026-10-06",
+      "context": "D26 exige un único servicio para el piloto y la API. WorktreeOps del sprint 1 registra siempre actor user y aplica guardas que frenarían al piloto, que es quien está corriendo.",
+      "decision": "WorktreeOps pasa a ser el servicio de acciones: cada operación recibe actor (user, pilot, agent), las guardas de agente corriendo y piloto ocupado aplican solo a actor user y el candado por chat aplica a todos. El piloto hace push, commit de Kyro y PR a través de él.",
+      "consequences": [
+        "Manual y automático comparten el mismo código y el Timeline distingue quién actuó",
+        "Refactor del piloto revisable en una tarea propia (T1.1)"
+      ],
+      "alternatives": [
+        "Servicio nuevo paralelo y migrar el piloto después",
+        "Dejar al piloto con sus llamadas directas y solo envolverlas en la API"
+      ]
+    },
+    {
+      "id": "ADR-0008",
+      "title": "Pasos del agente por una sola ruta y alcance del sprint 2",
+      "status": "accepted",
+      "date": "2026-10-06",
+      "context": "El catálogo D26 lista pasos que razonan (planificar, ejecutar, QA, corregir, cerrar, completar, merge-dev) sin ruta manual hoy. Reparar estado de Kyro nunca lo hace el piloto. R3 pide una PR real en agents-panel. La recomendación del sprint 1 pide vincular escenarios a R3-R9.",
+      "decision": "Una ruta POST /api/chats/:id/steps con el paso pedido y el mismo prompt que arma el piloto. Reparar queda en el catálogo como manual sin ruta y se difiere. La PR real se verifica en el recorrido manual del sprint 3 con el botón en la web. Recomendación del sprint 1 incorporada: escenarios S9-S17 para R3, R4, R5 y R8; R6, R7 y R9 se vinculan en los sprints 3 y 4.",
+      "consequences": [
+        "El catálogo se prueba con una sola ruta para todos los pasos",
+        "Reparar estado de Kyro sigue requiriendo terminal hasta otro sprint"
+      ],
+      "alternatives": [
+        "Una ruta por paso",
+        "Incluir Reparar con vista previa y digest en este sprint"
+      ]
+    },
+    {
+      "id": "ADR-0009",
+      "title": "Pasos manuales lanzan al agente sin la marca del piloto",
+      "status": "accepted",
+      "date": "2026-10-06",
+      "context": "La ruta POST steps lanza sesiones del agente para plan, execute, fix, close y merge_dev. Si usara la opción pilot del manager, el tracker registraría actor pilot y waitingOn pilot, y la sesión quedaría con la versión de política del piloto.",
+      "decision": "Los pasos manuales llaman manager.start con rol y sesión nueva pero sin la opción pilot: el prompt y el rol salen de las mismas funciones que usa el piloto (buildStepPrompt, stepRole, afterAnalyze, buildMergeDevPrompt) y el Timeline recibe una entrada con actor user por WorktreeOps.markStep.",
+      "consequences": [
+        "El actor de la entrada del paso es user y el resto de la sesión lo registra el agente como en un mensaje manual",
+        "La sesión se guarda con step manual en agent_sessions"
+      ],
+      "alternatives": [
+        "Pasar pilot con el paso y corregir el actor después",
+        "Agregar un actor manual al tracker"
+      ]
+    },
+    {
+      "id": "ADR-0010",
+      "title": "Borrar trabajo: remota primero, archivado bloquea todo en resolve",
+      "status": "accepted",
+      "date": "2026-10-06",
+      "context": "T3.3 borra worktree y ramas; los hijos son clones dentro de la carpeta y solo viven ahí; el archivado debe dar 409 en toda operación",
+      "decision": "deleteWork borra primero las ramas remotas (si deleteRemote, desde cada repo), luego el worktree y la rama local de la raíz con removeWorktreeStrict (informa errores); las ramas locales de los hijos desaparecen con la carpeta. El 409 de archivado vive en resolve/locked de WorktreeOps, en ChatService.sendMessage, en las rutas del piloto y en StepService. Un fallo deja revisar con detalle (422).",
+      "consequences": [
+        "Un fallo remoto no deja el worktree a medias",
+        "Reintentar el borrado es posible desde revisar"
+      ],
+      "alternatives": [
+        "Borrar local primero y remota después (los hijos ya no existirían para empujar el delete)",
+        "Marcar archivado con una columna en chats en vez de usar el estado fino"
+      ]
+    },
+    {
+      "id": "ADR-0011",
+      "title": "Catálogo de paridad: forma y alcance",
+      "status": "accepted",
+      "date": "2026-10-06",
+      "context": "T4.1 pide un catálogo D26 leído por tests y luego por la web",
+      "decision": "PARITY_CATALOG en packages/shared con id, automatic, kind, pilotStep/service y manual (ruta o step); el test escanea las llamadas actions.* del piloto y AUTOPILOT_STEPS/PromptStep tipados. Validar (validate_command) y el paso manual del chat no se catalogan: validar no tiene acción manual definida en D25 y manual es del usuario",
+      "consequences": [
+        "Una llamada o paso nuevo del piloto sin entrada rompe el test o el typecheck",
+        "repair_kyro queda manual sin ruta (manual null)"
+      ],
+      "alternatives": [
+        "Catálogo solo en la API",
+        "Marcar validar con manual null"
+      ]
+    },
+    {
+      "id": "ADR-0012",
+      "title": "QA del sprint 2 aprobada con notas; hallazgos MEDIUM de escenarios quedan para los sprints 3 y 4",
+      "status": "accepted",
+      "date": "2026-10-06",
+      "context": "kyro analyze reporta 4 MEDIUM (R6, R7, R9 sin escenario; T4.2 sin scenario_refs) y la integridad solo observa ADRs vivos",
+      "decision": "No son bloqueantes: R6, R7 y R9 se vinculan en los sprints 3 y 4 según ADR-0008; se cierra el sprint con APPROVED WITH NOTES y sin deuda nueva",
+      "consequences": [
+        "T4.2 queda sin scenario_refs en el archivo del sprint 2"
+      ],
+      "alternatives": [
+        "Agregar un escenario de relleno para R6, R7 y R9",
+        "Postergar el cierre"
+      ]
     }
   ],
   "roadmap": {
@@ -235,7 +409,7 @@
         "n": 2,
         "slug": "paridad-manual-y-pr",
         "title": "Servicio único de acciones, Crear PR, ver cambios, descartar y borrar (WS14)",
-        "state": "planned"
+        "state": "closed"
       },
       {
         "n": 3,
@@ -264,13 +438,27 @@
         "Vincular escenarios a R3-R9 al planificar los próximos sprints"
       ],
       "checkpointSha256": "5642cd4b71ce8b4a653d4698cfffb124625c7f0a21734a2efe157f1e03ad6d54"
+    },
+    {
+      "n": 2,
+      "slug": "paridad-manual-y-pr",
+      "outcome": "shipped",
+      "closedAt": "2026-10-06",
+      "archive": "archive/sprint-002-paridad-manual-y-pr.md",
+      "snapshot": "archive/sprint-002-paridad-manual-y-pr.json",
+      "checkpoint": "archive/sprint-002-paridad-manual-y-pr.checkpoint.json",
+      "recommendations": [
+        "Vincular escenarios a R6, R7 y R9 y dar scenario_refs a las tareas nuevas",
+        "Verificar Crear PR real en agents-panel en el recorrido manual del sprint 3"
+      ],
+      "checkpointSha256": "598eea9152d043d7ac594483d4076c095b0dc5376bd7a80dc07f0c07c106f959"
     }
   ],
   "previousSprint": {
-    "n": 1,
-    "slug": "repos-y-git-por-trabajo",
+    "n": 2,
+    "slug": "paridad-manual-y-pr",
     "outcome": "shipped",
-    "summary": "Que la API conozca los repos de cada proyecto con su rama base, actualice el clon base repo por repo, y ofrezca por trabajo estado, commit de archivos elegidos, traer base, traer la propia rama, push y reinstalar dependencias, seguras frente al agente y al piloto y registradas en el Timeline."
+    "summary": "Que el piloto y la API usen un único servicio de acciones con actor, que cada acción del catálogo D26 que hace el piloto tenga su ruta manual (incluidos los pasos del agente), y que la API ofrezca Crear PR, Correr merge-dev, ver cambios, descartar y borrar trabajo, seguros frente al agente y al piloto."
   },
   "activeSprint": null,
   "debt": [],
@@ -278,7 +466,7 @@
     "nextAction": "plan_sprint",
     "nextTaskId": null,
     "blockers": [],
-    "note": "Sprint 1 cerrado: repos y git por trabajo (R1, R2). Siguiente: crear PR desde la web (R3).",
+    "note": "Sprint 2 cerrado con QA APPROVED WITH NOTES. Siguiente: sprint 3, vincular escenarios a R6, R7 y R9 y verificar la PR real.",
     "lastUpdated": "2026-10-06"
   },
   "author": {

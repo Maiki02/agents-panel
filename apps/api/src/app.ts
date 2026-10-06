@@ -33,10 +33,11 @@ import { WorktreeStateTracker, type KyroStateReader } from './worktrees/state-tr
 import { scanIdeaDocuments, type IdeaScanner } from './chats/idea.js';
 import { IdeaActions } from './chats/idea-actions.js';
 import { DebtAcceptance } from './pilot/accept-debt.js';
-import type { MergeGit, PilotGit } from './pilot/git-ops.js';
+import type { MergeGit, PilotGit, RepoGit } from './pilot/git-ops.js';
 import type { PilotGh } from './pilot/github-cli.js';
 import { registerChatRoutes } from './chats/routes.js';
 import { registerChatGitRoutes } from './chats/git-routes.js';
+import { registerStepRoutes, StepService } from './chats/step-routes.js';
 import { WorktreeOps } from './worktrees/ops.js';
 import { registerStreamRoute } from './chats/stream.js';
 import { ChatService } from './chats/service.js';
@@ -226,7 +227,23 @@ export function buildApp(deps: AppDeps, options: FastifyServerOptions = {}): Fas
     }
     flags.set(CANCELLED_EVENTS_BACKFILL);
   }
+  const envFiles = new EnvFileRepository(deps.db, deps.config.secretKey, now);
+  const projectRepos = new ProjectRepoRepository(deps.db, now);
+  // The single action service (D26): the pilot and the git routes both go through it.
+  const worktreeOps = new WorktreeOps({
+    chats,
+    projects,
+    projectRepos,
+    manager,
+    autopilot: autopilotRuns,
+    state: worktreeState,
+    envFiles,
+    // The injected fakes of the tests only implement what the pilot uses.
+    ...(deps.pilotGit ? { git: deps.pilotGit as PilotGit & MergeGit & RepoGit } : {}),
+    ...(deps.pilotGh ? { gh: deps.pilotGh } : {}),
+  });
   const pilot = new Autopilot({
+    actions: worktreeOps,
     chats,
     runs: autopilotRuns,
     manager,
@@ -241,7 +258,6 @@ export function buildApp(deps: AppDeps, options: FastifyServerOptions = {}): Fas
     maxSessionsPerSprint: deps.config.pilotMaxSessionsPerSprint,
     now,
   });
-  const envFiles = new EnvFileRepository(deps.db, deps.config.secretKey, now);
   const chatService = new ChatService({
     chats,
     projects,
@@ -250,6 +266,7 @@ export function buildApp(deps: AppDeps, options: FastifyServerOptions = {}): Fas
     worktreesDir: deps.config.worktreesDir,
     envFiles,
     tracker,
+    states: worktreeState,
     autopilot: autopilotRuns,
     onAutopilotStart: (chatId) => {
       pilot.kick(chatId);
@@ -268,7 +285,6 @@ export function buildApp(deps: AppDeps, options: FastifyServerOptions = {}): Fas
     ...(deps.kyroScriptRunner ? { runner: deps.kyroScriptRunner } : {}),
   });
 
-  const projectRepos = new ProjectRepoRepository(deps.db, now);
   const projectService =
     deps.projectService ??
     new ProjectService({
@@ -339,17 +355,20 @@ export function buildApp(deps: AppDeps, options: FastifyServerOptions = {}): Fas
     ideaActions,
   });
   // A plugin: its own error handler maps the git operation errors without touching the others.
-  const worktreeOps = new WorktreeOps({
-    chats,
-    projects,
-    projectRepos,
-    manager,
-    autopilot: autopilotRuns,
-    state: worktreeState,
-    envFiles,
-  });
   void app.register((instance) => {
     registerChatGitRoutes(instance, { ops: worktreeOps });
+  });
+  void app.register((instance) => {
+    registerStepRoutes(instance, {
+      steps: new StepService({
+        chats,
+        projects,
+        manager,
+        kyro: deps.pilotKyro ?? realKyro,
+        ops: worktreeOps,
+        states: worktreeState,
+      }),
+    });
   });
   registerAutopilotRoutes(app, {
     service: chatService,

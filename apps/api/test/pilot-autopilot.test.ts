@@ -32,6 +32,7 @@ import {
 import { POLICY_VERSION } from '../src/pilot/policy.js';
 import { AutopilotRunRepository } from '../src/pilot/runs-repo.js';
 import { ProjectRepository } from '../src/projects/repo.js';
+import { WorktreeOps } from '../src/worktrees/ops.js';
 import { WorktreeStateRepository } from '../src/worktrees/state-repo.js';
 import { WorktreeStateTracker } from '../src/worktrees/state-tracker.js';
 import { FakeRunner } from './fake-runner.js';
@@ -357,6 +358,7 @@ async function setup(
     sessions,
     git: fakeGit,
     gh: fakeGh,
+    actions: WorktreeOps.forPilot({ chats, state: states, git: fakeGit, gh: fakeGh }),
     scan: () => Promise.resolve(scanFindings),
     projectOf: () => ({ baseBranch: 'main', validateCommand: null }),
     maxSessionsPerSprint: opts.maxSessions ?? 6,
@@ -502,6 +504,23 @@ describe('push after each close (R12)', () => {
     expect(t.states.get(t.chat.id)?.state).toBe('pr_lista');
   });
 
+  it('goes through the action service: push, Kyro commit and PR land in the Timeline as actor pilot, with the git_push event', async () => {
+    const t = await setup({ total: 1 });
+    await t.pilot.drive(t.chat.id);
+    const ops = t.states
+      .timeline(t.chat.id)
+      .filter((e) => (e.data as { op?: string } | null)?.op !== undefined);
+    const byOp = (op: string) => ops.filter((e) => (e.data as { op: string }).op === op);
+    expect(byOp('push').length).toBeGreaterThanOrEqual(3);
+    expect(byOp('commit_kyro')).toHaveLength(1);
+    expect(byOp('open_pr')).toHaveLength(1);
+    expect(ops.every((e) => e.actor === 'pilot')).toBe(true);
+    expect(t.git.commits).toHaveLength(1);
+    expect(t.gh.created).toHaveLength(1);
+    const events = t.chats.allEventsAfter(t.chat.id, 0).filter((e) => e.type === 'git_push');
+    expect(events).toHaveLength(t.git.pushes.length);
+  });
+
   it('stops with git when the closing session left no new commit, and does not push', async () => {
     const t = await setup({ total: 1, noCommit: true });
     await t.pilot.drive(t.chat.id);
@@ -548,7 +567,11 @@ describe('merge phase (R14)', () => {
       phase: 'merge',
       prUrls: ['https://github.com/o/r/pull/1'],
     });
-    const states = t.states.timeline(t.chat.id).map((x) => x.toState);
+    // The actions of the service (push, PR) add their own entries on the same state: not transitions.
+    const states = t.states
+      .timeline(t.chat.id)
+      .filter((x) => (x.data as { op?: string } | null)?.op === undefined)
+      .map((x) => x.toState);
     expect(states.slice(-5)).toEqual([
       'cerrando',
       'trayendo_dev',

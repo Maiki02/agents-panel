@@ -164,6 +164,55 @@ export async function removeWorktree(
   await rollback(repoPath, path, branch);
 }
 
+/**
+ * Removes a worktree and the branch of the root repo like `removeWorktree`, but reports what went
+ * wrong (D28: the manual delete must not claim success). Returns one line per thing removed.
+ * `base` is the root's base branch: it is never deleted. A worktree that is already gone is fine.
+ */
+export async function removeWorktreeStrict(
+  repoPath: string,
+  path: string,
+  branch: string,
+  base: string,
+): Promise<string[]> {
+  if (branch === base) throw new WorktreeError(`No se borra la rama base: ${base}`);
+  if (!SAFE_BRANCH.test(branch) || branch.includes('..')) {
+    throw new WorktreeError(`Nombre de rama no válido: ${branch}`);
+  }
+  const steps: string[] = [];
+  try {
+    await execFileAsync('git', ['-C', repoPath, 'worktree', 'remove', '--force', path]);
+    steps.push(`Worktree borrado: ${path}`);
+  } catch (error) {
+    if (existsSync(path)) {
+      const e = error as { stderr?: string; message: string };
+      throw new WorktreeError(
+        `git worktree remove falló: ${(e.stderr ?? e.message).trim().slice(0, 500)}`,
+      );
+    }
+    // Registered no more and the folder is gone: nothing left to remove.
+  }
+  if (existsSync(path)) {
+    await rm(path, { recursive: true, force: true });
+    steps.push(`Carpeta borrada: ${path}`);
+  }
+  try {
+    await execFileAsync('git', ['-C', repoPath, 'worktree', 'prune']);
+    if (await branchExists(repoPath, branch)) {
+      await execFileAsync('git', ['-C', repoPath, 'branch', '-D', branch]);
+      steps.push(`Rama local borrada: ${branch}`);
+    }
+  } catch (error) {
+    const e = error as { stderr?: string; message: string };
+    throw new WorktreeError(
+      `No se pudo borrar la rama local ${branch}: ${(e.stderr ?? e.message).trim().slice(0, 500)}`,
+    );
+  }
+  return steps;
+}
+
+const SAFE_BRANCH = /^[A-Za-z0-9][A-Za-z0-9._/-]*$/;
+
 async function rollback(repoPath: string, path: string, branch: string): Promise<void> {
   try {
     await execFileAsync('git', ['-C', repoPath, 'worktree', 'remove', '--force', path]);

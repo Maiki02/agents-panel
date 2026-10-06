@@ -1,8 +1,9 @@
-import { existsSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
-import type { WorktreeStatus } from '@agents-panel/shared';
+import type { CreatePrOutcome, PrPreview, WorktreeStatus } from '@agents-panel/shared';
+import type { PilotGh } from '../src/pilot/github-cli.js';
 import { SESSION_COOKIE, SessionService } from '../src/auth/sessions.js';
 import { UserRepository } from '../src/auth/users.js';
 import { ChatRepository } from '../src/chats/repo.js';
@@ -16,9 +17,16 @@ afterEach(async () => {
   app = undefined;
 });
 
+const PR_URL = 'https://github.com/acme/repo/pull/3';
+const fakeGh: PilotGh = {
+  openPr: () => Promise.resolve(null),
+  openPrsOf: () => Promise.resolve([]),
+  createPr: () => Promise.resolve(PR_URL),
+};
+
 async function boot(setupCommand?: string) {
   const runner = new FakeRunner();
-  const made = makeApp({}, undefined, { runner });
+  const made = makeApp({}, undefined, { runner, pilotGh: fakeGh });
   app = made.app;
   await made.app.ready();
   const user = await new UserRepository(made.db).create('alice', PASSWORD);
@@ -117,6 +125,57 @@ describe('git routes by chat', () => {
     );
   });
 
+  it('discard (S14): restores tracked, deletes untracked, rejects ignored and bad paths without touching anything', async () => {
+    const s = await boot();
+    const repo = s.work.repo;
+    writeFileSync(join(repo, '.gitignore'), '.env\n');
+    s.work.git(repo, 'add', '.gitignore');
+    s.work.git(repo, 'commit', '-q', '-m', 'chore: ignore');
+    writeFileSync(join(repo, 'a.txt'), 'changed');
+    writeFileSync(join(repo, 'new.txt'), 'new');
+    writeFileSync(join(repo, 'keep.txt'), 'keep');
+    writeFileSync(join(repo, '.env'), 'SECRET=1');
+
+    const bad = [
+      { repo: '.', files: [] },
+      { repo: '.', files: ['a.txt', '.env'] },
+      { repo: '.', files: ['a.txt', '/etc/passwd'] },
+      { repo: '.', files: ['a.txt', '../x'] },
+      { repo: '.', files: ['a.txt', '.gitignore'] }, // no changes
+      { repo: '.', files: ['a.txt', 'missing.txt'] },
+      { repo: '.', files: ['a.txt'], extra: 1 },
+    ];
+    for (const payload of bad) {
+      const res = await s.post('git/discard', payload);
+      expect(res.statusCode, JSON.stringify(payload)).toBe(400);
+    }
+    expect((await s.post('git/discard', { repo: 'nope', files: ['a.txt'] })).statusCode).toBe(404);
+    expect(readFileSync(join(repo, 'a.txt'), 'utf8')).toBe('changed');
+    expect(existsSync(join(repo, 'new.txt'))).toBe(true);
+    expect(readFileSync(join(repo, '.env'), 'utf8')).toBe('SECRET=1');
+
+    const ok = await s.post('git/discard', { repo: '.', files: ['a.txt', 'new.txt'] });
+    expect(ok.statusCode).toBe(200);
+    expect(ok.json()).toMatchObject({ path: '.', result: 'ok' });
+    expect(readFileSync(join(repo, 'a.txt'), 'utf8')).toBe('a');
+    expect(existsSync(join(repo, 'new.txt'))).toBe(false);
+    expect(existsSync(join(repo, 'keep.txt'))).toBe(true);
+    expect(existsSync(join(repo, '.env'))).toBe(true);
+    expect(s.work.git(repo, 'status', '--porcelain').trim()).toBe('?? keep.txt');
+  });
+
+  it('discard also undoes a staged new file and a staged edit', async () => {
+    const s = await boot();
+    const repo = s.work.repo;
+    writeFileSync(join(repo, 'staged.txt'), 's');
+    writeFileSync(join(repo, 'a.txt'), 'edit');
+    s.work.git(repo, 'add', 'staged.txt', 'a.txt');
+    const res = await s.post('git/discard', { repo: '.', files: ['staged.txt', 'a.txt'] });
+    expect(res.statusCode).toBe(200);
+    expect(existsSync(join(repo, 'staged.txt'))).toBe(false);
+    expect(s.work.git(repo, 'status', '--porcelain').trim()).toBe('');
+  });
+
   it('pull and push: 404 for a repo that is not of the work, 400 for a free path', async () => {
     const s = await boot();
     for (const path of ['git/pull-base', 'git/pull-branch', 'git/push']) {
@@ -162,6 +221,68 @@ describe('git routes by chat', () => {
     expect(existsSync(join(s.work.repo, '.git', 'MERGE_HEAD'))).toBe(false);
   });
 
+  it('PR: GET previews the candidates and POST pushes and opens the PR', async () => {
+    const s = await boot();
+    const preview = await s.app.inject({
+      url: `/api/chats/${String(s.chat.id)}/git/pr`,
+      headers: s.headers,
+    });
+    expect(preview.statusCode).toBe(200);
+    expect(preview.json<PrPreview>().repos[0]).toMatchObject({ path: '.', commits: 1 });
+    const res = await s.post('git/pr', { repos: [{ repo: '.', title: 'feat: x', body: 'b' }] });
+    expect(res.statusCode).toBe(200);
+    expect(res.json<CreatePrOutcome>().repos[0]).toMatchObject({ result: 'ok', url: PR_URL });
+    expect(s.work.remoteRef('refs/heads/feature/x')).toBeTruthy();
+  });
+
+  it('PR: 404 for an unknown chat or repo, 400 for invalid input', async () => {
+    const s = await boot();
+    const row = { repo: '.', title: 'feat: x', body: '' };
+    const missing = await s.app.inject({
+      method: 'POST',
+      url: '/api/chats/9999/git/pr',
+      headers: s.headers,
+      payload: { repos: [row] },
+    });
+    expect(missing.statusCode).toBe(404);
+    expect((await s.post('git/pr', { repos: [{ ...row, repo: 'nope' }] })).statusCode).toBe(404);
+    const invalid = [
+      {},
+      { repos: [] },
+      { repos: [{ ...row, title: '' }] },
+      { repos: [{ ...row, title: '  ' }] },
+      { repos: [{ ...row, repo: '../x' }] },
+      { repos: [{ repo: '.', title: 't' }] },
+      { repos: [row], force: true },
+    ];
+    for (const payload of invalid) {
+      expect((await s.post('git/pr', payload)).statusCode, JSON.stringify(payload)).toBe(400);
+    }
+  });
+
+  it('PR: 409 with the agent running or the pilot busy, and nothing is pushed', async () => {
+    const s = await boot();
+    const payload = { repos: [{ repo: '.', title: 'feat: x', body: '' }] };
+    s.db
+      .prepare(
+        "INSERT INTO autopilot_runs (chat_id, status, created_at, updated_at) VALUES (?, 'active', 1, 1)",
+      )
+      .run(s.chat.id);
+    const pilot = await s.post('git/pr', payload);
+    expect(pilot.statusCode).toBe(409);
+    s.db.prepare("UPDATE autopilot_runs SET status = 'paused' WHERE chat_id = ?").run(s.chat.id);
+    let release: () => void = () => undefined;
+    s.runner.gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    expect((await s.post('messages', { text: 'hola' })).statusCode).toBe(202);
+    const agent = await s.post('git/pr', payload);
+    expect(agent.statusCode).toBe(409);
+    expect(agent.json<{ error: string }>().error).toContain('agente');
+    expect(() => s.work.remoteRef('refs/heads/feature/x')).toThrow();
+    release();
+  });
+
   it('setup runs the project setup', async () => {
     const s = await boot('touch setup-ran');
     const res = await s.post('setup');
@@ -182,6 +303,7 @@ describe('git routes by chat', () => {
     const before = s.work.git(s.work.repo, 'rev-parse', 'HEAD');
     const calls = [
       s.post('git/commit', { repo: '.', files: ['b.txt'], message: 'feat: b' }),
+      s.post('git/discard', { repo: '.', files: ['b.txt'] }),
       s.post('git/pull-base'),
       s.post('git/pull-branch'),
       s.post('git/push'),
@@ -206,6 +328,7 @@ describe('git routes by chat', () => {
     const blocked = await s.post('git/push');
     expect(blocked.statusCode).toBe(409);
     expect(blocked.json<{ error: string }>().error).toContain('active');
+    expect((await s.post('git/discard', { repo: '.', files: ['a.txt'] })).statusCode).toBe(409);
     expect(() => s.work.remoteRef('refs/heads/feature/x')).toThrow();
     s.db.prepare("UPDATE autopilot_runs SET status = 'paused' WHERE chat_id = ?").run(s.chat.id);
     expect((await s.post('git/push')).statusCode).toBe(200);

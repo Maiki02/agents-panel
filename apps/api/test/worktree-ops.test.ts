@@ -1,17 +1,18 @@
-import { appendFileSync, existsSync, renameSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { AutopilotRun, AutopilotStatus } from '@agents-panel/shared';
 import { ChatEventBus } from '../src/chats/events.js';
 import { ChatRepository } from '../src/chats/repo.js';
 import { openDatabase } from '../src/db/index.js';
+import type { PilotGh } from '../src/pilot/github-cli.js';
 import { ProjectRepository } from '../src/projects/repo.js';
 import { ProjectRepoRepository } from '../src/projects/repos-repo.js';
 import { WorktreeStateRepository } from '../src/worktrees/state-repo.js';
 import { WorktreeOps, WorktreeOpsError } from '../src/worktrees/ops.js';
 import { makeGitRepo, makeRepoWithRemote } from './helpers.js';
 
-async function setup(options: { child?: boolean; setupCommand?: string } = {}) {
+async function setup(options: { child?: boolean; setupCommand?: string; gh?: PilotGh } = {}) {
   const db = openDatabase(':memory:');
   const root = makeRepoWithRemote('feature/x');
   const projects = new ProjectRepository(db);
@@ -62,6 +63,7 @@ async function setup(options: { child?: boolean; setupCommand?: string } = {}) {
     },
     state,
     envFiles: { readAll: () => [] },
+    ...(options.gh ? { gh: options.gh } : {}),
   });
   return {
     ops,
@@ -113,6 +115,7 @@ describe('WorktreeOps guards', () => {
     const before = head(s);
     const calls = [
       () => s.ops.commit(s.chat.id, '.', ['b.txt'], 'feat: b'),
+      () => s.ops.discard(s.chat.id, '.', ['b.txt']),
       () => s.ops.pullBase(s.chat.id),
       () => s.ops.pullBranch(s.chat.id),
       () => s.ops.push(s.chat.id),
@@ -158,6 +161,76 @@ describe('WorktreeOps guards', () => {
   });
 });
 
+describe('WorktreeOps with the pilot as actor (D26)', () => {
+  const fakeGh = (existing: string | null): PilotGh & { created: string[] } => {
+    const created: string[] = [];
+    return {
+      created,
+      openPr: () => Promise.resolve(existing),
+      openPrsOf: () => Promise.resolve([]),
+      createPr: (_cwd, input) => {
+        created.push(input.title);
+        return Promise.resolve('https://github.com/o/r/pull/7');
+      },
+    };
+  };
+
+  it('does not apply the agent and pilot guards to the pilot, and records actor pilot', async () => {
+    const s = await setup();
+    s.flags.running = true;
+    s.setPilot('active');
+    await expect(s.ops.pushBranch(s.chat.id)).rejects.toMatchObject({ status: 409 });
+    const out = await s.ops.pushBranch(s.chat.id, 'pilot');
+    expect(out.result).toBe('ok');
+    expect(s.root.remoteRef('refs/heads/feature/x')).toBe(head(s));
+    const entry = s.state.timeline(s.chat.id).at(-1);
+    expect(entry?.actor).toBe('pilot');
+    expect(entry?.data).toMatchObject({ op: 'push', repo: '.', result: 'ok' });
+  });
+
+  it('keeps the lock per chat for the pilot too', async () => {
+    const s = await setup();
+    const results = await Promise.allSettled([
+      s.ops.pushBranch(s.chat.id, 'pilot'),
+      s.ops.pushBranch(s.chat.id, 'pilot'),
+    ]);
+    expect(results.filter((r) => r.status === 'rejected')).toHaveLength(1);
+  });
+
+  it('commits .agents/kyro as the pilot', async () => {
+    const s = await setup();
+    mkdirSync(join(s.root.repo, '.agents', 'kyro'), { recursive: true });
+    writeFileSync(join(s.root.repo, '.agents', 'kyro', 'x.md'), 'x');
+    const out = await s.ops.commitKyro(s.chat.id, 'chore(kyro): completar scope x', 'pilot');
+    expect(out.result).toBe('ok');
+    expect(s.root.git(s.root.repo, 'log', '-1', '--format=%s').trim()).toBe(
+      'chore(kyro): completar scope x',
+    );
+    const entry = s.state.timeline(s.chat.id).at(-1);
+    expect(entry?.actor).toBe('pilot');
+    expect(entry?.data).toMatchObject({ op: 'commit_kyro' });
+  });
+
+  it('opens a PR or reuses the open one, with the actor in the Timeline', async () => {
+    const gh = fakeGh(null);
+    const s = await setup({ gh });
+    const created = await s.ops.openPr(s.chat.id, { base: 'main', title: 't', body: 'b' }, 'pilot');
+    expect(created).toMatchObject({ result: 'ok', output: 'https://github.com/o/r/pull/7' });
+    expect(gh.created).toEqual(['t']);
+    expect(s.state.timeline(s.chat.id).at(-1)).toMatchObject({
+      actor: 'pilot',
+      data: { op: 'open_pr' },
+    });
+
+    const reuse = fakeGh('https://github.com/o/r/pull/3');
+    const t = await setup({ gh: reuse });
+    const reused = await t.ops.openPr(t.chat.id, { base: 'main', title: 't', body: 'b' });
+    expect(reused.output).toBe('https://github.com/o/r/pull/3');
+    expect(reuse.created).toEqual([]);
+    expect(t.state.timeline(t.chat.id).at(-1)?.actor).toBe('user');
+  });
+});
+
 describe('WorktreeOps.commit', () => {
   it('commits only the chosen file and records it in the Timeline as the user', async () => {
     const s = await setup();
@@ -190,6 +263,33 @@ describe('WorktreeOps.commit', () => {
     expect(out.result).toBe('ok');
     expect(out.warning).toContain('Conventional Commits');
     expect(head(s)).not.toBe(before);
+  });
+
+  it('discards chosen files and records the actor and the file list in the Timeline', async () => {
+    const s = await setup();
+    writeFileSync(join(s.root.repo, 'a.txt'), 'changed');
+    writeFileSync(join(s.root.repo, 'new.txt'), 'n');
+    const out = await s.ops.discard(s.chat.id, '.', ['a.txt', 'new.txt']);
+    expect(out.result).toBe('ok');
+    expect(s.root.git(s.root.repo, 'status', '--porcelain').trim()).toBe('');
+    const entry = s.state.timeline(s.chat.id).at(-1);
+    expect(entry?.actor).toBe('user');
+    expect(entry?.data).toMatchObject({
+      op: 'discard',
+      repo: '.',
+      result: 'ok',
+      files: ['a.txt', 'new.txt'],
+    });
+  });
+
+  it('rejects a discard with an invalid file as a 400 and leaves everything as it was', async () => {
+    const s = await setup();
+    writeFileSync(join(s.root.repo, 'a.txt'), 'changed');
+    await expect(s.ops.discard(s.chat.id, '.', ['a.txt', 'nada.txt'])).rejects.toMatchObject({
+      name: 'WorktreeOpsError',
+      status: 400,
+    });
+    expect(s.root.git(s.root.repo, 'status', '--porcelain')).toContain('a.txt');
   });
 
   it('rejects a repo that is not part of the work', async () => {

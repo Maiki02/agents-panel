@@ -34,6 +34,8 @@ export interface MergePhaseDeps {
   scan?: (cwd: string, base: string) => Promise<SecretFinding[]>;
   validate?: (project: ValidateTarget, cwd: string, timeoutMs: number) => Promise<ValidationResult>;
   validateTimeoutMs?: number;
+  push?: MergeDeps['push'];
+  openPr?: MergeDeps['openPr'];
 }
 
 export type MergePhaseOutcome =
@@ -81,6 +83,8 @@ export async function runMergePhase(
       resolveConflicts: (conflicts) => deps.session('merge', deps.conflictPrompt(conflicts)),
       ...(deps.scan ? { scan: deps.scan } : {}),
       ...(deps.validate ? { validate: deps.validate } : {}),
+      ...(deps.push ? { push: deps.push } : {}),
+      ...(deps.openPr ? { openPr: deps.openPr } : {}),
       ...(deps.validateTimeoutMs !== undefined
         ? { validateTimeoutMs: deps.validateTimeoutMs }
         : {}),

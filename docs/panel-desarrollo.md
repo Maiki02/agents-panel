@@ -405,6 +405,39 @@ Recorrido del sprint 1 de `operaciones-worktree`; la pestaña Git de la web lleg
 - Si un pull cambia un lockfile, la respuesta trae `reinstall` con el resultado del setup.
 - Cada operación queda en `GET /api/chats/:id/timeline` con actor `user`.
 
+### Probar Crear PR, cambios, descartar, borrar y los pasos del agente
+
+Sprint `paridad-manual-y-pr`. Mismas reglas: **trabajo de prueba** sobre un repo de prueba con un remoto que no sea el real, túnel abierto, cookie de sesión en un archivo y token CSRF de `GET /api/auth/me` en una variable de la shell (nunca escrito en un archivo del repo ni pegado en docs). Ejemplo, con `$COOKIES` (el archivo de cookies), `$CSRF`, `$ORIGIN` (el `PANEL_ORIGIN`) y `$ID` (el chat de prueba):
+
+```bash
+# Ver cambios sin commitear de la raíz (solo lectura; "base" compara contra la rama base)
+curl -s -b "$COOKIES" "http://localhost:3000/api/chats/$ID/git/diff?repo=.&against=worktree"
+
+# Vista previa de la PR y después crearla (editá título y cuerpo)
+curl -s -b "$COOKIES" "http://localhost:3000/api/chats/$ID/git/pr"
+curl -s -b "$COOKIES" -H "X-CSRF-Token: $CSRF" -H "Origin: $ORIGIN" -H "Content-Type: application/json" \
+  -d '{"repos":[{"repo":".","title":"feat(demo): prueba","body":"- cambio de prueba"}]}' \
+  "http://localhost:3000/api/chats/$ID/git/pr"
+
+# Descartar un archivo
+curl -s -b "$COOKIES" -H "X-CSRF-Token: $CSRF" -H "Origin: $ORIGIN" -H "Content-Type: application/json" \
+  -d '{"repo":".","files":["README.md"]}' "http://localhost:3000/api/chats/$ID/git/discard"
+
+# Pedir un paso del agente (plan, execute, qa, fix, close, merge_dev o complete)
+curl -s -b "$COOKIES" -H "X-CSRF-Token: $CSRF" -H "Origin: $ORIGIN" -H "Content-Type: application/json" \
+  -d '{"step":"plan"}' "http://localhost:3000/api/chats/$ID/steps"
+
+# Borrar: primero qué se perdería, después el borrado (deleteRemote true borra también las ramas de origin)
+curl -s -b "$COOKIES" "http://localhost:3000/api/chats/$ID/work/delete-preview"
+curl -s -b "$COOKIES" -H "X-CSRF-Token: $CSRF" -H "Origin: $ORIGIN" -H "Content-Type: application/json" \
+  -d '{"deleteRemote":false}' "http://localhost:3000/api/chats/$ID/work/delete"
+```
+
+- Qué mirar: la PR de prueba se abre contra la base del repo y repetir la llamada devuelve la misma con `existing: true`; un archivo ignorado (un `.env`) no aparece en el diff y `discard` sobre él da 400; con el piloto en `active` o el agente corriendo, todas dan 409; sin CSRF, 403; sin sesión, 401.
+- Después de borrar, el trabajo queda `archivado`: cualquier `POST` sobre ese chat da 409 («solo lectura») y el Timeline muestra `limpiando` y `archivado` con actor `user`.
+- Con un secreto en los cambios, Crear PR no pushea ni abre nada y el resultado nombra los archivos (no su contenido).
+- El Timeline (`GET /api/chats/:id/timeline`) muestra el actor de cada entrada: `user` para estas llamadas y `pilot` para lo que haga el piloto.
+
 ## Problemas frecuentes
 
 | Síntoma | Causa y arreglo |

@@ -121,6 +121,30 @@ function harness(
 const states = (marks: { state: WorktreeStateId }[]) => marks.map((m) => m.state);
 
 describe('generic merge', () => {
+  it('uses the push and PR hooks of the action service instead of git and gh when given', async () => {
+    const r = repos();
+    const h = harness(r.wt);
+    const calls: string[] = [];
+    const outcome = await runGenericMerge(
+      {
+        ...h.deps,
+        push: () => {
+          calls.push('push');
+          return Promise.resolve();
+        },
+        openPr: (pr) => {
+          calls.push(`pr:${pr.base}:${pr.title}`);
+          return Promise.resolve('https://github.com/o/r/pull/9');
+        },
+      },
+      h.input,
+    );
+    expect(outcome).toEqual({ kind: 'pr', url: 'https://github.com/o/r/pull/9' });
+    expect(calls).toEqual(['push', 'pr:main:feat: demo']);
+    expect(h.created).toEqual([]);
+    expect(r.remoteRef('refs/heads/feature/x')).toBe('');
+  });
+
   it('brings the base in, validates, pushes the branch and opens the PR against the base', async () => {
     const r = repos();
     r.advanceBase('base.txt', 'new in base\n');

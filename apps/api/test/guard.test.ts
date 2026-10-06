@@ -60,16 +60,27 @@ describe('deny-by-default guard', () => {
     app = makeApp().app;
     await app.ready();
     const routes = app.registeredRoutes.filter(
-      (r) => r.url.startsWith('/api/chats/:id/git') || r.url === '/api/chats/:id/setup',
+      (r) =>
+        r.url.startsWith('/api/chats/:id/git') ||
+        r.url.startsWith('/api/chats/:id/work/') ||
+        r.url === '/api/chats/:id/setup' ||
+        r.url === '/api/chats/:id/steps',
     );
     const seen = routes.map((r) => `${r.method} ${r.url}`);
     for (const expected of [
       'GET /api/chats/:id/git',
+      'GET /api/chats/:id/git/diff',
       'POST /api/chats/:id/git/commit',
+      'POST /api/chats/:id/git/discard',
       'POST /api/chats/:id/git/pull-base',
       'POST /api/chats/:id/git/pull-branch',
       'POST /api/chats/:id/git/push',
+      'GET /api/chats/:id/git/pr',
+      'POST /api/chats/:id/git/pr',
+      'GET /api/chats/:id/work/delete-preview',
+      'POST /api/chats/:id/work/delete',
       'POST /api/chats/:id/setup',
+      'POST /api/chats/:id/steps',
     ]) {
       expect(seen).toContain(expected);
     }

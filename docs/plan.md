@@ -138,6 +138,29 @@ Los estados del proyecto son distintos de los estados de un worktree (ver [`esta
 
 Campos confirmados en la VM con Kyro 6.1.0 (05/10/2026, scope `autopiloto-kyro`, T1.2). Las fixtures reales están en `apps/api/test/fixtures/kyro/` (se regeneran con `capture.sh`) y las lee `apps/api/src/kyro/state.ts`; ver el detalle en [`estados.md`](estados.md#campos-reales-de-kyro-confirmados-en-la-vm).
 
+## Servicio de acciones y paridad manual (scope `operaciones-worktree`)
+
+**Decisión D26: lo que hace el piloto también se hace a mano, con el mismo código.** `WorktreeOps` (`apps/api/src/worktrees/ops.ts`) es el único servicio de acciones sobre un trabajo. El piloto (`Autopilot`, por `actions`) y las rutas de la API lo llaman con un **actor** (`user`, `pilot` o `agent`) y cada acción deja su entrada en el Timeline con ese actor (ver [`estados.md`](estados.md#operaciones-manuales-git-por-trabajo)).
+
+- **Guardas por actor.** Las del actor `user`: se rechaza con 409 si el agente corre, hay mantenimiento de Kyro o el piloto está en `active`, `queued` o `waiting_quota`; para operar a mano se pausa el piloto. El piloto no pasa por esas guardas (es quien corre). El candado por chat (una operación a la vez, 409) vale para todos. Un trabajo `archivado` rechaza todo lo que escribe con 409.
+- **Catálogo con su test.** `PARITY_CATALOG` (`packages/shared`) lista cada acción: id, quién la hace sola (`pilot` o nada), de qué tipo es (paso del agente o determinista) y su acceso manual (ruta o paso). `apps/api/test/parity-catalog.test.ts` falla si una acción del piloto no tiene acceso manual, si una ruta del catálogo no está registrada, si un paso del piloto o una llamada suya al servicio (`actions.<método>`) no está catalogada, y comprueba que el mismo push deja `pilot` y `user` en el Timeline. Sumar una fila nueva al piloto obliga a sumar su botón. Reparar Kyro queda como acción manual sin ruta.
+
+**Rutas nuevas del sprint `paridad-manual-y-pr`.** Todas piden sesión; las `POST` piden además CSRF y `Origin`. Ninguna está en la allowlist pública. Errores comunes: 404 trabajo o repo que no existe, 400 entrada inválida (`repo` es `.` o una carpeta de primer nivel, nunca absoluto ni con `..`), 409 guarda del actor `user` o trabajo archivado, 422 git o `gh` rechazó.
+
+| Ruta | Para qué | Guarda |
+| --- | --- | --- |
+| `POST /api/chats/:id/steps` `{ "step" }` | Pasos del agente: `plan`, `execute`, `qa`, `fix`, `close`, `merge_dev` (lanzan una sesión nueva con el mismo prompt y rol que usa el piloto) y `complete` (verbo de Kyro más commit de `.agents/kyro`) | Guardas de `user`; solo scope o work; `qa` solo en scope y corre `kyro analyze`; `merge_dev` exige `.claude/skills/merge-dev/SKILL.md`; deja «Paso pedido» en el Timeline |
+| `GET /api/chats/:id/git/pr` | Vista previa de Crear PR: por repo con commits fuera de su base, su PR abierta si hay, título `feat(<slug>): <título>` y cuerpo desde los commits | Solo lectura; corre aunque el agente trabaje |
+| `POST /api/chats/:id/git/pr` `{ "repos": [{ "repo", "title", "body" }] }` | Crear PR por repo: trae la base (un conflicto se aborta y se lista), busca secretos, pushea la rama sin `--force` y abre la PR hacia la base del repo o devuelve la ya abierta (el push la actualiza); sin validación (D25) | Guardas de `user`; los secretos frenan antes del push; resultado y link por repo en el Timeline |
+| `GET /api/chats/:id/git/diff?repo&against=worktree\|base&file` | Ver cambios (D27): parches por repo, cortados por archivo (con `file` se trae uno entero, «ver más») | Solo lectura; nunca muestra archivos ignorados (los `.env`); `file` inválido o ignorado da 400 |
+| `POST /api/chats/:id/git/discard` `{ "repo", "files" }` | Descartar los cambios de archivos elegidos (D28) | Guardas de `user`; rechaza con 400 rutas absolutas, con `..`, ignoradas o sin cambios y no toca nada |
+| `GET /api/chats/:id/work/delete-preview` | Qué se perdería al borrar: por repo, rama, si existe en origin, commits sin pushear y archivos sin commitear | Solo lectura |
+| `POST /api/chats/:id/work/delete` `{ "deleteRemote" }` | Borrar trabajo (D28): worktree y ramas locales; las remotas solo con `deleteRemote: true`; nunca la base | Guardas de `user`; apaga el piloto antes de tocar nada; pasa por `limpiando` a `archivado`; si falla a mitad queda en `revisar` con lo hecho |
+
+- **Correr merge-dev.** En un proyecto con la skill `merge-dev`, el botón principal es el paso `merge_dev` (lanza al agente con la skill, que hace los pasos propios del proyecto: versión y merge de la raíz). Crear PR es el camino genérico para el resto.
+- **Rutas que ya existían y quedaron en el catálogo.** `git`, `git/commit`, `git/pull-base`, `git/pull-branch`, `git/push`, `setup`, `idea` (aprobar la idea y crear el scope) y `messages` (resolver los conflictos del merge pidiéndoselo al agente).
+- **Actor en el servicio.** Los métodos que usa el piloto (`pushBranch`, `commitKyro`, `openPr`) y los manuales reciben el actor y lo copian al Timeline y a las transiciones.
+
 ## Arquitectura
 
 ```mermaid

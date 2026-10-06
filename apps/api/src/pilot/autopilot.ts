@@ -27,6 +27,8 @@ import {
 import { POLICY_VERSION } from './policy.js';
 import { APPROVED_VERDICTS, readQaVerdict } from './qa-report.js';
 import {
+  afterAnalyze,
+  stepRole,
   buildInitPrompt,
   buildMergeDevPrompt,
   buildMergePrompt,
@@ -35,6 +37,7 @@ import {
   type CapabilityReader,
   type PromptStep,
 } from './prompts.js';
+import { WorktreeOps, type PilotActions } from '../worktrees/ops.js';
 import { realGit, type MergeGit, type PilotGit } from './git-ops.js';
 import { realGh, type PilotGh } from './github-cli.js';
 import { runMergePhase, type MergePhaseOutcome } from './merge-phase.js';
@@ -72,6 +75,8 @@ export interface AutopilotDeps {
   git?: PilotGit & MergeGit;
   /** `gh` for the PRs of the merge phase; the real one by default. */
   gh?: PilotGh;
+  /** The action service (D26) that the pilot's push, commit of Kyro and PR go through, as actor `pilot`. */
+  actions?: PilotActions;
   /** Base branch and validate command of the chat's project (R14, the push and merge checks). */
   projectOf?: (chat: Chat) => { baseBranch: string; validateCommand: string | null } | undefined;
   /** Secrets scan of a worktree; the real one by default, replaced by tests. */
@@ -107,8 +112,6 @@ interface AfterClose {
   baseBefore: string | null;
   fromSeq: number;
 }
-
-const BLOCKING_SEVERITIES = new Set(['CRITICAL', 'HIGH']);
 
 const text = (value: unknown): string => (typeof value === 'string' ? value : '');
 
@@ -163,6 +166,7 @@ export function hitUsageLimit(events: ChatEvent[]): boolean {
  */
 export class Autopilot {
   private readonly loops = new Map<number, Promise<void>>();
+  private readonly actions: PilotActions;
   /** Steps interrupted by a restart, to reopen in their SDK session on the next pass of the loop. */
   private readonly pendingResume = new Map<number, PendingResume>();
   private readonly max: number;
@@ -170,6 +174,13 @@ export class Autopilot {
   private readonly schedule: (fn: () => void, ms: number) => void;
 
   constructor(private readonly deps: AutopilotDeps) {
+    this.actions =
+      deps.actions ??
+      WorktreeOps.forPilot({
+        chats: deps.chats,
+        ...(deps.git ? { git: deps.git } : {}),
+        ...(deps.gh ? { gh: deps.gh } : {}),
+      });
     this.max = deps.maxSessionsPerSprint ?? DEFAULT_MAX_SESSIONS_PER_SPRINT;
     this.now = deps.now ?? Date.now;
     this.schedule =
@@ -346,9 +357,9 @@ export class Autopilot {
           });
           return;
         }
-        const blocking = analysis.state.filter((f) => BLOCKING_SEVERITIES.has(f.severity));
-        step = blocking.length > 0 ? 'fix' : 'close';
-        findings = blocking.map((f) => `${f.severity} ${f.id} (${f.category}): ${f.detail}`);
+        const next = afterAnalyze(analysis.state);
+        step = next.step;
+        findings = next.findings;
       } else if (decision.kind === 'session') {
         step = decision.step;
       } else {
@@ -364,7 +375,7 @@ export class Autopilot {
         });
         return;
       }
-      const role = step === 'plan' ? 'thinker' : 'executor';
+      const role = stepRole(step);
       const prompt = buildStepPrompt(step, { task: task.state, findings });
       const sprintN = state.kind === 'scope' ? state.sprint.current : null;
       const fromSeq = chats.lastSeq(chatId);
@@ -462,8 +473,8 @@ export class Autopilot {
   /** `git push -u origin <branch>` of the chat's branch; a failure stops with `git` and the output. */
   private async push(chat: Chat): Promise<boolean> {
     try {
-      await (this.deps.git ?? realGit).push(chat.worktreePath, chat.branch);
-      this.deps.chats.appendEvent(chat.id, 'git_push', { branch: chat.branch, remote: 'origin' });
+      const outcome = await this.actions.pushBranch(chat.id, 'pilot');
+      if (outcome.result !== 'ok') throw new Error(outcome.output);
       return true;
     } catch (error) {
       this.stop(chat, {
@@ -537,6 +548,15 @@ export class Autopilot {
         },
         record: (type, payload) => {
           chats.appendEvent(chat.id, type, payload);
+        },
+        push: async () => {
+          const outcome = await this.actions.pushBranch(chat.id, 'pilot');
+          if (outcome.result !== 'ok') throw new Error(outcome.output);
+        },
+        openPr: async (draft) => {
+          const outcome = await this.actions.openPr(chat.id, draft, 'pilot');
+          if (outcome.result !== 'ok') throw new Error(outcome.output);
+          return outcome.output;
         },
         session: (step, prompt) => this.mergeSession(chat, step, prompt),
         conflictPrompt: (conflicts) =>
@@ -643,7 +663,8 @@ export class Autopilot {
         ? `chore(kyro): completar scope ${state.scope}`
         : `chore(kyro): cerrar work ${state.work}`;
     try {
-      await (this.deps.git ?? realGit).commitKyro(chat.worktreePath, message);
+      const outcome = await this.actions.commitKyro(chat.id, message, 'pilot');
+      if (outcome.result !== 'ok') throw new Error(outcome.output);
       return await this.push(chat);
     } catch (error) {
       this.stop(chat, {

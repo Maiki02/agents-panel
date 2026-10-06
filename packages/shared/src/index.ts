@@ -633,7 +633,350 @@ export interface GitCommitRequest {
   message: string;
 }
 
+export interface GitDiscardRequest {
+  /** Relative path of a repo of the work ('.' for the root). */
+  repo: string;
+  files: string[];
+}
+
+/** What deleting the work would lose in one repo (D28). */
+export interface DeleteRepoPreview {
+  path: string;
+  /** The work's own branch in this repo; null when the repo sits on its base (nothing to delete). */
+  branch: string | null;
+  /** True when origin has that branch. */
+  remoteExists: boolean;
+  /** Commits of the branch that are in no remote branch of origin. */
+  unpushedCommits: number;
+  /** Paths with changes that are not committed (ignored files never show). */
+  uncommittedFiles: string[];
+  /** Why this repo could not be read; the deletion would not touch it blindly. */
+  error: string | null;
+}
+
+export interface DeletePreview {
+  chatId: number;
+  worktreePath: string;
+  repos: DeleteRepoPreview[];
+}
+
+export interface DeleteWorkRequest {
+  /** Also deletes the work's branches in origin (never the base). */
+  deleteRemote: boolean;
+}
+
+export interface DeleteWorkOutcome {
+  chatId: number;
+  state: 'archivado';
+  /** What was done, in order: one line per removed worktree or branch. */
+  steps: string[];
+}
+
+/** A repo of the work that has commits outside its base: a candidate for a PR (D25). */
+export interface PrRepoPreview {
+  path: string;
+  baseBranch: string;
+  branch: string;
+  /** Commits of the branch that are not in `origin/<base>`. */
+  commits: number;
+  /** URL of the PR already open from this branch into the base, or null. */
+  openPrUrl: string | null;
+  /** Conventional Commits title, prefilled and editable. */
+  title: string;
+  /** Body prefilled from `git log <base>..HEAD --no-merges`, editable. */
+  body: string;
+}
+
+export interface PrPreview {
+  chatId: number;
+  /** True when the project ships its own merge-dev skill (the main button is then Run merge-dev). */
+  hasMergeDev: boolean;
+  repos: PrRepoPreview[];
+}
+
+export interface CreatePrRepoRequest {
+  repo: string;
+  title: string;
+  body: string;
+}
+
+export interface CreatePrRequest {
+  repos: CreatePrRepoRequest[];
+}
+
+/** Outcome of the PR of one repo; `output` is the git/gh output or the reason it stopped. */
+export interface PrRepoOutcome extends RepoOpOutcome {
+  /** The PR (new or the one already open) when there is one. */
+  url?: string;
+  /** True when the PR already existed and the push only updated it. */
+  existing?: boolean;
+  /** Files with secrets that stopped the push and the PR. */
+  secrets?: string[];
+}
+
+export interface CreatePrOutcome {
+  repos: PrRepoOutcome[];
+}
+
+/** Steps of the agent (and the completion) a person can ask for by hand (D26). */
+export const MANUAL_STEPS = [
+  'plan',
+  'execute',
+  'qa',
+  'fix',
+  'close',
+  'merge_dev',
+  'complete',
+] as const;
+export type ManualStep = (typeof MANUAL_STEPS)[number];
+
+export interface StepRequest {
+  step: ManualStep;
+}
+
+export interface StepOutcome {
+  step: ManualStep;
+  /** The agent step that was launched; `qa` resolves to `fix` or `close`, `complete` launches none. */
+  launched: 'plan' | 'execute' | 'fix' | 'close' | 'merge_dev' | null;
+  /** Blocking findings of `kyro analyze` (qa only). */
+  findings?: string[];
+  /** Result of the Kyro verb and the commit (complete only). */
+  output?: string;
+}
+
+/** What a diff compares: the uncommitted changes, or the work's commits against the repo base. */
+export type DiffAgainst = 'worktree' | 'base';
+
+export type DiffFileStatus = 'added' | 'modified' | 'deleted' | 'untracked';
+
+/** One changed file of a diff (never an ignored one). */
+export interface DiffFile {
+  path: string;
+  status: DiffFileStatus;
+  additions: number;
+  deletions: number;
+  binary: boolean;
+  /** Unified patch, cut at the limit; empty for a binary file. */
+  patch: string;
+  /** True when the patch was cut: ask for the file alone to see more. */
+  truncated: boolean;
+}
+
+/** Read-only diff of one repo of the work (D27). */
+export interface RepoDiff {
+  repo: string;
+  against: DiffAgainst;
+  /** Base branch of the repo (the comparison point of `against: base`). */
+  baseBranch: string;
+  files: DiffFile[];
+  /** True when more files changed than the diff lists. */
+  moreFiles: boolean;
+}
+
 /** Pull and push: without `repo` they run on every repo of the work. */
 export interface GitRepoRequest {
   repo?: string;
 }
+
+/** How a person asks for an action by hand: a route of the API, or a step of the agent. */
+export type ManualAccess =
+  { type: 'route'; method: 'GET' | 'POST'; path: string } | { type: 'step'; step: ManualStep };
+
+/**
+ * One action of the parity catalog (D26): what the pilot does by itself and the way to do the same by
+ * hand. `pilotStep` is the name of the pilot's step (an `AutopilotStep`, `qa` or `complete`) and
+ * `service` the method of the action service the pilot calls; both are set only for what the pilot
+ * runs, and such an action must have a `manual` access.
+ */
+export interface ParityAction {
+  id: string;
+  label: string;
+  /** Who does it in automatic mode: the pilot, or nobody (manual only). */
+  automatic: 'pilot' | null;
+  /** A deterministic action of the panel, or a step that needs the agent to reason. */
+  kind: 'deterministic' | 'agent_step';
+  pilotStep?: string;
+  service?: string;
+  /** The way to do it by hand; null only for an action the pilot never does by itself. */
+  manual: ManualAccess | null;
+  /** Why an action has no manual access yet. */
+  note?: string;
+}
+
+const route = (method: 'GET' | 'POST', path: string): ManualAccess => ({
+  type: 'route',
+  method,
+  path,
+});
+const step = (name: ManualStep): ManualAccess => ({ type: 'step', step: name });
+
+/** Every action of the panel's flow with the pilot and its manual counterpart (D26). */
+export const PARITY_CATALOG: readonly ParityAction[] = [
+  {
+    id: 'init',
+    label: 'Crear el scope de la idea aprobada',
+    automatic: 'pilot',
+    kind: 'agent_step',
+    pilotStep: 'init',
+    manual: route('POST', '/api/chats/:id/idea'),
+  },
+  {
+    id: 'plan',
+    label: 'Planificar el sprint',
+    automatic: 'pilot',
+    kind: 'agent_step',
+    pilotStep: 'plan',
+    manual: step('plan'),
+  },
+  {
+    id: 'execute',
+    label: 'Ejecutar las tareas',
+    automatic: 'pilot',
+    kind: 'agent_step',
+    pilotStep: 'execute',
+    manual: step('execute'),
+  },
+  {
+    id: 'qa',
+    label: 'Correr el QA (kyro analyze)',
+    automatic: 'pilot',
+    kind: 'agent_step',
+    pilotStep: 'qa',
+    manual: step('qa'),
+  },
+  {
+    id: 'fix',
+    label: 'Corregir lo que marcó el QA',
+    automatic: 'pilot',
+    kind: 'agent_step',
+    pilotStep: 'fix',
+    manual: step('fix'),
+  },
+  {
+    id: 'close',
+    label: 'Cerrar el sprint',
+    automatic: 'pilot',
+    kind: 'agent_step',
+    pilotStep: 'close',
+    manual: step('close'),
+  },
+  {
+    id: 'complete',
+    label: 'Completar el scope o cerrar el work',
+    automatic: 'pilot',
+    kind: 'deterministic',
+    pilotStep: 'complete',
+    manual: step('complete'),
+  },
+  {
+    id: 'commit_kyro',
+    label: 'Commitear lo que escribió Kyro',
+    automatic: 'pilot',
+    kind: 'deterministic',
+    service: 'commitKyro',
+    manual: step('complete'),
+  },
+  {
+    id: 'push',
+    label: 'Pushear la rama del trabajo',
+    automatic: 'pilot',
+    kind: 'deterministic',
+    service: 'pushBranch',
+    manual: route('POST', '/api/chats/:id/git/push'),
+  },
+  {
+    id: 'merge',
+    label: 'Resolver los conflictos del merge con la base',
+    automatic: 'pilot',
+    kind: 'agent_step',
+    pilotStep: 'merge',
+    manual: route('POST', '/api/chats/:id/messages'),
+  },
+  {
+    id: 'merge_dev',
+    label: 'Correr merge-dev',
+    automatic: 'pilot',
+    kind: 'agent_step',
+    pilotStep: 'merge_dev',
+    manual: step('merge_dev'),
+  },
+  {
+    id: 'open_pr',
+    label: 'Abrir la PR',
+    automatic: 'pilot',
+    kind: 'deterministic',
+    service: 'openPr',
+    manual: route('POST', '/api/chats/:id/git/pr'),
+  },
+  {
+    id: 'status',
+    label: 'Ver el estado de cada repo',
+    automatic: null,
+    kind: 'deterministic',
+    manual: route('GET', '/api/chats/:id/git'),
+  },
+  {
+    id: 'diff',
+    label: 'Ver los cambios',
+    automatic: null,
+    kind: 'deterministic',
+    manual: route('GET', '/api/chats/:id/git/diff'),
+  },
+  {
+    id: 'commit',
+    label: 'Commitear archivos elegidos',
+    automatic: null,
+    kind: 'deterministic',
+    manual: route('POST', '/api/chats/:id/git/commit'),
+  },
+  {
+    id: 'discard',
+    label: 'Descartar cambios',
+    automatic: null,
+    kind: 'deterministic',
+    manual: route('POST', '/api/chats/:id/git/discard'),
+  },
+  {
+    id: 'pull_base',
+    label: 'Traer la rama base',
+    automatic: null,
+    kind: 'deterministic',
+    manual: route('POST', '/api/chats/:id/git/pull-base'),
+  },
+  {
+    id: 'pull_branch',
+    label: 'Traer mi rama',
+    automatic: null,
+    kind: 'deterministic',
+    manual: route('POST', '/api/chats/:id/git/pull-branch'),
+  },
+  {
+    id: 'reinstall',
+    label: 'Reinstalar dependencias',
+    automatic: null,
+    kind: 'deterministic',
+    manual: route('POST', '/api/chats/:id/setup'),
+  },
+  {
+    id: 'create_pr',
+    label: 'Crear PR por repo',
+    automatic: null,
+    kind: 'deterministic',
+    manual: route('POST', '/api/chats/:id/git/pr'),
+  },
+  {
+    id: 'delete_work',
+    label: 'Borrar el trabajo',
+    automatic: null,
+    kind: 'deterministic',
+    manual: route('POST', '/api/chats/:id/work/delete'),
+  },
+  {
+    id: 'repair_kyro',
+    label: 'Reparar el estado de Kyro',
+    automatic: null,
+    kind: 'agent_step',
+    manual: null,
+    note: 'Manual y sin ruta todavía: el piloto nunca lo hace solo.',
+  },
+];
