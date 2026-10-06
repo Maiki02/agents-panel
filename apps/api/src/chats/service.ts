@@ -11,6 +11,7 @@ import {
 import type { EnvFileRepository } from '../env-files/repo.js';
 import { EnvFileError } from '../env-files/validate.js';
 import { writeEnvFiles } from '../env-files/write.js';
+import { workToolingHints } from '../pilot/prompts.js';
 import type { WorktreeStateTracker } from '../worktrees/state-tracker.js';
 import { InvalidModelError, validateModels, type ProjectRepository } from '../projects/repo.js';
 import {
@@ -59,6 +60,7 @@ export function buildInitialPrompt(kind: ChatKind, request: string, home = homed
   return [
     `Run the Kyro flow equivalent to \`${command}\` for the request below.`,
     `Read ${skillPath} first and follow it exactly.`,
+    ...(kind === 'work' ? ['', ...workToolingHints(home)] : []),
     '',
     `Request: ${request}`,
   ].join('\n');

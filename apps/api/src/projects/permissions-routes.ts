@@ -7,6 +7,7 @@ import {
   PIPE_FILTERS,
   PermissionConfigError,
   READ_COMMANDS,
+  VALIDATED_COMMANDS,
   validateProjectPermissions,
 } from '../agent/permissions.js';
 import type { ReauthVerifier } from '../auth/reauth.js';
@@ -44,7 +45,7 @@ export function registerPermissionRoutes(app: FastifyInstance, deps: PermissionR
     if (!project) throw new ProjectNotFoundError(`Project not found: ${String(id)}`);
     const extras = projects.getBashExtras(id);
     return {
-      base: [...ALLOWED_BASH_COMMANDS, ...READ_COMMANDS, ...PIPE_FILTERS],
+      base: [...ALLOWED_BASH_COMMANDS, ...READ_COMMANDS, ...VALIDATED_COMMANDS, ...PIPE_FILTERS],
       curlBaseHosts: [...CURL_BASE_HOSTS],
       commands: [...extras.commands],
       hosts: [...extras.hosts],

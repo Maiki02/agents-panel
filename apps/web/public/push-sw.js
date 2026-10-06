@@ -9,9 +9,23 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(self.clients.claim());
 });
 
-/** Only a path inside the panel is opened: anything else falls back to the home. */
+/** True for a backslash or a control character (code under 32): neither belongs in a panel path. */
+function hasBackslashOrControl(value) {
+  for (let i = 0; i < value.length; i++) {
+    if (value[i] === '\\' || value.charCodeAt(i) < 32) return true;
+  }
+  return false;
+}
+
+/**
+ * Only a path inside the panel is opened: anything else falls back to the home. A backslash is out
+ * too: URL parsing reads `/\host` as `//host`, which would leave the panel.
+ */
 function panelPath(value) {
-  return typeof value === 'string' && value.startsWith('/') && !value.startsWith('//')
+  return typeof value === 'string' &&
+    value.startsWith('/') &&
+    !value.startsWith('//') &&
+    !hasBackslashOrControl(value)
     ? value
     : '/';
 }

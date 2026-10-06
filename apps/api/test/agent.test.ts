@@ -523,7 +523,7 @@ describe('permission policy', () => {
     expect(bash('cat ~/.ssh/id_ed25519')).toBe('deny');
     expect(bash('cat $HOME/.env')).toBe('deny');
     expect(bash('cat *')).toBe('deny');
-    expect(bash('ls src; rm -rf src')).toBe('deny');
+    expect(bash('ls src; rm -rf ../src')).toBe('deny');
     expect(bash('cat README.md > out.txt')).toBe('deny');
     expect(bash('find . -delete')).toBe('deny');
   });

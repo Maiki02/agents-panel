@@ -45,6 +45,9 @@ export function toInfo(stored: StoredPushSubscription): PushSubscriptionInfo {
   };
 }
 
+/** Devices (browsers, phones) one user may have subscribed at the same time. */
+export const MAX_SUBSCRIPTIONS_PER_USER = 10;
+
 /** Browsers and phones that receive notifications, per user. */
 export class PushSubscriptionRepository {
   constructor(
@@ -58,6 +61,22 @@ export class PushSubscriptionRepository {
         .prepare('SELECT * FROM push_subscriptions WHERE user_id = ? ORDER BY id')
         .all(userId) as unknown as Row[]
     ).map(toStored);
+  }
+
+  /** True when this user already has a subscription for the endpoint (re-subscribing is free). */
+  hasEndpoint(userId: number, endpoint: string): boolean {
+    return (
+      this.db
+        .prepare('SELECT 1 AS found FROM push_subscriptions WHERE user_id = ? AND endpoint = ?')
+        .get(userId, endpoint) !== undefined
+    );
+  }
+
+  count(userId: number): number {
+    const row = this.db
+      .prepare('SELECT COUNT(*) AS total FROM push_subscriptions WHERE user_id = ?')
+      .get(userId) as { total: number };
+    return row.total;
   }
 
   listAll(): StoredPushSubscription[] {

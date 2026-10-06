@@ -5,6 +5,23 @@ import type { KyroTaskContext } from '../kyro/state.js';
 import type { PilotDecision } from './decide.js';
 import { buildPolicy, type PolicyStep } from './policy.js';
 
+/**
+ * How a Work session reaches Kyro without hitting the tool policy. In the sprint 5 run the agent
+ * got 8 denials: `cat`/`ls`/`find`/`which`/`od` and `~` or `$()` in Bash, reads of the Kyro docs
+ * outside ~/.agents, and brief/evidence files written to /tmp or to .agents/briefs. The policy is
+ * not loosened: the text points at what is allowed.
+ */
+export function workToolingHints(home: string): string[] {
+  const runtime = join(home, '.agents', 'kyro', 'current');
+  return [
+    'Working in this worktree (the panel denies anything else):',
+    `- The Kyro command guide is ${join(runtime, 'commands', 'work.md')} (the skill stub says "~/.agents/kyro/current/commands/work.md": that is this absolute path). Read it, and the files it points at under ${runtime}, with the Read tool and absolute paths. Do not use "~", "$()", variables or globs, and do not use ls, find, which or od in Bash.`,
+    '- Run "kyro work --help" for the verbs. "kyro work create --id <slug> --from <brief.md>" creates the Work; the proposal goes in with "kyro work plan --work <slug> --from <proposal.json> --expect-revision <n>"; evidence and review with "kyro work record-evidence" and "kyro work review", each with --from <json>.',
+    '- Write the input files (brief, proposal.json, evidence.json, review.json) only inside the worktree, under .agents/kyro/inputs/. Never write to /tmp or to any other folder outside .agents/kyro.',
+    '- When a verb has consumed an input file, remove it with "git clean -f <path>" (untracked) so no working file stays in the pull request. Nothing outside .agents/kyro and the files of the task itself may remain.',
+  ];
+}
+
 /** The sessions the pilot opens: the plan, the execution, a fix after analyze, and the closing. */
 export type PromptStep = 'plan' | 'execute' | 'fix' | 'close';
 
@@ -81,6 +98,7 @@ export function buildStepPrompt(step: PromptStep, ctx: StepPromptContext): strin
     );
   }
   lines.push(`Next action: ${task.nextAction}`);
+  if (task.kind === 'work') lines.push('', ...workToolingHints(home));
   if (task.taskId !== null) {
     lines.push(
       '',

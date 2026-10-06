@@ -1,4 +1,4 @@
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { Session, SessionService } from './sessions.js';
 import { SESSION_COOKIE } from './sessions.js';
 
@@ -25,7 +25,12 @@ export interface RegisteredRoute {
  * Deny-by-default: every request, including unknown paths, needs a valid session
  * unless the matched route sets config.public = true.
  */
-export function registerGuard(app: FastifyInstance, sessions: SessionService): void {
+export function registerGuard(
+  app: FastifyInstance,
+  sessions: SessionService,
+  /** Requests answered by the compiled web (static files), which need no session. */
+  isWebRequest: (request: FastifyRequest) => boolean = () => false,
+): void {
   app.decorate('registeredRoutes', []);
   app.decorateRequest('session', null);
 
@@ -42,6 +47,8 @@ export function registerGuard(app: FastifyInstance, sessions: SessionService): v
     const cookies = app.parseCookie(request.headers.cookie ?? '');
     request.session = sessions.validate(cookies[SESSION_COOKIE]) ?? null;
     if (request.routeOptions.config.public === true) return;
+    // The web files are public (as with ng serve); only a request no route matched can be one.
+    if (request.is404 && isWebRequest(request)) return;
     if (!request.session) {
       return reply.code(401).send({ error: 'unauthorized' });
     }

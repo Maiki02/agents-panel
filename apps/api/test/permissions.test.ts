@@ -1,4 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, describe, expect, it } from 'vitest';
 import {
   ALLOWED_TOOLS,
   COMMAND_RUNNERS,
@@ -125,7 +128,7 @@ describe('project Bash commands', () => {
   it('allows a configured command and denies it without the configuration', () => {
     expect(verdict('uv run pytest', extras({ commands: ['uv'] }))).toBe('allow');
     expect(verdict('uv run pytest')).toBe('deny');
-    expect(verdict('uv run pytest && rm -rf x', extras({ commands: ['uv'] }))).toBe('deny');
+    expect(verdict('uv run pytest && rm -rf /x', extras({ commands: ['uv'] }))).toBe('deny');
   });
 
   it('keeps the base unchanged', () => {
@@ -311,5 +314,117 @@ describe('arguments of the base commands that run other commands', () => {
   it('applies the rules to every stage of a chain', () => {
     expect(verdict('git status && npm exec sudo')).toBe('deny');
     expect(verdict('git status | head -3')).toBe('allow');
+  });
+});
+
+describe('rm with a validated path (debt-5)', () => {
+  const dirs: string[] = [];
+  afterEach(() => {
+    for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+  });
+
+  function worktree() {
+    const base = mkdtempSync(join(tmpdir(), 'panel-rm-'));
+    dirs.push(base);
+    const wt = join(base, 'wt');
+    const outside = join(base, 'outside');
+    mkdirSync(join(wt, 'carpeta'), { recursive: true });
+    mkdirSync(join(wt, '.git', 'hooks'), { recursive: true });
+    mkdirSync(outside);
+    writeFileSync(join(outside, 'x'), 'x');
+    symlinkSync(outside, join(wt, 'link-afuera'));
+    return { wt, outside };
+  }
+  const run = (wt: string, command: string) => checkBash(command, wt).behavior;
+
+  it('allows files, several operands and folders inside the worktree', () => {
+    const { wt } = worktree();
+    for (const command of [
+      'rm archivo.txt',
+      'rm -f a b',
+      'rm -r carpeta/',
+      'rm -rf carpeta',
+      'rm -R carpeta',
+      'rm -fr carpeta',
+      'rm -- -raro.txt',
+      `rm ${wt}/archivo.txt`,
+      'rm link-afuera',
+      'git status && rm a.txt',
+    ]) {
+      expect(run(wt, command), command).toBe('allow');
+    }
+  });
+
+  it('denies the worktree root, .git, ~, / and anything outside', () => {
+    const { wt, outside } = worktree();
+    for (const command of [
+      'rm -rf ~',
+      'rm -rf /',
+      'rm ../x',
+      'rm -r .',
+      'rm -r ./',
+      'rm -r carpeta/..',
+      `rm -r ${wt}`,
+      'rm -r .git',
+      'rm -r .git/hooks',
+      'rm .git/config',
+      'rm $HOME/x',
+      'rm *',
+      'rm carpeta/*',
+      'rm {a,b}',
+      `rm ${outside}/x`,
+      'rm link-afuera/x',
+      'rm -r link-afuera/',
+      'rm link-afuera/../x',
+      'rm --no-preserve-root /',
+      'rm --recursive carpeta',
+      'rm -i a',
+      'rm -d carpeta',
+      'rm',
+      'rm -rf',
+      'rm "a/../../x"',
+      "rm 'a'/x",
+      'cd / && rm etc/x',
+      'cd .. ; rm x',
+      'rm a $(echo b)',
+      'rm a > /dev/null && rm /etc/x',
+    ]) {
+      expect(run(wt, command), command).toBe('deny');
+    }
+  });
+
+  it('denies rm hidden behind a wrapper', () => {
+    const { wt } = worktree();
+    for (const command of [
+      'env rm x',
+      'xargs rm',
+      'nohup rm x',
+      'timeout 1 rm x',
+      "sh -c 'rm x'",
+      'bash -c "rm x"',
+      'echo x | xargs rm',
+      '/bin/rm x',
+    ]) {
+      expect(run(wt, command), command).toBe('deny');
+    }
+  });
+
+  it('still allows npm test, git push and go test, and a project cannot add rm', () => {
+    const { wt } = worktree();
+    for (const command of [
+      'npm test',
+      'git push origin feat',
+      'go test ./...',
+      'rm a && npm test',
+    ]) {
+      expect(run(wt, command), command).toBe('allow');
+    }
+    expect(() => validateProjectPermissions({ commands: ['rm'], hosts: [] })).toThrow(
+      PermissionConfigError,
+    );
+    // Without a worktree there is nothing to validate against.
+    expect(checkBash('rm x').behavior).toBe('deny');
+    expect(checkBash('rm x', wt, extras({ commands: ['rm'] })).behavior).toBe('allow');
+    expect(checkBash('rm /etc/x', wt, extras({ commands: ['rm'] })).behavior).toBe('deny');
   });
 });

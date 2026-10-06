@@ -60,10 +60,15 @@ import { PullService } from './projects/pull.js';
 import { registerPullRoutes } from './projects/pull-routes.js';
 import { registerProjectRoutes } from './projects/routes.js';
 import { UserRepository } from './auth/users.js';
+import { hasWebBuild, isWebRequest, registerWebStatic } from './web-static.js';
 import type { Config } from './config.js';
+import { AppFlags } from './db/flags.js';
 import type { Db } from './db/index.js';
 
 export const APP_VERSION = '0.0.0';
+
+/** app_flags marker: the one-time `question_cancelled` event backfill already ran. */
+const CANCELLED_EVENTS_BACKFILL = 'question_cancelled_backfill';
 
 /**
  * Logger options shared by main.ts and the tests. A .env body must never reach the logs,
@@ -131,7 +136,8 @@ export function buildApp(deps: AppDeps, options: FastifyServerOptions = {}): Fas
   void app.register(rateLimit, { global: false });
   registerHeaders(app);
   registerOriginCheck(app, deps.config.allowedOrigins);
-  registerGuard(app, sessions);
+  const serveWeb = hasWebBuild(deps.config.webDir);
+  registerGuard(app, sessions, (request) => serveWeb && isWebRequest(request));
   registerCsrfCheck(app);
 
   // Public allowlist (documented in docs/plan.md): health check and the login steps.
@@ -191,18 +197,23 @@ export function buildApp(deps: AppDeps, options: FastifyServerOptions = {}): Fas
     chats.appendEvent(question.chatId, 'question_cancelled', { questionId: question.id });
   }
   questions.cancelAllPending();
-  // Questions cancelled by an older version left no event: give them one, once, so no chat keeps
-  // showing an answer card for a question that can never be answered.
-  for (const question of questions.listCancelled()) {
-    const hasEvent = chats
-      .allEventsAfter(question.chatId, 0)
-      .some(
-        (event) =>
-          event.type === 'question_cancelled' &&
-          (event.payload as { questionId?: unknown }).questionId === question.id,
-      );
-    if (!hasEvent)
-      chats.appendEvent(question.chatId, 'question_cancelled', { questionId: question.id });
+  // Questions cancelled by an older version left no event: give them one, once (a marker keeps the
+  // startup from walking every event of every cancelled question again), so no chat keeps showing
+  // an answer card for a question that can never be answered. Newer versions always leave the event.
+  const flags = new AppFlags(deps.db, now);
+  if (!flags.isSet(CANCELLED_EVENTS_BACKFILL)) {
+    for (const question of questions.listCancelled()) {
+      const hasEvent = chats
+        .allEventsAfter(question.chatId, 0)
+        .some(
+          (event) =>
+            event.type === 'question_cancelled' &&
+            (event.payload as { questionId?: unknown }).questionId === question.id,
+        );
+      if (!hasEvent)
+        chats.appendEvent(question.chatId, 'question_cancelled', { questionId: question.id });
+    }
+    flags.set(CANCELLED_EVENTS_BACKFILL);
   }
   const pilot = new Autopilot({
     chats,
@@ -355,6 +366,9 @@ export function buildApp(deps: AppDeps, options: FastifyServerOptions = {}): Fas
     bus,
     ...(deps.heartbeatMs === undefined ? {} : { heartbeatMs: deps.heartbeatMs }),
   });
+
+  // Last: the not-found handler must not hide any route.
+  registerWebStatic(app, deps.config.webDir);
 
   return app;
 }

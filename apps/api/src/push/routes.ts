@@ -6,7 +6,7 @@ import type {
   PushTestResult,
 } from '@agents-panel/shared';
 import { onlyKeys } from '../http/only-keys.js';
-import { toInfo, type PushSubscriptionRepository } from './repo.js';
+import { MAX_SUBSCRIPTIONS_PER_USER, toInfo, type PushSubscriptionRepository } from './repo.js';
 import type { PushService } from './service.js';
 
 const idParams = {
@@ -112,8 +112,19 @@ export function registerPushRoutes(
         });
         return undefined;
       }
+      const userId = userOf(request);
+      // An endpoint the user already has just refreshes (idempotent); a new one counts against the cap.
+      if (
+        !subscriptions.hasEndpoint(userId, request.body.endpoint) &&
+        subscriptions.count(userId) >= MAX_SUBSCRIPTIONS_PER_USER
+      ) {
+        await reply.code(409).send({
+          error: `Ya hay ${String(MAX_SUBSCRIPTIONS_PER_USER)} dispositivos suscriptos: quitá un dispositivo para agregar otro`,
+        });
+        return undefined;
+      }
       const agent = request.headers['user-agent'];
-      const saved = subscriptions.upsert(userOf(request), {
+      const saved = subscriptions.upsert(userId, {
         endpoint: request.body.endpoint,
         p256dh: request.body.keys.p256dh,
         auth: request.body.keys.auth,

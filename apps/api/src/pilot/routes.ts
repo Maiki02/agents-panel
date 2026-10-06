@@ -54,6 +54,12 @@ export function registerAutopilotRoutes(
       throw new ChatError('Una idea no tiene piloto hasta que se aprueba su plan', 409);
     }
     const run = runs.get(chatId);
+    if (run?.status === 'finished') {
+      throw new ChatError(
+        'El trabajo ya terminó: el piloto llegó al final y no queda nada que pilotear',
+        409,
+      );
+    }
     if (run !== undefined && run.status !== 'off') {
       throw new ChatError('El piloto ya está encendido en este trabajo', 409);
     }

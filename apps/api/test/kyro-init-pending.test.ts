@@ -81,6 +81,32 @@ describe('kyroInit of a project', () => {
   });
 });
 
+describe('reading the init branch without git', () => {
+  it('answers from the ref files (loose and packed) with no git on the PATH, and sees changes at once', async () => {
+    const { repoPath } = await setup();
+    git(repoPath, 'branch', 'chore/kyro-init');
+    vi.stubEnv('PATH', '/nonexistent');
+    try {
+      // Any git call would fail with ENOENT and read as "no branch".
+      expect(pendingKyroInit(repoPath, null)).toMatchObject({ pushed: false });
+      vi.unstubAllEnvs();
+      git(repoPath, 'update-ref', 'refs/remotes/origin/chore/kyro-init', 'HEAD');
+      vi.stubEnv('PATH', '/nonexistent');
+      expect(pendingKyroInit(repoPath, null)).toMatchObject({ pushed: true });
+      vi.unstubAllEnvs();
+      git(repoPath, 'pack-refs', '--all', '--prune');
+      vi.stubEnv('PATH', '/nonexistent');
+      expect(pendingKyroInit(repoPath, null)).toMatchObject({ pushed: true });
+      vi.unstubAllEnvs();
+      git(repoPath, 'branch', '-D', 'chore/kyro-init');
+      vi.stubEnv('PATH', '/nonexistent');
+      expect(pendingKyroInit(repoPath, null)).toBeNull();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+});
+
 describe('POST /api/projects/:id/kyro-init/push', () => {
   it('pushes only the pending branch of the project and answers the PR link', async () => {
     const { pushBranch, project, repoPath, gitPush } = await setup();

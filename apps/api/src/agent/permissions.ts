@@ -1,6 +1,6 @@
-import { existsSync, realpathSync } from 'node:fs';
+import { existsSync, lstatSync, realpathSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, isAbsolute, join, resolve, sep } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { PermissionDecision } from './runner.js';
 
 /** Binaries the agent may run through Bash. Everything else is denied. */
@@ -141,6 +141,63 @@ function checkReadArgs(stage: string, cwd: string): PermissionDecision {
   return { behavior: 'allow' };
 }
 
+/** `rm` is allowed as the start of a command only with every operand validated inside the worktree. */
+export const VALIDATED_COMMANDS = ['rm'];
+
+/** Short options of rm that are accepted: -f, -r, -R and their combinations. */
+const RM_OPTION_RE = /^-[frR]+$/;
+
+function isSymlink(path: string): boolean {
+  try {
+    return lstatSync(path).isSymbolicLink();
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * `rm` with a validated path, like the read commands but stricter: every operand is resolved with
+ * the parent directory's symlinks followed and the last component not followed, and has to end up
+ * inside the worktree, not be its root and not be .git or anything inside a .git. Only -f, -r, -R
+ * and `--` are accepted; globs, ~, variables, quotes inside a path, `..` segments and substitution
+ * are denied (a `a/link/..` would resolve differently for the shell than for a lexical check).
+ */
+function checkRm(stage: string, cwd: string): PermissionDecision {
+  if (/[$~*?[{]/.test(stage)) return deny('Variables, ~ and globs are not allowed in rm');
+  const root = realish(cwd);
+  let optionsEnded = false;
+  let operands = 0;
+  for (const raw of stage.split(/\s+/).slice(1)) {
+    const arg = raw.replace(/^["']/, '').replace(/["']$/, '');
+    if (/["'\\]/.test(arg)) return deny('Quotes and backslashes inside a path are not allowed');
+    if (arg === '') continue;
+    if (!optionsEnded && arg === '--') {
+      optionsEnded = true;
+      continue;
+    }
+    if (!optionsEnded && arg.startsWith('-')) {
+      if (!RM_OPTION_RE.test(arg)) return deny(`rm option not allowed: ${arg.slice(0, 20)}`);
+      continue;
+    }
+    operands++;
+    if (arg.split('/').includes('..')) return deny('rm paths cannot contain ..');
+    const absolute = resolve(isAbsolute(arg) ? arg : resolve(cwd, arg));
+    if (arg.endsWith('/') && isSymlink(absolute)) {
+      return deny('rm of a symlink with a trailing slash is not allowed');
+    }
+    // The last component is removed as it is (a link goes, its target stays): only the parent resolves.
+    const target = join(realish(dirname(absolute)), basename(absolute));
+    if (target === root) return deny('rm cannot remove the root of the worktree');
+    if (!target.startsWith(root + sep)) {
+      return deny(`Removing outside the worktree is not allowed: ${arg.slice(0, 80)}`);
+    }
+    if (relative(root, target).split(sep).includes('.git')) {
+      return deny('rm cannot touch .git');
+    }
+  }
+  return operands > 0 ? { behavior: 'allow' } : deny('rm needs a path');
+}
+
 /** Hosts `curl` may always reach, besides the ones the project lists. */
 export const CURL_BASE_HOSTS = ['localhost', '127.0.0.1'];
 
@@ -231,6 +288,7 @@ export const NOT_CONFIGURABLE = new Set<string>([
   ...NEVER_ENABLED_COMMANDS,
   ...READ_COMMANDS,
   ...PIPE_FILTERS,
+  ...VALIDATED_COMMANDS,
   'cd',
   'curl',
 ]);
@@ -374,13 +432,25 @@ export function checkBash(
   const withoutSafeRedirects = command.replace(/\d?>\s*&\d|\d?>\s*\/dev\/null/g, '');
   if (/[<>]/.test(withoutSafeRedirects)) return deny('Redirection is not allowed');
 
+  // After a `cd` the relative paths mean something else than for the check, so rm cannot follow one.
+  let sawCd = false;
   // A lone & (background job) also starts a new command, so it is a separator too.
   for (const chain of withoutSafeRedirects.split(/&&|\|\||;|\n|&/)) {
     const stages = chain.split('|').map((stage) => stage.trim());
     for (const [index, stage] of stages.entries()) {
       if (stage === '') continue;
       const [first = ''] = stage.split(/\s+/);
-      if (index === 0 && first === 'cd') continue;
+      if (index === 0 && first === 'cd') {
+        sawCd = true;
+        continue;
+      }
+      // Before the project's extras: even a project that listed `rm` gets the validated one.
+      if (first === 'rm') {
+        if (cwd === undefined || sawCd) return deny('rm needs the worktree as its directory');
+        const verdict = checkRm(stage, cwd);
+        if (verdict.behavior === 'deny') return verdict;
+        continue;
+      }
       if (index === 0 && cwd !== undefined && READ_COMMANDS.includes(first)) {
         const verdict = checkReadArgs(stage, cwd);
         if (verdict.behavior === 'deny') return verdict;

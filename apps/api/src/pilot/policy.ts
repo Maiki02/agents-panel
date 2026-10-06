@@ -5,7 +5,7 @@
  */
 
 /** Bump it when any clause changes: every pilot session records the version it ran with. */
-export const POLICY_VERSION = 2;
+export const POLICY_VERSION = 4;
 
 /**
  * The kinds of session the pilot opens: planning, execution of a sprint, and closing it; plus the
@@ -94,9 +94,9 @@ export const KNOWN_GATES = {
   global_rule: {
     keyword: 'global',
     decision: 'proceed',
-    steps: ['execute', 'close'],
+    steps: ['plan', 'execute', 'close'],
     clause:
-      'New rules ("kyro rule add") are registered for the scope only, never with --global. When a rule looks worth making global, list it at the end of your final report as a candidate for the user.',
+      'When Kyro asks whether a rule or learning is for the scope only or also global (for every scope of the project), never stop to ask: take the option Kyro recommends, and scope only if it does not recommend one. Register it with "kyro rule add" (with --global only when that is the recommended option). Record each one as an ADR with "kyro adr", and end your final report with a section "Reglas agregadas" that lists every rule you registered: its text and whether it is scope or global.',
   },
   correctable_debt: {
     keyword: 'correctable debt',
@@ -150,7 +150,7 @@ export const KNOWN_GATES = {
     decision: 'proceed',
     steps: ['execute', 'close'],
     clause:
-      'Deleting a file of the repository needs no question: use "git rm <path>" for a tracked file and "git clean -f <path>" for one you created. Never use rm (the panel denies it) and never delete anything outside the worktree.',
+      'Deleting a file of the repository needs no question: use "git rm <path>" for a tracked file. For one you created (not versioned) use "git clean -f <path>" or "rm <path>": the panel only accepts rm with the options -f, -r, -R and --, and with every path inside the worktree, never the worktree itself, never .git, and without globs, "~", variables, ".." or substitutions. Never delete anything outside the worktree.',
   },
   idea_confirmation: {
     keyword: 'docType',

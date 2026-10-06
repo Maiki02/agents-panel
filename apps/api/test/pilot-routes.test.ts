@@ -130,12 +130,26 @@ describe("autopilot action 'on'", () => {
     for (const chat of [direct, idea, running, ready]) {
       const res = await on(chat.id);
       expect(res.statusCode).toBe(409);
-      expect(res.json<{ message: string }>().message).not.toBe('');
+      expect(res.json<{ error: string }>().error).not.toBe('');
     }
     expect(runs.get(direct.id)).toBeUndefined();
     expect(runs.get(idea.id)).toBeUndefined();
     expect(runs.get(ready.id)?.status).toBe('off');
     expect(await timeline(ready.id)).toHaveLength(before);
+    await flush();
+    expect(reads).toEqual([]);
+  });
+
+  it('says the work already finished when the pilot is finished, not a generic "already on"', async () => {
+    const { on, newChat, runs, reads } = await boot();
+    const chat = newChat('f', 'work');
+    runs.create(chat.id);
+    runs.finish(chat.id);
+    const res = await on(chat.id);
+    expect(res.statusCode).toBe(409);
+    expect(res.json<{ error: string }>().error).toContain('ya terminó');
+    expect(res.json<{ error: string }>().error).not.toContain('encendido');
+    expect(runs.get(chat.id)?.status).toBe('finished');
     await flush();
     expect(reads).toEqual([]);
   });

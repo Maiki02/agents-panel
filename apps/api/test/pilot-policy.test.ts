@@ -42,7 +42,7 @@ describe('gates policy', () => {
   });
 
   it('asks the closing session for the QA report before close-sprint (v2)', () => {
-    expect(POLICY_VERSION).toBe(2);
+    expect(POLICY_VERSION).toBe(4);
     const close = buildPolicy('close');
     expect(close).toContain('.agents/kyro/qa/<scope>/sprint-<n>.md');
     expect(close).toContain('"Verdict: <VERDICT>"');
@@ -125,9 +125,30 @@ describe('gates policy', () => {
   });
 });
 
+describe('rule registration (v3)', () => {
+  it('never asks scope or global: takes the recommended option and reports what it added', () => {
+    expect(gateDecision('global_rule')).toBe('proceed');
+    for (const step of ['plan', 'execute', 'close'] as const) {
+      const text = buildPolicy(step);
+      expect(text, step).toContain('never stop to ask');
+      expect(text, step).toContain('the option Kyro recommends');
+      expect(text, step).toContain('scope only if it does not recommend one');
+      expect(text, step).toContain('"Reglas agregadas"');
+      expect(text, step).toContain('"kyro adr"');
+    }
+    expect(buildPolicy('idea')).not.toContain('Reglas agregadas');
+  });
+});
+
 describe('file deletion', () => {
   it('tells the agent to use git rm instead of asking or running rm', () => {
     expect(gateDecision('file_deletion')).toBe('proceed');
     expect(buildPolicy('execute')).toContain('git rm <path>');
+    // v4: rm exists, validated, and the policy states its limit.
+    const text = buildPolicy('execute');
+    expect(text).toContain('"rm <path>"');
+    expect(text).toContain('-f, -r, -R and --');
+    expect(text).toContain('never .git');
+    expect(text).not.toContain('Never use rm');
   });
 });

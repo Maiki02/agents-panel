@@ -79,6 +79,19 @@ describe('step prompts', () => {
     }
   });
 
+  it('a work prompt names the readable guide, the creation command and forbids loose files', () => {
+    for (const step of steps) {
+      const prompt = buildStepPrompt(step, { task: workTask, home });
+      expect(prompt).toContain(`${home}/.agents/kyro/current/commands/work.md`);
+      expect(prompt).toContain('kyro work create --id <slug> --from <brief.md>');
+      expect(prompt).toContain('Never write to /tmp');
+      expect(prompt).toContain('.agents/kyro/inputs/');
+      expect(prompt).toContain('git clean -f');
+      expect(prompt).toContain('Do not use "~"');
+    }
+    expect(buildStepPrompt('execute', { task: scopeTask, home })).not.toContain('kyro work create');
+  });
+
   it('the fix step lists the analyze findings and the others do not', () => {
     const fix = buildStepPrompt('fix', { task: scopeTask, home, findings: ['HIGH: algo roto'] });
     expect(fix).toContain('Analyze findings to fix:\n- HIGH: algo roto');

@@ -1,5 +1,5 @@
 import { execFile, execFileSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import {
@@ -35,7 +35,28 @@ interface ProjectRow {
 
 const KYRO_INIT_BRANCH = 'chore/kyro-init';
 
+/**
+ * Whether a ref exists, read from the base clone's files (a loose ref or a line of packed-refs):
+ * listing projects calls this for every project without Kyro, so it must not start git each time.
+ * A `.git` that is not a folder (a linked worktree) falls back to `git rev-parse`.
+ */
 function hasRef(repoPath: string, ref: string): boolean {
+  const gitDir = join(repoPath, '.git');
+  let isDir: boolean;
+  try {
+    isDir = statSync(gitDir).isDirectory();
+  } catch {
+    return false;
+  }
+  if (isDir) {
+    if (existsSync(join(gitDir, ref))) return true;
+    try {
+      const packed = readFileSync(join(gitDir, 'packed-refs'), 'utf8');
+      return packed.split('\n').some((line) => line.endsWith(` ${ref}`));
+    } catch {
+      return false;
+    }
+  }
   try {
     execFileSync('git', ['-C', repoPath, 'rev-parse', '--verify', '--quiet', ref], {
       stdio: 'ignore',

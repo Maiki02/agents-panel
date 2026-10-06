@@ -481,6 +481,17 @@ export const migrations: readonly Migration[] = [
       CREATE INDEX push_subscriptions_user ON push_subscriptions (user_id);
     `,
   },
+  {
+    version: 18,
+    name: 'app_flags',
+    // One-time jobs of the startup (a marker per job, so they do not run again on every start).
+    sql: `
+      CREATE TABLE app_flags (
+        name TEXT PRIMARY KEY,
+        set_at INTEGER NOT NULL
+      );
+    `,
+  },
 ];
 
 /** Applies pending migrations in order, each in its own transaction. Safe to run repeatedly. */

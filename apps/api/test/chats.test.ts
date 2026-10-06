@@ -623,6 +623,15 @@ describe('buildInitialPrompt', () => {
       '/home/u/.agents/skills/kyro-work/SKILL.md',
     );
   });
+
+  it('a work first turn names the readable guide and the creation command, and forbids loose files', () => {
+    const prompt = buildInitialPrompt('work', 'Do X', '/home/u');
+    expect(prompt).toContain('/home/u/.agents/kyro/current/commands/work.md');
+    expect(prompt).toContain('kyro work create --id <slug> --from <brief.md>');
+    expect(prompt).toContain('Never write to /tmp');
+    expect(prompt).toContain('git clean -f');
+    expect(buildInitialPrompt('scope', 'Do X', '/home/u')).not.toContain('kyro work create');
+  });
 });
 
 describe('idea chats', () => {

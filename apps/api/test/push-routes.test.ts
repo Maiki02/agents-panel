@@ -108,6 +108,30 @@ describe('push subscriptions', () => {
     expect(JSON.stringify(list)).not.toContain('p256');
   });
 
+  it('caps a user at 10 devices: the 11th gets 409 with the reason, re-subscribing stays idempotent', async () => {
+    const { call, alice, bob, subscribe } = await boot();
+    const endpoint = (n: number) => `https://fcm.googleapis.com/fcm/send/device-${String(n)}`;
+    for (let n = 1; n <= 10; n++)
+      expect((await subscribe(alice, endpoint(n))).statusCode).toBe(200);
+    const eleventh = await subscribe(alice, endpoint(11));
+    expect(eleventh.statusCode).toBe(409);
+    expect(eleventh.json<{ error: string }>().error).toContain('quitá un dispositivo');
+    // The same endpoint again is an update, not a new device.
+    expect((await subscribe(alice, endpoint(3), 'Renombrada')).statusCode).toBe(200);
+    const list = (await call('GET', '/api/push/subscriptions', alice)).json<
+      PushSubscriptionInfo[]
+    >();
+    expect(list).toHaveLength(10);
+    expect(list.find((item) => item.endpoint === endpoint(3))?.name).toBe('Renombrada');
+    // The cap is per user, and removing one frees a place.
+    expect((await subscribe(bob, endpoint(11))).statusCode).toBe(200);
+    const first = list[0];
+    expect(
+      (await call('DELETE', `/api/push/subscriptions/${String(first?.id)}`, alice)).statusCode,
+    ).toBe(204);
+    expect((await subscribe(alice, endpoint(12))).statusCode).toBe(200);
+  });
+
   it('refuses an endpoint that is not https or a body with unknown keys', async () => {
     const { call, alice, subscribe } = await boot();
     expect((await subscribe(alice, 'http://push.example.com/x')).statusCode).toBe(400);

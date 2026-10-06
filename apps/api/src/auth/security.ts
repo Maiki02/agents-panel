@@ -7,13 +7,15 @@ const UNSAFE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 export const MAX_BODY_BYTES = 64 * 1024;
 export const CSRF_HEADER = 'x-csrf-token';
 
-/** Security headers: CSP default-src 'self', HSTS, frame-ancestors 'none', nosniff. */
+/** Security headers: CSP default-src 'self' (style-src also allows inline styles), HSTS, frame-ancestors 'none', nosniff. */
 export function registerHeaders(app: FastifyInstance): void {
   void app.register(helmet, {
     contentSecurityPolicy: {
       useDefaults: false,
       directives: {
         defaultSrc: ["'self'"],
+        // Angular injects the component styles as <style> at runtime; scripts stay 'self' only.
+        styleSrc: ["'self'", "'unsafe-inline'"],
         baseUri: ["'self'"],
         formAction: ["'self'"],
         frameAncestors: ["'none'"],

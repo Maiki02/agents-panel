@@ -31,6 +31,8 @@ export interface Config {
   readonly pilotMaxSessionsPerSprint: number;
   /** Longest a project's validate_command may run before the pilot stops it. */
   readonly pilotValidateTimeoutMs: number;
+  /** Folder with the compiled web the API serves; null serves nothing (PANEL_WEB_DIR). */
+  readonly webDir: string | null;
   /** null when the VAPID keys are not set: Web Push stays off and nothing is sent. */
   readonly pushVapid: PushVapid | null;
 }
@@ -123,6 +125,9 @@ export function loadConfig(env: Env = process.env): Config {
     rawProjects === undefined || rawProjects === '' ? '~/proyectos' : rawProjects,
   );
 
+  const rawWebDir = env['PANEL_WEB_DIR'];
+  const webDir = rawWebDir === undefined || rawWebDir === '' ? null : expandHome(rawWebDir);
+
   const rawScript = env['PANEL_KYRO_UPDATE_SCRIPT'];
   const kyroUpdateScript =
     rawScript === undefined || rawScript === ''
@@ -135,6 +140,7 @@ export function loadConfig(env: Env = process.env): Config {
     projectsDir,
     minFreeDiskGb: positiveInt(env, 'PANEL_MIN_FREE_DISK_GB', 10),
     kyroUpdateScript,
+    webDir,
     origin,
     allowedOrigins: [...new Set([origin, ...extraOrigins])],
     secretKey,
