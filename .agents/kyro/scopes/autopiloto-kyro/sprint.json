@@ -2,7 +2,7 @@
   "schemaVersion": 4,
   "scope": "autopiloto-kyro",
   "title": "Piloto automático de Kyro en el panel",
-  "status": "planning",
+  "status": "completed",
   "objective": "Que un scope o work, después de aprobar su plan desde la web, llegue solo a la PR usando un modelo pensante para planificar y uno ejecutor para ejecutar, y que frene solo por decisiones materiales, costos o bloqueos, avisando por push.",
   "successCriteria": [
     "Un scope de 3 o más sprints, iniciado desde una idea en la web, llega a la PR sin ningún mensaje del usuario salvo la aprobación del plan y las decisiones materiales, y cada sprint archivado tiene QA corrido y kyro analyze sin hallazgos CRITICAL ni HIGH.",
@@ -457,6 +457,55 @@
         "given": "un trabajo con piloto y dos dispositivos suscritos",
         "when": "pasa a bloqueado con un motivo, después a escribiendo_codigo, y al final a pr_lista",
         "then": "llega un aviso con el motivo al bloquearse, ninguno al seguir trabajando y uno al quedar la PR lista; un envío que falla no cambia el estado del piloto"
+      },
+      {
+        "id": "S42",
+        "requirement": "R24",
+        "given": "la API con el build de la web configurado",
+        "when": "se pide /, una ruta de la SPA y /api/no-existe sin sesión",
+        "then": "las dos primeras devuelven index.html, la ruta /api da 401 y la allowlist pública no cambia"
+      },
+      {
+        "id": "S43",
+        "requirement": "R15",
+        "given": "el panel corriendo como servicio systemd con un piloto activo",
+        "when": "se reinicia el servicio",
+        "then": "el piloto se retoma solo con resume del paso en curso y no corre dos veces el mismo paso"
+      },
+      {
+        "id": "S44",
+        "requirement": "R15",
+        "given": "una API corriendo sobre un directorio de datos",
+        "when": "arranca otra API sobre el mismo directorio",
+        "then": "la segunda se niega a arrancar con un mensaje claro y un lock con pid muerto se recupera"
+      },
+      {
+        "id": "S45",
+        "requirement": "R9",
+        "given": "el Bash del piloto con rm validado",
+        "when": "pide rm de archivos dentro del worktree, y rm de ~, /, .., .git, symlinks que salen o envuelto en env, xargs, nohup, timeout o sh -c",
+        "then": "lo primero se permite y cada intento de lo segundo se deniega con permission_denied"
+      },
+      {
+        "id": "S46",
+        "requirement": "R6",
+        "given": "un Work nuevo con piloto",
+        "when": "corre su primer turno",
+        "then": "el prompt nombra la skill kyro-work legible y el comando de creación, y el agente no intenta leer fuera del worktree"
+      },
+      {
+        "id": "S47",
+        "requirement": "R21",
+        "given": "un usuario con 10 suscripciones push",
+        "when": "suscribe un dispositivo nuevo, o repite uno existente",
+        "then": "el nuevo da 409 con el motivo y el repetido no duplica la fila"
+      },
+      {
+        "id": "S48",
+        "requirement": "R6",
+        "given": "una sesión del piloto en la que Kyro pregunta si una regla o aprendizaje es solo del scope o también global",
+        "when": "el agente la resuelve",
+        "then": "toma la opción que Kyro recomienda (solo del scope si no recomienda ninguna), no pregunta al usuario, deja un ADR y lista la regla en 'Reglas agregadas' del informe final"
       }
     ],
     "nonGoals": [
@@ -480,6 +529,30 @@
         "security"
       ],
       "addedSprint": 2
+    },
+    {
+      "id": "reliability-1",
+      "rule": "Un lock de instancia por pid guarda también el boot_id de Linux: tras un reinicio sucio el pid puede ser de otro proceso vivo y el servicio no arrancaría nunca.",
+      "tags": [
+        "reliability"
+      ],
+      "addedSprint": 6
+    },
+    {
+      "id": "security-1",
+      "rule": "La web compilada se sirve desde el not-found handler de la API, no con rutas: así la allowlist pública (/api/health y los pasos del login) no crece y se sigue probando con un test.",
+      "tags": [
+        "security"
+      ],
+      "addedSprint": 6
+    },
+    {
+      "id": "process-1",
+      "rule": "Antes de marcar como probada una corrida real, verificar en la base del panel (solo lectura) y en GitHub que existe; lo que no se pueda comprobar queda como deuda, no como probado.",
+      "tags": [
+        "process"
+      ],
+      "addedSprint": 6
     }
   ],
   "adrs": [],
@@ -521,7 +594,7 @@
         "n": 6,
         "slug": "docs-ventas-cierre",
         "title": "Docs, merge-dev de ventas y cierre",
-        "state": "planned"
+        "state": "closed"
       }
     ]
   },
@@ -583,13 +656,29 @@
       "snapshot": "archive/sprint-005-web-piloto-push.json",
       "checkpoint": "archive/sprint-005-web-piloto-push.checkpoint.json",
       "checkpointSha256": "a472b05b3280b274f3771b7bf4af773a09d20f07fa076927b2700270affd0054"
+    },
+    {
+      "n": 6,
+      "slug": "docs-ventas-cierre",
+      "outcome": "shipped",
+      "closedAt": "2026-10-06",
+      "archive": "archive/sprint-006-docs-ventas-cierre.md",
+      "snapshot": "archive/sprint-006-docs-ventas-cierre.json",
+      "checkpoint": "archive/sprint-006-docs-ventas-cierre.checkpoint.json",
+      "recommendations": [
+        "Hacer la corrida real en test-panel con el servicio (guía en docs/panel-desarrollo.md) apenas el usuario pueda y resolver debt-1, debt-10 y debt-12 a debt-15.",
+        "Reiniciar el servicio (10-panel-service.sh --restart) para que tome el lock con boot_id y la política v4.",
+        "Planificar el scope operaciones-worktree (D18 a D28, D31) con el piloto como primera prueba real.",
+        "Pendientes de la etapa 6: backup de SQLite, topes configurables y limpieza automática."
+      ],
+      "checkpointSha256": "be94562f074c815a457579f99446fbcf5bb25950d4dfab8d6a12ea29a4a69a17"
     }
   ],
   "previousSprint": {
-    "n": 5,
-    "slug": "web-piloto-push",
+    "n": 6,
+    "slug": "docs-ventas-cierre",
     "outcome": "shipped",
-    "summary": "Que el piloto se maneje entero desde la web (encender, pausar, reanudar, apagar, elegir tipo y modelos, ver el estado por fases y el Timeline) y que cada freno o PR lista avise por Web Push a la PC y al Android, con el panel publicado por Tailscale Funnel."
+    "summary": "Sprint 6: el panel corre como servicio systemd detrás de Funnel con la web compilada, rm validado, prompt del primer turno de un Work, deuda menor del sprint 5, versión de be-ventas en merge-dev (PR #1) y docs. La corrida real del piloto en test-panel quedó diferida por el usuario y registrada como deuda."
   },
   "activeSprint": null,
   "debt": [
@@ -599,8 +688,8 @@
       "origin": 1,
       "priority": "medium",
       "status": "deferred",
-      "targetSprint": 6,
-      "note": "El usuario decidió hacer el recorrido manual (preguntas, modelos por rol y permisos por proyecto, pasos en docs/panel-desarrollo.md) al final del scope, junto con la corrida real del sprint 6."
+      "targetSprint": 7,
+      "note": "Diferido por el usuario el 06/10/2026 junto con la corrida real; no se probó."
     },
     {
       "id": "debt-2",
@@ -634,9 +723,9 @@
       "title": "El Bash del piloto no tiene rm: habilitar un rm con ruta validada dentro del worktree (como los comandos de lectura). Mientras tanto la política manda git rm y git clean",
       "origin": 3,
       "priority": "low",
-      "status": "open",
+      "status": "resolved",
       "targetSprint": 6,
-      "note": "Nunca un rm sin validar: rm -rf ~ pasaría la allowlist"
+      "note": "rm validado dentro del worktree (checkRm) con tests de bypass; política v4."
     },
     {
       "id": "debt-6",
@@ -670,40 +759,106 @@
       "title": "Hacer que el reinicio por cambios de código no corte pruebas largas: la API corre con tsx watch en desarrollo y cualquier edición en apps/api reinicia la sesión en curso (documentar o usar node sin watch durante pruebas del piloto).",
       "origin": 5,
       "priority": "low",
-      "status": "open",
+      "status": "resolved",
       "targetSprint": null,
-      "note": ""
+      "note": "El piloto corre en el servicio systemd (node dist/main.js, sin watch): editar apps/api ya no reinicia al piloto. El desarrollo con tsx watch va con el servicio parado o con otra base (paso 16 de docs/vm-setup.md)."
     },
     {
       "id": "debt-10",
       "title": "Probar en real que una suscripción push vencida (404/410 del servicio de push) se borra sola en el envío siguiente: quitar el permiso de notificaciones del sitio en un navegador y tocar Probar. Hoy solo está cubierto por tests automáticos (T4.2, 05/10/2026).",
       "origin": 5,
       "priority": "medium",
-      "status": "open",
-      "targetSprint": 6,
-      "note": ""
+      "status": "deferred",
+      "targetSprint": 7,
+      "note": "Diferido por el usuario el 06/10/2026 junto con la corrida real; no se probó (solo tests automáticos)."
     },
     {
       "id": "debt-11",
       "title": "QA sprint 5, menores: cachear o leer del sistema de archivos el ref de chore/kyro-init (hoy 2 execFileSync por lectura de proyecto sin Kyro); respaldo de question_cancelled recorre eventos en cada arranque; sin tope de suscripciones push por usuario; sender.ts y push-sw.js sin test; mensaje de la acción on con piloto finished; E1/E2 sin scenario_refs y S20 sin tarea.",
       "origin": 5,
       "priority": "low",
-      "status": "open",
+      "status": "resolved",
       "targetSprint": 6,
-      "note": ""
+      "note": "T3.1: ref de kyro-init sin git, respaldo question_cancelled una sola vez (app_flags), tope de 10 suscripciones push, mensaje de 'on' con piloto finished. T3.2: tests de sender y de push-sw.js (y se cerró un bypass /\\host). E1/E2 sin scenario_refs: N/A (tareas archivadas e inmutables)."
+    },
+    {
+      "id": "debt-12",
+      "title": "Corrida real del piloto en test-panel con el servicio (sprint 6, T5.1 diferida): Scope de un sprint con pregunta material y botón, hasta pr_lista sin mergear la PR. No probado: hoy la base solo tiene los chats del sprint 5 (política v2)",
+      "origin": 6,
+      "priority": "medium",
+      "status": "deferred",
+      "targetSprint": 7,
+      "note": "Diferida por el usuario el 06/10/2026 al completar el scope; no se probó. Guía en docs/panel-desarrollo.md."
+    },
+    {
+      "id": "debt-13",
+      "title": "R15 con el servicio systemd (T1.2): reiniciar el servicio a mitad de la ejecución y comprobar que el piloto se retoma solo sin duplicar el paso. No probado con el servicio real",
+      "origin": 6,
+      "priority": "medium",
+      "status": "deferred",
+      "targetSprint": 7,
+      "note": "Diferida por el usuario el 06/10/2026 al completar el scope; no se probó. Guía en docs/panel-desarrollo.md."
+    },
+    {
+      "id": "debt-14",
+      "title": "T2.1: comprobar en una corrida real que el primer turno de un Work o Scope no tiene permission_denied de lectura fuera del worktree con el prompt nuevo y la política v4. No probado: los 8 denegados que hay en la base son del sprint 5",
+      "origin": 6,
+      "priority": "medium",
+      "status": "deferred",
+      "targetSprint": 7,
+      "note": "Diferida por el usuario el 06/10/2026 al completar el scope; no se probó. Guía en docs/panel-desarrollo.md."
+    },
+    {
+      "id": "debt-15",
+      "title": "Avisos push reales en la PC y en el Android durante una corrida del piloto (T5.1). No confirmados",
+      "origin": 6,
+      "priority": "medium",
+      "status": "deferred",
+      "targetSprint": 7,
+      "note": "Diferida por el usuario el 06/10/2026 al completar el scope; no se probó. Guía en docs/panel-desarrollo.md."
     }
   ],
   "handoff": {
-    "nextAction": "plan_sprint",
+    "nextAction": "done",
     "nextTaskId": null,
     "blockers": [],
-    "note": "Sprint 5 (web-piloto-push) closed as shipped. Scope remains open for planning.",
-    "lastUpdated": "2026-10-05"
+    "note": "Scope explicitly completed.",
+    "lastUpdated": "2026-10-06"
   },
   "author": {
     "name": "Maiki02",
     "email": "miqueasdavidgentile@gmail.com",
     "source": "git",
     "capturedAt": "2026-10-05T02:11:36.060Z"
+  },
+  "remediations": [
+    {
+      "id": "R-001",
+      "path": "archive/remediations/remediation-001.json",
+      "commitment": "8b180e962f6533655620e701bd9d33cf277605bf51605b59adce25a0b63d6320"
+    },
+    {
+      "id": "R-002",
+      "path": "archive/remediations/remediation-002.json",
+      "commitment": "8e02bd709099f645a86f5441d02cda3abedbe6abdc86d9fe8d7140d39925eda1"
+    },
+    {
+      "id": "R-003",
+      "path": "archive/remediations/remediation-003.json",
+      "commitment": "42772d666fa5165176cea1c0f18cacf10089d57d974226c20183ba93fdf9c9c2"
+    },
+    {
+      "id": "R-004",
+      "path": "archive/remediations/remediation-004.json",
+      "commitment": "9830ee199e38ff4944191fa7c3b896ca654b543c2a6d2ca1184bd30f7f9147f7"
+    }
+  ],
+  "completion": {
+    "completedAt": "2026-10-06T01:09:55.258Z",
+    "by": "maker",
+    "requestDigest": "2b6cd2dd6e39a688582a25afe471cb92281922ba04b3b7118b016b866cc1c717",
+    "beforeEntryDigest": "53e1d1223f62a3265b6d9a1ab656af87918ba3d595bcee04b966582e1d8361b5",
+    "beforeStateDigest": "099e9736e253f26d1cc5acb2eaec9ad55b4c1c92e6a0397064b6a7ba0f2a60ab",
+    "planDigest": "4da3ff8872346648defe7841c3c9e3c37a397b4e103473b19b4bca5448f8a0c5"
   }
 }

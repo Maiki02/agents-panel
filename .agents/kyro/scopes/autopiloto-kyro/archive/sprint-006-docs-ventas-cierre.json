@@ -1,0 +1,745 @@
+{
+  "n": 6,
+  "slug": "docs-ventas-cierre",
+  "title": "Docs, merge-dev de ventas y cierre",
+  "objective": "Dejar el panel corriendo como servicio de producción detrás de Funnel, el merge-dev de ventas subiendo la versión, la deuda abierta resuelta y el piloto verificado con una corrida real, para poder completar el scope.",
+  "status": "complete",
+  "phases": [
+    {
+      "id": "P1",
+      "title": "Producción: build y servicio systemd",
+      "objective": "Que Funnel publique el build de producción servido por la API como servicio systemd, no ng serve, y que nunca corran dos APIs sobre la misma base.",
+      "status": "done",
+      "tasks": [
+        {
+          "id": "T1.1",
+          "title": "La API sirve la web compilada y corre una sola instancia por base",
+          "description": "Sumar @fastify/static a apps/api para servir apps/web/dist/web/browser (ruta configurable PANEL_WEB_DIR; sin carpeta, no sirve nada y arranca igual). Fallback SPA: cualquier GET que no sea /api/* ni un archivo existente devuelve index.html. Todo /api/* sigue pasando por el guard deny-by-default: una ruta /api inexistente sin sesión da 401, nunca index.html. Encabezados de seguridad en los archivos estáticos (nosniff, frame-ancestors none o X-Frame-Options DENY, Referrer-Policy) y cache largo solo para archivos con hash. Además, un candado de instancia única sobre el directorio de datos (archivo de lock con el pid, liberado al salir): una segunda API sobre la misma base se niega a arrancar con un mensaje claro, para que el servicio y un tsx watch de desarrollo nunca retomen el mismo piloto dos veces.",
+          "files_to_touch": [
+            "apps/api/package.json",
+            "apps/api/src/app.ts",
+            "apps/api/src/web-static.ts",
+            "apps/api/src/instance-lock.ts",
+            "apps/api/src/main.ts",
+            "apps/api/src/config.ts",
+            "apps/api/.env.example",
+            "apps/api/test/web-static.test.ts",
+            "apps/api/test/instance-lock.test.ts"
+          ],
+          "context": "plan.md (Acceso y despliegue) ya prevé agents-panel.service en 127.0.0.1:3000 publicado por Funnel. Hoy la API no sirve estáticos y Funnel apunta a ng serve:4200 (riesgo aceptado del sprint 5). R24: ninguna ruta /api nueva pública; la allowlist pública (/api/health y los pasos del login) no cambia; los archivos de la web son públicos igual que hoy con ng serve y no exponen datos. R15: el piloto se retoma al arrancar, por eso dos instancias sobre la misma base duplicarían pasos. No editar apps/api mientras el usuario prueba el piloto (tsx watch reinicia).",
+          "acceptance_criteria": [
+            "Con PANEL_WEB_DIR apuntando al build: GET / y GET /projects/x devuelven index.html (200); GET /main-<hash>.js devuelve el archivo con cache largo",
+            "GET /api/no-existe sin sesión da 401 y con sesión 404, nunca index.html; la allowlist pública sigue con 3 rutas (test)",
+            "Sin PANEL_WEB_DIR o con la carpeta vacía la API arranca y /api/health da 200",
+            "Una segunda instancia sobre el mismo directorio de datos sale con error y mensaje claro; un lock huérfano (pid muerto) se recupera (tests)",
+            "typecheck, lint y tests de apps/api en verde"
+          ],
+          "depends_on": [],
+          "scenario_refs": [
+            "S42",
+            "S44"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "API sirve la web compilada (@fastify/static, PANEL_WEB_DIR, fallback SPA por notFoundHandler sin sumar rutas públicas, cache largo solo con hash) y candado de instancia única con recuperación de lock huérfano",
+            "validation": [
+              "npm run typecheck (shared, api, web) sin errores",
+              "eslint apps/api sin hallazgos",
+              "vitest apps/api: 57 archivos, 1025 tests en verde (web-static y instance-lock nuevos)"
+            ],
+            "files_changed": [
+              "apps/api/package.json",
+              "apps/api/src/app.ts",
+              "apps/api/src/web-static.ts",
+              "apps/api/src/instance-lock.ts",
+              "apps/api/src/main.ts",
+              "apps/api/src/config.ts",
+              "apps/api/src/auth/guard.ts",
+              "apps/api/.env.example",
+              "apps/api/test/web-static.test.ts",
+              "apps/api/test/instance-lock.test.ts"
+            ],
+            "notes": "Se tocó también auth/guard.ts: deja pasar solo GET/HEAD no-/api sin ruta cuando hay build. package-lock.json cambia por @fastify/static.",
+            "by": "maker",
+            "recordedAt": "2026-10-06T00:15:26.399Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "Con PANEL_WEB_DIR apuntando al build: GET / y GET /projects/x devuelven index.html (200); GET /main-<hash>.js devuelve el archivo con cache largo",
+              "GET /api/no-existe sin sesión da 401 y con sesión 404, nunca index.html; la allowlist pública sigue con 3 rutas (test)",
+              "Sin PANEL_WEB_DIR o con la carpeta vacía la API arranca y /api/health da 200",
+              "Una segunda instancia sobre el mismo directorio de datos sale con error y mensaje claro; un lock huérfano (pid muerto) se recupera (tests)",
+              "typecheck, lint y tests de apps/api en verde"
+            ],
+            "findings": [],
+            "by": "checker",
+            "reviewedAt": "2026-10-06T00:15:29.187Z",
+            "requestDigest": "57c10f9d47aba6dd142be9670c13f562995b0ce7e182cd2d89aba32f99967ea0",
+            "reviewedMaterialDigest": "72d9d13350a66cb06d351895ff78025444b99ca1903128c23dd0e050baf4b84d"
+          }
+        },
+        {
+          "id": "T1.2",
+          "title": "Servicio systemd del panel y Funnel hacia el build",
+          "description": "Script idempotente scripts/vm/10-panel-service.sh (bash, set -euo pipefail, LF): npm ci + npm run build, instala o actualiza /etc/systemd/system/agents-panel.service (User=ubuntu, WorkingDirectory=apps/api, node --env-file-if-exists=.env dist/main.js, PANEL_WEB_DIR al build, escucha solo 127.0.0.1:3000, Restart=on-failure), daemon-reload, enable y restart solo si algo cambió. Ajustar 09-tailscale-funnel.sh para recibir el puerto destino (por defecto 3000) y pasar Funnel de 4200 a 3000. Correrlo con el usuario presente (usa sudo), dos veces para probar idempotencia. Documentar en docs/vm-setup.md el paso 16 (qué, comando, por qué, cómo se verifica, cómo actualizar tras un pull y cómo convive con el desarrollo), bitácora y fila de Costos (US$0, sin cambios en Oracle).",
+          "files_to_touch": [
+            "scripts/vm/10-panel-service.sh",
+            "scripts/vm/agents-panel.service",
+            "scripts/vm/09-tailscale-funnel.sh",
+            "apps/api/test/panel-service.test.ts",
+            "apps/api/test/funnel.test.ts",
+            "docs/vm-setup.md"
+          ],
+          "context": "Regla de oro de la VM (CLAUDE.md): todo cambio en docs/vm-setup.md + script idempotente + bitácora. Regla de costos: US$0, igual se anota en Costos. Antes de pasar al servicio, parar el tsx watch y ng serve de tmux (el lock de T1.1 lo exige) y avisar al usuario: la sesión de la web se corta. Resuelve debt-9: el piloto corre en node sin watch, así que editar apps/api ya no corta pruebas largas; el desarrollo con tsx watch queda para una base aparte o con el servicio parado.",
+          "acceptance_criteria": [
+            "10-panel-service.sh corrido dos veces: la segunda no reinicia el servicio ni cambia archivos",
+            "systemctl is-active agents-panel da active y ss muestra el puerto 3000 solo en 127.0.0.1",
+            "tailscale funnel status muestra https://vm-ia.tailacdafa.ts.net -> http://127.0.0.1:3000 y nada en 4200",
+            "Por la URL de Funnel: la web carga, /api/health 200, rutas con sesión 401 sin cookie, login con TOTP funciona (confirmado por el usuario)",
+            "docs/vm-setup.md tiene paso 16, línea de bitácora y fila de Costos US$0, sin secretos",
+            "debt-9 resuelta con kyro debt resolve y nota"
+          ],
+          "depends_on": [
+            "T1.1"
+          ],
+          "scenario_refs": [
+            "S43"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "Servicio systemd agents-panel (API + web compilada en 127.0.0.1:3000) instalado con 10-panel-service.sh; Funnel pasó de 4200 a 3000; login con TOTP por la URL de Funnel confirmado por el usuario; CSP ajustado para la web compilada",
+            "validation": [
+              "systemctl is-active agents-panel = active, is-enabled = enabled, NRestarts=0",
+              "ss: 3000 solo en 127.0.0.1 y nada en 4200",
+              "tailscale funnel status: https://vm-ia.tailacdafa.ts.net -> proxy http://127.0.0.1:3000",
+              "Por Funnel: /api/health 200, /api/projects 401 sin cookie, login con TOTP confirmado por el usuario",
+              "panel-service.test.ts y funnel.test.ts (stubs): 2ª corrida sin cambios, --restart, puerto ocupado; vitest apps/api 1030 en verde, eslint y tsc limpios"
+            ],
+            "files_changed": [
+              "scripts/vm/10-panel-service.sh",
+              "scripts/vm/agents-panel.service",
+              "scripts/vm/09-tailscale-funnel.sh",
+              "apps/api/test/panel-service.test.ts",
+              "apps/api/test/funnel.test.ts",
+              "docs/vm-setup.md",
+              "apps/web/angular.json",
+              "apps/api/src/auth/security.ts"
+            ],
+            "notes": "Idempotencia en la VM real: el usuario confirmó la segunda corrida pero no vi su salida; lo que sí verifiqué es que la unidad conserva su fecha de instalación tras el --restart. La prueba de 'sin cambios' / 'activo, sin cambios' queda cubierta por el test con stubs. La web salía sin CSS por el CSP: se desactivó inlineCritical y se agregó style-src 'unsafe-inline'.",
+            "by": "maker",
+            "recordedAt": "2026-10-06T00:31:58.056Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "10-panel-service.sh corrido dos veces: la segunda no reinicia el servicio ni cambia archivos",
+              "systemctl is-active agents-panel da active y ss muestra el puerto 3000 solo en 127.0.0.1",
+              "tailscale funnel status muestra https://vm-ia.tailacdafa.ts.net -> http://127.0.0.1:3000 y nada en 4200",
+              "Por la URL de Funnel: la web carga, /api/health 200, rutas con sesión 401 sin cookie, login con TOTP funciona (confirmado por el usuario)",
+              "docs/vm-setup.md tiene paso 16, línea de bitácora y fila de Costos US$0, sin secretos",
+              "debt-9 resuelta con kyro debt resolve y nota"
+            ],
+            "findings": [],
+            "by": "checker",
+            "reviewedAt": "2026-10-06T00:31:58.352Z",
+            "requestDigest": "2e4b360827a07f2626ab9d883be76844c7c9295ab31ffe85b07a8b36ce634ed5",
+            "reviewedMaterialDigest": "f4c3816a94647652098e06c96030725016bc3eae81e3436c646d7839526183ed"
+          }
+        }
+      ]
+    },
+    {
+      "id": "P2",
+      "title": "Piloto: primer turno del Work y rm validado",
+      "objective": "Que el agente no salga del worktree para aprender a crear un Work y que pueda borrar archivos del worktree sin abrir un agujero en la allowlist.",
+      "status": "done",
+      "tasks": [
+        {
+          "id": "T2.1",
+          "title": "Prompt del primer turno de un Work",
+          "description": "En la prueba real del sprint 5 (test-panel, PR #2) el agente recibió 8 denegaciones al intentar leer fuera del worktree para aprender a crear la propuesta del Work, y dejó dos archivos sueltos en la PR. Leer los eventos permission_denied de ese trabajo en la base del panel (sin leer .env) para ver qué rutas buscó, y mejorar el prompt del primer turno (apps/api/src/chats/service.ts o pilot/prompts.ts, donde se arme) para que diga dónde está la skill kyro-work dentro de lo legible (~/.agents/skills), qué comando de Kyro crea la propuesta y que no deje archivos de trabajo fuera de .agents/kyro. Sin tocar la allowlist ni canUseTool.",
+          "files_to_touch": [
+            "apps/api/src/pilot/prompts.ts",
+            "apps/api/src/chats/service.ts",
+            "apps/api/test/pilot-prompts.test.ts"
+          ],
+          "context": "No-objetivo del usuario: no aflojar la allowlist. R6: el piloto abre el paso con su prompt; R7: el paso no se decide por el texto del agente. El efecto real se verifica en T5.1 (cero permission_denied en el primer turno del Work o Scope de prueba).",
+          "acceptance_criteria": [
+            "La evidencia lista las rutas que el agente intentó leer en la prueba del sprint 5 y por qué el prompt nuevo las evita",
+            "Test del prompt del primer turno de un Work: nombra la ruta legible de la skill kyro-work y el comando de creación, y prohíbe dejar archivos sueltos",
+            "permissions.ts y la allowlist sin cambios en el diff de esta tarea",
+            "Tests de apps/api en verde"
+          ],
+          "depends_on": [],
+          "scenario_refs": [
+            "S46"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "Prompt del primer turno de un Work (chat y pasos del piloto) con la guía legible, el comando de creación y la prohibición de archivos sueltos. Rutas intentadas en la prueba del sprint 5 (chat 1 y 2 del panel): Bash cat/ls/find/which/od y '~'/$()/globs (denegados por la allowlist), ~/.agents/kyro/current/commands/work.md y docs/work.md, /usr/lib/node_modules/kyro-ai/docs/work.md (fuera de lo legible), y archivos escritos en /tmp/readme-line-brief.md, /tmp/w1-evidence.json y .agents/briefs/. El prompt nuevo da la ruta absoluta legible de work.md (Read con rutas absolutas), dice que no se use ~, $(), ls, find, which ni od, nombra kyro work create/plan/record-evidence/review y manda escribir los insumos solo en .agents/kyro/inputs/ y borrarlos con git clean -f",
+            "validation": [
+              "Leí los 17 eventos permission_denied de los chats 1 y 2 en la base del panel (solo type y payload, sin .env)",
+              "pilot-prompts.test.ts y chats.test.ts: el prompt de Work nombra la ruta legible, el comando de creación, prohíbe /tmp y manda git clean",
+              "git diff de apps/api/src/agent vacío: permissions.ts y la allowlist sin cambios",
+              "vitest apps/api 1032 en verde, eslint y tsc limpios"
+            ],
+            "files_changed": [
+              "apps/api/src/pilot/prompts.ts",
+              "apps/api/src/chats/service.ts",
+              "apps/api/test/pilot-prompts.test.ts",
+              "apps/api/test/chats.test.ts"
+            ],
+            "notes": "El efecto real (cero permission_denied en el primer turno) se verifica en T5.1. Hace falta recompilar y reiniciar el servicio para que lo tome.",
+            "by": "maker",
+            "recordedAt": "2026-10-06T00:34:50.065Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "La evidencia lista las rutas que el agente intentó leer en la prueba del sprint 5 y por qué el prompt nuevo las evita",
+              "Test del prompt del primer turno de un Work: nombra la ruta legible de la skill kyro-work y el comando de creación, y prohíbe dejar archivos sueltos",
+              "permissions.ts y la allowlist sin cambios en el diff de esta tarea",
+              "Tests de apps/api en verde"
+            ],
+            "findings": [],
+            "by": "checker",
+            "reviewedAt": "2026-10-06T00:34:50.362Z",
+            "requestDigest": "859691352a037677c33b2073dbc04c6051b40ccaafb164845cbd2d6c034e0ebb",
+            "reviewedMaterialDigest": "352b45a6030fb63a82bc3616723863b96d73569061476dd4151be0b5e0a89bf0"
+          }
+        },
+        {
+          "id": "T2.2",
+          "title": "rm con ruta validada dentro del worktree (debt-5)",
+          "description": "Sumar rm a la base de Bash del piloto como los comandos de lectura con ruta validada: cada operando, resuelto con realpath (siguiendo symlinks del directorio padre, sin seguir el último si es symlink), tiene que quedar dentro del worktree y no ser la raíz del worktree ni .git ni algo dentro de .git. Opciones permitidas: -f, -r/-R, -- y combinaciones cortas; cualquier otra opción, glob sin expandir, ~, $VAR, sustitución o redirección se deniega. Actualizar la política del piloto (hoy manda git rm y git clean) para que use rm validado solo para archivos no versionados.",
+          "files_to_touch": [
+            "apps/api/src/agent/permissions.ts",
+            "apps/api/src/pilot/policy.ts",
+            "apps/api/test/permissions.test.ts",
+            "docs/plan.md"
+          ],
+          "context": "Convención sec-1: toda allowlist de Bash que mira la primera palabra rechaza envoltorios que ejecutan otros comandos y se prueba con un intento de bypass por envoltorio. debt-5: nunca un rm sin validar (rm -rf ~ pasaría). R9 y R10: nada de bypassPermissions. Es el único cambio de allowlist del sprint y lo aprobó el usuario el 06/10/2026.",
+          "acceptance_criteria": [
+            "Permitidos (tests): rm archivo.txt, rm -f a b, rm -r carpeta/ dentro del worktree",
+            "Denegados con permission_denied (tests): rm -rf ~, rm -rf /, rm ../x, rm -r . , rm -r .git, rm $HOME/x, rm *(sin expandir), rm a/link-afuera/x con symlink que sale del worktree, rm --no-preserve-root /, env rm x, xargs rm, nohup rm x, timeout 1 rm x, sh -c 'rm x'",
+            "npm test, git push y go test siguen permitidos (S32 sigue verde)",
+            "La política del piloto menciona rm validado y su límite; debt-5 resuelta con kyro debt resolve"
+          ],
+          "depends_on": [],
+          "scenario_refs": [
+            "S45",
+            "S10",
+            "S32"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "rm con ruta validada (checkRm): cada operando se resuelve con realpath del padre sin seguir el último componente y debe quedar dentro del worktree, no ser la raíz ni .git ni algo dentro de .git; solo -f/-r/-R/--; deniega globs, ~, variables, sustituciones, redirecciones, comillas en la ruta, '..', rm tras cd y envoltorios; un proyecto no puede agregarlo y su extra no evita la validación. Política del piloto v4 con rm validado y su límite",
+            "validation": [
+              "permissions.test.ts nuevo (worktree real con symlink): permitidos rm archivo.txt, rm -f a b, rm -r carpeta/; denegados rm -rf ~, /, ../x, -r ., -r .git, $HOME/x, *, symlink que sale, --no-preserve-root /, env/xargs/nohup/timeout/sh -c",
+              "npm test, git push y go test siguen permitidos (test)",
+              "vitest apps/api 1036 en verde, eslint y tsc limpios",
+              "Se ajustaron dos tests viejos que daban por sentado que rm siempre se denegaba (agent.test.ts:526 y permissions.test.ts 'uv run pytest && rm'), ahora usan una ruta fuera del worktree"
+            ],
+            "files_changed": [
+              "apps/api/src/agent/permissions.ts",
+              "apps/api/src/projects/permissions-routes.ts",
+              "apps/api/src/pilot/policy.ts",
+              "apps/api/test/permissions.test.ts",
+              "apps/api/test/agent.test.ts",
+              "apps/api/test/pilot-policy.test.ts",
+              "docs/plan.md"
+            ],
+            "notes": "Límite conocido documentado en plan.md: validación previa a la ejecución (sin bloqueo contra un symlink creado entre ambas). Hace falta recompilar y reiniciar el servicio.",
+            "by": "maker",
+            "recordedAt": "2026-10-06T00:40:10.747Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "Permitidos (tests): rm archivo.txt, rm -f a b, rm -r carpeta/ dentro del worktree",
+              "Denegados con permission_denied (tests): rm -rf ~, rm -rf /, rm ../x, rm -r . , rm -r .git, rm $HOME/x, rm *(sin expandir), rm a/link-afuera/x con symlink que sale del worktree, rm --no-preserve-root /, env rm x, xargs rm, nohup rm x, timeout 1 rm x, sh -c 'rm x'",
+              "npm test, git push y go test siguen permitidos (S32 sigue verde)",
+              "La política del piloto menciona rm validado y su límite; debt-5 resuelta con kyro debt resolve"
+            ],
+            "findings": [],
+            "by": "checker",
+            "reviewedAt": "2026-10-06T00:40:11.061Z",
+            "requestDigest": "bb6afadfb950b632e92b4e11386aaf3ad486348009f347f6bd9d7a773ba43751",
+            "reviewedMaterialDigest": "fac23628f69782bd0f41c94622a028157bf1c6e3c9918a33a3b3b12df5584343"
+          }
+        }
+      ]
+    },
+    {
+      "id": "P3",
+      "title": "Deuda menor del QA del sprint 5 (debt-11)",
+      "objective": "Cerrar los menores del QA del sprint 5 que tienen arreglo en código.",
+      "status": "done",
+      "tasks": [
+        {
+          "id": "T3.1",
+          "title": "API: ref de kyro-init, respaldo de question_cancelled, tope de suscripciones y mensaje de on",
+          "description": "(a) Leer el ref de chore/kyro-init sin dos execFileSync por lectura de proyecto: cache por proyecto invalidada al inicializar, pushear o borrar la rama (o lectura de .git/refs y packed-refs). (b) El respaldo de question_cancelled al arrancar corre una sola vez (marca persistida) o solo sobre preguntas pendientes, no recorre todos los eventos en cada arranque. (c) Tope de suscripciones push por usuario (10): la undécima da 409 con el motivo 'quitá un dispositivo'; volver a suscribir el mismo endpoint sigue siendo idempotente. (d) La acción on con el piloto en estado finished responde 409 con un mensaje que diga que el trabajo ya terminó, no uno genérico.",
+          "files_to_touch": [
+            "apps/api/src/projects/kyro-init.ts",
+            "apps/api/src/chats/questions.ts",
+            "apps/api/src/push/service.ts",
+            "apps/api/src/push/routes.ts",
+            "apps/api/src/pilot/routes.ts",
+            "apps/api/test/push-routes.test.ts",
+            "apps/api/test/pilot-routes.test.ts"
+          ],
+          "context": "debt-11 (QA del sprint 5). R21 (push), R24 (sesión, CSRF, execFile sin shell). Las rutas de los archivos son orientativas: ubicar dónde vive hoy cada pieza. E1/E2 sin scenario_refs no se puede arreglar (tareas archivadas e inmutables): se anota como N/A en la evidencia. S20 se cubre en T4.1.",
+          "acceptance_criteria": [
+            "Test: leer un proyecto sin Kyro dos veces seguidas no ejecuta git dos veces; inicializar o pushear la rama refresca el valor",
+            "Test: el segundo arranque no recorre eventos para el respaldo de question_cancelled",
+            "Test: la undécima suscripción de un usuario da 409 con motivo; repetir un endpoint existente da 200/201 sin duplicar",
+            "Test: on con piloto finished da 409 con el mensaje específico",
+            "typecheck, lint y tests de apps/api en verde"
+          ],
+          "depends_on": [],
+          "scenario_refs": [
+            "S47",
+            "S39"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "(a) el ref de chore/kyro-init se lee de los archivos de refs (suelto y packed-refs) sin lanzar git, así que no hay caché que invalidar; (b) el respaldo de question_cancelled corre una sola vez con marca persistida (tabla app_flags, migración 18); (c) tope de 10 suscripciones push por usuario: la undécima da 409 'quitá un dispositivo', repetir un endpoint sigue idempotente; (d) 'on' con el piloto finished da 409 'El trabajo ya terminó…'",
+            "validation": [
+              "kyro-init-pending.test.ts: con PATH sin git lee ref suelto, packed-refs, origin y borrado, y ve los cambios al instante",
+              "restart-questions.test.ts: el segundo arranque no vuelve a recorrer eventos (marca app_flags)",
+              "push-routes.test.ts: undécima 409 con motivo, mismo endpoint 200 sin duplicar, tope por usuario y se libera al borrar",
+              "pilot-routes.test.ts: on con finished da 409 con el mensaje específico (de paso, los tests de 409 existentes ahora leen el campo error real, antes miraban message y no verificaban nada)",
+              "vitest apps/api 1040 en verde, eslint y tsc limpios"
+            ],
+            "files_changed": [
+              "apps/api/src/projects/repo.ts",
+              "apps/api/src/app.ts",
+              "apps/api/src/db/flags.ts",
+              "apps/api/src/db/migrations.ts",
+              "apps/api/src/push/repo.ts",
+              "apps/api/src/push/routes.ts",
+              "apps/api/src/pilot/routes.ts",
+              "apps/api/test/kyro-init-pending.test.ts",
+              "apps/api/test/restart-questions.test.ts",
+              "apps/api/test/push-routes.test.ts",
+              "apps/api/test/pilot-routes.test.ts",
+              "apps/api/test/db.test.ts"
+            ],
+            "notes": "E1/E2 sin scenario_refs: N/A (tareas archivadas e inmutables). Los archivos orientativos del task (kyro-init.ts, questions.ts, push/service.ts) no existían: las piezas viven en projects/repo.ts, app.ts y push/repo.ts+routes.ts. Hace falta recompilar y reiniciar el servicio (la migración 18 corre al arrancar).",
+            "by": "maker",
+            "recordedAt": "2026-10-06T00:44:30.864Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "Test: leer un proyecto sin Kyro dos veces seguidas no ejecuta git dos veces; inicializar o pushear la rama refresca el valor",
+              "Test: el segundo arranque no recorre eventos para el respaldo de question_cancelled",
+              "Test: la undécima suscripción de un usuario da 409 con motivo; repetir un endpoint existente da 200/201 sin duplicar",
+              "Test: on con piloto finished da 409 con el mensaje específico",
+              "typecheck, lint y tests de apps/api en verde"
+            ],
+            "findings": [],
+            "by": "checker",
+            "reviewedAt": "2026-10-06T00:44:31.159Z",
+            "requestDigest": "55be6a5943396c8ff722a76470de240baf9342fee07b4cb83f2ffacd6ca62caf",
+            "reviewedMaterialDigest": "49f3dfac834777b7dbcbf90d914442dc6302ec5b5f2a33a12384d801f4f2a2ab"
+          }
+        },
+        {
+          "id": "T3.2",
+          "title": "Tests de sender.ts y push-sw.js",
+          "description": "Cubrir con tests apps/api/src/push/sender.ts (arma el payload, urgency high, TTL, traduce 404/410 a 'vencida' y otros errores a fallo sin tirar) con web-push inyectado, y la lógica del service worker apps/web/public/push-sw.js (mostrar la notificación con título, cuerpo, tag y url; notificationclick solo abre rutas internas y enfoca una pestaña existente) extrayendo la lógica pura a un módulo testeable o corriéndolo en un contexto simulado.",
+          "files_to_touch": [
+            "apps/api/test/push-sender.test.ts",
+            "apps/web/public/push-sw.js",
+            "apps/web/src/app/notifications/push-sw.spec.ts"
+          ],
+          "context": "debt-11. El service worker se sirve desde la raíz y tiene que seguir siendo un archivo plano (sin build) para que el navegador lo registre; si se extrae lógica, que siga funcionando sin bundler.",
+          "acceptance_criteria": [
+            "Test de sender: 404 y 410 marcan la suscripción para borrar; 500 no; urgency high presente",
+            "Test del service worker: una url externa (https://otro.com) no se abre; una ruta interna sí; con pestaña abierta la enfoca",
+            "ng build sigue copiando push-sw.js a la raíz de dist; tests de api y web en verde",
+            "debt-11 resuelta con kyro debt resolve y nota de cada ítem (E1/E2 N/A)"
+          ],
+          "depends_on": [
+            "T3.1"
+          ],
+          "scenario_refs": [
+            "S22"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "Tests de sender.ts (web-push inyectado con vi.mock: payload, VAPID, urgency high, TTL 3600, 404/410 y 500 con su código, fallo de red sin tirar) y de push-sw.js (se carga el archivo real en un contexto vm con un self simulado: show con título/cuerpo/tag/url, clic solo a rutas internas, enfoca la pestaña existente). Los tests encontraron un hueco real: '/\\\\otro.com' pasaba el chequeo de ruta y el navegador lo lee como //otro.com (salía del panel); push-sw.js ahora rechaza barra invertida y caracteres de control. push-sw.js sigue siendo un archivo plano",
+            "validation": [
+              "push-sender.test.ts: 404 y 410 devuelven ok:false con statusCode (el service los borra), 500 también pero con su código distinto, urgency high presente (5 tests)",
+              "push-sw.spec.ts: https://otro.com, //otro.com, /\\\\otro.com, javascript: y no-strings van al inicio; ruta interna abre ventana; con pestaña abierta la enfoca y navega (16 tests)",
+              "ng build copia push-sw.js a la raíz de dist; eslint y typecheck limpios; vitest api 1045 y web 255 en verde"
+            ],
+            "files_changed": [
+              "apps/api/test/push-sender.test.ts",
+              "apps/web/public/push-sw.js",
+              "apps/web/src/app/notifications/push-sw.spec.ts"
+            ],
+            "notes": "El bypass /\\\\host se confirmó con new URL('/\\\\otro.com', origin) = https://otro.com/. Se agregó una función auxiliar en el SW (sin bundler).",
+            "by": "maker",
+            "recordedAt": "2026-10-06T00:48:24.479Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "Test de sender: 404 y 410 marcan la suscripción para borrar; 500 no; urgency high presente",
+              "Test del service worker: una url externa (https://otro.com) no se abre; una ruta interna sí; con pestaña abierta la enfoca",
+              "ng build sigue copiando push-sw.js a la raíz de dist; tests de api y web en verde",
+              "debt-11 resuelta con kyro debt resolve y nota de cada ítem (E1/E2 N/A)"
+            ],
+            "findings": [],
+            "by": "checker",
+            "reviewedAt": "2026-10-06T00:48:24.775Z",
+            "requestDigest": "6f427e87f6febd560e0b08c014c507e7e257509d50fb517a8140b59271a74179",
+            "reviewedMaterialDigest": "29ec3217445ef496c1e4177ee4f1eee0b2e7a63c855154acbbd07968759a180c"
+          }
+        }
+      ]
+    },
+    {
+      "id": "P4",
+      "title": "ventas: merge-dev con versión (R19)",
+      "objective": "Que el merge-dev de ventas suba ProjectVersion de be-ventas según los commits, entregado como Kyro Work en ventas con PR.",
+      "status": "done",
+      "tasks": [
+        {
+          "id": "T4.1",
+          "title": "Kyro Work en ventas: versión en merge-dev, push y PR",
+          "description": "En el repo ventas (/home/ubuntu/proyectos/ventas), con kyro-work y en una rama propia (nunca sobre la rama base): sumar a .claude/skills/merge-dev/SKILL.md el paso de versión para be-ventas y un script determinista (scripts/version-bump.sh, bash, set -euo pipefail, LF) que, después de traer origin/dev, parte de ProjectVersion de origin/dev en be-ventas/pkg/consts/config.go y calcula major (algún commit con '!' o BREAKING CHANGE), minor (algún feat) o patch (el resto) con los commits de origin/dev..rama; el commit es chore(version) solo en be-ventas. Si el merge no incluye be-ventas no se toca nada. Un test (scripts/version-bump.test.sh) arma repos temporales y cubre los tres casos de S20 más el breaking. Commitear, pushear la rama (nunca --force) y abrir la PR hacia la rama base del repo raíz con gh pr create. No correr merge-dev de verdad ni tocar dev de be-ventas.",
+          "files_to_touch": [
+            "../ventas/.claude/skills/merge-dev/SKILL.md",
+            "../ventas/scripts/version-bump.sh",
+            "../ventas/scripts/version-bump.test.sh",
+            "../ventas/.agents/kyro/works/"
+          ],
+          "context": "R19 y D14: calcular antes de traer dev haría que dos features en paralelo suban a la misma versión. El usuario aprobó el 06/10/2026 hacerlo como Work en ventas con push y PR. Reglas del repo ventas: sus Conventional Commits (.opencode/skills/git-commit), su CLAUDE.md si tiene. Hoy ProjectVersion es 1.13.0 en la base local. No es una prueba del piloto: se hace con Claude Code directo, no con el panel (los pilotos se prueban solo en repos de prueba).",
+          "acceptance_criteria": [
+            "version-bump.test.sh pasa: rama con feat sube el minor, rama solo con fix sube el patch, merge sin be-ventas no toca la versión, breaking sube el major (S20)",
+            "SKILL.md describe cuándo corre el paso (después de traer origin/dev, antes de la PR de be-ventas) y el commit chore(version)",
+            "Work de Kyro cerrado en ventas, rama pusheada sin --force y PR abierta (URL en la evidencia); dev y main de ventas sin cambios",
+            "plan.md de agents-panel registra la PR como entrega de R19"
+          ],
+          "depends_on": [],
+          "scenario_refs": [
+            "S20"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "Work version-merge-dev hecho con kyro-work en ventas (rama feature/version-merge-dev, W1 y W2 con review pass de un checker distinto, Work cerrado completed): scripts/version-bump.sh, su test (S20) y el paso en la skill merge-dev. Rama pusheada sin --force. PR: https://github.com/Maiki02/NovaGent/pull/1 (hacia main). main y dev de ventas y dev de be-ventas sin cambios (mismos hashes antes y después)",
+            "validation": [
+              "bash scripts/version-bump.test.sh: 22 chequeos OK — feat sube minor, solo fix/docs sube patch, merge sin be-ventas no toca la versión, ! y BREAKING CHANGE suben major, base en origin/dev, idempotente",
+              "SKILL.md describe el paso después de traer origin/dev y antes de la PR de be-ventas, y el commit chore(version) solo en be-ventas (diff revisado)",
+              "git rev-parse: main de ventas (e603710), origin/main y dev de be-ventas (cb3b5ca) iguales a antes; be-ventas sigue en 1.13.0",
+              "docs/plan.md registra la PR como entrega de R19"
+            ],
+            "files_changed": [
+              "../ventas/scripts/version-bump.sh",
+              "../ventas/scripts/version-bump.test.sh",
+              "../ventas/.claude/skills/merge-dev/SKILL.md",
+              "../ventas/.agents/kyro/work/version-merge-dev/",
+              "docs/plan.md"
+            ],
+            "notes": "La rama de ventas se llama feature/version-merge-dev (convención feature/<scope> de la raíz). No se corrió merge-dev real. La PR queda para que la revise y mergee el usuario.",
+            "by": "maker",
+            "recordedAt": "2026-10-06T00:51:10.201Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "version-bump.test.sh pasa: rama con feat sube el minor, rama solo con fix sube el patch, merge sin be-ventas no toca la versión, breaking sube el major (S20)",
+              "SKILL.md describe cuándo corre el paso (después de traer origin/dev, antes de la PR de be-ventas) y el commit chore(version)",
+              "Work de Kyro cerrado en ventas, rama pusheada sin --force y PR abierta (URL en la evidencia); dev y main de ventas sin cambios",
+              "plan.md de agents-panel registra la PR como entrega de R19"
+            ],
+            "findings": [],
+            "by": "checker",
+            "reviewedAt": "2026-10-06T00:51:10.513Z",
+            "requestDigest": "0a04ce71db319a3b6aa19b80801757e558fa95e49aedb5d6246e5221eb737dbf",
+            "reviewedMaterialDigest": "9e2554b048cce4685a46fba1e2e629d428e71e6fc5e958dd41cd5710d204e91f"
+          }
+        }
+      ]
+    },
+    {
+      "id": "P5",
+      "title": "Corrida real, docs y verificación",
+      "objective": "Comprobar con el servicio en producción que el piloto llega solo a la PR en un repo de prueba, dejar los docs al día y los gates en verde.",
+      "status": "done",
+      "tasks": [
+        {
+          "id": "T5.1",
+          "title": "Corrida real del piloto en test-panel: guía y deuda (diferida por el usuario)",
+          "description": "La corrida real con el servicio queda diferida por decisión del usuario (06/10/2026). Esta tarea deja lista la prueba y registra lo no probado: sumar a docs/panel-desarrollo.md la guía paso a paso de la corrida real en test-panel (Scope chico con piloto, pregunta material con botón, reinicio del servicio a mitad de la ejecución, avisos push en PC y Android, suscripción vencida con Probar, qué mirar en la base y en el Timeline) y registrar con kyro debt cada verificación que no se hizo. No mergear nunca la PR de prueba. Nada de lo no probado se marca como probado.",
+          "files_to_touch": [
+            "docs/panel-desarrollo.md"
+          ],
+          "context": "Antes de la prueba hay que reiniciar el servicio (recompilado con la política v4, rm validado, migración 18). debt-1 y debt-10 siguen abiertas. Verifica T1.2 (R15 con el servicio), T2.1 (cero permission_denied de lectura fuera del worktree en el primer turno) y los avisos push cuando se haga. No reiniciar la API ni editar apps/api mientras el usuario prueba. Al 06/10/2026 la base solo tiene los chats del sprint 5 (probar-env y readme, política v2): no hay ninguna corrida nueva.",
+          "acceptance_criteria": [
+            "docs/panel-desarrollo.md tiene la guía de la corrida real en test-panel con sus pasos y qué verificar (Scope con piloto hasta pr_lista, pregunta con botón, reinicio a mitad, retoma sin duplicar el paso, avisos push en PC y Android, suscripción vencida, cero permission_denied de lectura en el primer turno)",
+            "Cada verificación real no hecha está en una deuda abierta (debt-1, debt-10 y las nuevas) con nota de que no se probó",
+            "El servicio agents-panel queda active con el build actual y la guía dice que no se mergea la PR de prueba"
+          ],
+          "depends_on": [
+            "T1.2",
+            "T2.1",
+            "T2.2"
+          ],
+          "scenario_refs": [
+            "S2",
+            "S16",
+            "S22",
+            "S43",
+            "S46"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "Definición de T5.1 cambiada con plan --update-active por decisión del usuario (06/10/2026): la corrida real queda diferida. Se dejó la guía paso a paso en docs/panel-desarrollo.md y la deuda explícita: debt-1 y debt-10 diferidas al sprint 7 con nota de que no se probó, y debt-12 a debt-15 nuevas (corrida real hasta pr_lista, R15 con el servicio, cero permission_denied en el primer turno, avisos push en PC y Android). NO se probó nada de la corrida real: la base solo tiene los chats del sprint 5 y el servicio se reinició a las 00:52 UTC sin ninguna corrida posterior",
+            "validation": [
+              "docs/panel-desarrollo.md: sección 'Corrida real del piloto en test-panel (pendiente)' con 9 pasos, la regla de no mergear y la aclaración de que nada está probado",
+              "kyro debt: debt-1 y debt-10 deferidas con nota; debt-12, 13, 14 y 15 abiertas con nota de no probado",
+              "systemctl is-active agents-panel = active y /api/health 200 con el build actual"
+            ],
+            "files_changed": [
+              "docs/panel-desarrollo.md"
+            ],
+            "notes": "Verificado por consulta a la base (solo lectura) y a GitHub: sin corrida nueva. El usuario dijo 'todo dio OK' y la base no lo respalda; se registró como no probado. Los criterios originales (pr_lista, retoma, botón, push, suscripción vencida) NO se cumplieron: quedan en las deudas.",
+            "by": "maker",
+            "recordedAt": "2026-10-06T00:55:50.582Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "docs/panel-desarrollo.md tiene la guía de la corrida real en test-panel con sus pasos y qué verificar (Scope con piloto hasta pr_lista, pregunta con botón, reinicio a mitad, retoma sin duplicar el paso, avisos push en PC y Android, suscripción vencida, cero permission_denied de lectura en el primer turno)",
+              "Cada verificación real no hecha está en una deuda abierta (debt-1, debt-10 y las nuevas) con nota de que no se probó",
+              "El servicio agents-panel queda active con el build actual y la guía dice que no se mergea la PR de prueba"
+            ],
+            "findings": [],
+            "by": "checker",
+            "reviewedAt": "2026-10-06T00:55:50.882Z",
+            "requestDigest": "e026b7d5a4e2a2fea774fe64174cfb92bf72e9ee5197567d5c6722fc4b82fab2",
+            "reviewedMaterialDigest": "bf7e58e0bee8a35cb86ffe214e1bdc8e5bff9baecd4486e823b74d9c407224e8"
+          }
+        },
+        {
+          "id": "T5.2",
+          "title": "Docs del sprint 6 y cobertura de decisiones",
+          "description": "docs/plan.md: resumen del sprint 6 (servicio y build, rm validado, prompt del Work, versión de ventas con su PR, corrida real) y etapa 6 actualizada (systemd hecho; backup de SQLite, topes configurables y limpieza siguen pendientes). docs/panel-desarrollo.md: cómo se corre ahora (servicio) y cómo desarrollar sin chocar con él (lock de instancia única). docs/estados.md si algún estado cambió. CLAUDE.md: la línea de Seguridad del panel que dice que Funnel publica ng serve pasa a describir el servicio. Revisar que cada decisión D1–D31 esté reflejada en algún doc (S27).",
+          "files_to_touch": [
+            "docs/plan.md",
+            "docs/panel-desarrollo.md",
+            "docs/estados.md",
+            "docs/vm-setup.md",
+            "CLAUDE.md"
+          ],
+          "context": "R26. Docs en español, sin secretos (ni claves VAPID ni .env). Mergear la PR desde el panel queda descartado por ahora por decisión del usuario (06/10/2026) y no se anota.",
+          "acceptance_criteria": [
+            "prettier --check docs CLAUDE.md sin errores",
+            "grep de 'ng serve' en CLAUDE.md y en el paso de Funnel de vm-setup.md: solo como modo de desarrollo",
+            "Lista D1–D31 con el doc donde se refleja cada una, en la evidencia"
+          ],
+          "depends_on": [
+            "T1.2",
+            "T2.1",
+            "T2.2",
+            "T3.2",
+            "T4.1",
+            "T5.1"
+          ],
+          "scenario_refs": [
+            "S27"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "Docs del sprint 6: plan.md (resumen del sprint 6, etapa 6 con systemd y Funnel hechos y pendientes backup/topes/limpieza, siguiente scope operaciones-worktree), panel-desarrollo.md (cómo se corre con el servicio, desarrollar sin chocar con el candado), vm-setup.md (Funnel al 3000, ng serve solo como desarrollo) y CLAUDE.md (excepción de commit/push del piloto, D8/D17, y Funnel publica el servicio). docs/estados.md sin cambios: este sprint no agregó ni cambió ningún estado",
+            "validation": [
+              "npx prettier --check docs CLAUDE.md: All matched files use Prettier code style",
+              "grep 'ng serve': CLAUDE.md:88 lo cita solo como modo de desarrollo; en vm-setup.md las menciones restantes son históricas (pasos 10/15) o del modo desarrollo; ninguna dice que Funnel publica ng serve hoy",
+              "Cobertura D1-D31: D1 plan.md (orquestador, sprint 3); D2 estados.md y plan.md (nextAction); D3 plan.md (sesión SDK nueva); D4 plan.md (política v2/v3/v4); D5 plan.md (QA siempre); D6 y D7 plan.md (deuda y fin del scope); D8 y D17 CLAUDE.md (excepción del piloto, nueva) y plan.md; D9 plan.md y panel-desarrollo.md (preguntas); D10 vm-setup.md, plan.md, CLAUDE.md (Web Push); D11 plan.md y panel-desarrollo.md (modelos por rol); D12 plan.md y panel-desarrollo.md (Idea); D13 plan.md (merge-dev y genérico); D14 plan.md (versión de ventas, PR #1); D15 y D21 estados.md ('Tres niveles') y plan.md; D16 plan.md y estados.md (retoma); D23 identidad-visual.md (anatomía, actor); D29 plan.md (kyro-sprint-executor no se usa); D30 plan.md (permisos por proyecto); D18, D19, D20, D22, D24, D25, D26, D27, D28 y D31 pertenecen al scope siguiente operaciones-worktree: plan.md lo declara (nueva línea) y están descritas en .agents/kyro/plan/2026-10-04-autopiloto-kyro.md, no implementadas acá"
+            ],
+            "files_changed": [
+              "docs/plan.md",
+              "docs/panel-desarrollo.md",
+              "docs/vm-setup.md",
+              "CLAUDE.md"
+            ],
+            "notes": "Se cambió una regla de CLAUDE.md (commits y push) porque D8 lo exigía en este scope y la memoria del usuario ya permite pushear la rama del worktree. El 'docs/estados.md si algún estado cambió' no aplicó. No se anotó el merge desde el panel, descartado por el usuario.",
+            "by": "maker",
+            "recordedAt": "2026-10-06T00:57:08.827Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "prettier --check docs CLAUDE.md sin errores",
+              "grep de 'ng serve' en CLAUDE.md y en el paso de Funnel de vm-setup.md: solo como modo de desarrollo",
+              "Lista D1–D31 con el doc donde se refleja cada una, en la evidencia"
+            ],
+            "findings": [],
+            "by": "checker",
+            "reviewedAt": "2026-10-06T00:57:09.141Z",
+            "requestDigest": "064a478fa280de8ebf75e9f90936fae18e6f46d8f005d9fa0526577f581804b1",
+            "reviewedMaterialDigest": "b74a601d59998c6c38c6f703cf839650a8ac56b7c536604f8f652b1e5fd64e6b"
+          }
+        },
+        {
+          "id": "T5.3",
+          "title": "Verificación automática del sprint",
+          "description": "Correr npm run typecheck, lint, format:check, test y build. Greps: ningún bypassPermissions ni allowDangerouslySkipPermissions en apps/api/src; public: true solo /api/health y los dos pasos del login; colores solo de tokens en apps/web; .env.example sin valores reales; /tmp sin carpetas panel-* tras los tests. kyro analyze --kyro-scope autopiloto-kyro sin CRITICAL ni HIGH y kyro doctor --artifacts limpio.",
+          "files_to_touch": [],
+          "context": "Definition of Done del sprint. Si analyze marca algo, se corrige como tarea emergente antes del QA.",
+          "acceptance_criteria": [
+            "typecheck, lint, format:check, test y build en verde (conteo de tests en la evidencia)",
+            "Greps de seguridad sin hallazgos",
+            "kyro analyze sin CRITICAL ni HIGH; kyro doctor --artifacts sin errores"
+          ],
+          "depends_on": [
+            "T5.2"
+          ],
+          "scenario_refs": [
+            "S11",
+            "S25"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "Verificación automática del sprint 6 en verde. Se corrigió formato (prettier --write) en 11 archivos del sprint que fallaban format:check, y la trazabilidad de E1 (analyze marcaba MEDIUM A001): escenario S48 sobre R6 enlazado con plan --update-active y E1 re-evidenciada",
+            "validation": [
+              "npm run typecheck sin errores (shared, api, web)",
+              "npx eslint . sin hallazgos y npm run format:check: All matched files use Prettier code style",
+              "npm test: apps/api 59 archivos y 1045 tests, apps/web 27 archivos y 255 tests, todo en verde",
+              "npm run build: Application bundle generation complete; dist de api con web-static e instance-lock",
+              "Greps: sin bypassPermissions ni allowDangerouslySkipPermissions en apps/api/src; public: true solo en /api/health y los dos pasos del login (auth/routes.ts:47 y :88, app.ts:144); sin colores fuera de tokens en apps/web (solo el meta theme-color de index.html, que el navegador exige en hex); apps/api/.env.example solo con valores falsos; 0 carpetas /tmp/panel-* tras los tests",
+              "kyro analyze --kyro-scope autopiloto-kyro: no semantic issues found (CRITICAL=0 HIGH=0 MEDIUM=0); kyro doctor --artifacts sin FAIL ni ERROR"
+            ],
+            "files_changed": [],
+            "notes": "Los tests de este sprint reportan 1045 (api) y 255 (web).",
+            "by": "maker",
+            "recordedAt": "2026-10-06T01:03:21.890Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "typecheck, lint, format:check, test y build en verde (conteo de tests en la evidencia)",
+              "Greps de seguridad sin hallazgos",
+              "kyro analyze sin CRITICAL ni HIGH; kyro doctor --artifacts sin errores"
+            ],
+            "findings": [],
+            "by": "checker",
+            "reviewedAt": "2026-10-06T01:03:22.191Z",
+            "requestDigest": "19a3c8edadff8230e9276dbbf2ba97bcf799b79b9cf03d2bdf6c756e37207936",
+            "reviewedMaterialDigest": "7aeca676872c90a749b02eb33c70a12acdf14237e5d340fe2ec1bf158aafa334"
+          }
+        }
+      ]
+    }
+  ],
+  "emergentTasks": [
+    {
+      "id": "E1",
+      "title": "El piloto registra reglas sin preguntar: la recomendada (scope o global) y lo informa",
+      "description": "Hoy la política (global_rule) registra siempre solo para el scope y solo en ejecución y cierre; si Kyro pregunta si una regla es del scope o global (también en planificación) el agente puede frenar. Subir la política a v3: ante esa pregunta el agente elige la opción que Kyro recomienda (si no recomienda, scope-only), la ejecuta con kyro rule add (--global solo si es lo recomendado), no pregunta, y lo deja en un ADR y en una sección 'Reglas agregadas' del informe final con scope/global y el texto de cada regla.",
+      "files_to_touch": [],
+      "context": "",
+      "acceptance_criteria": [
+        "buildPolicy de plan, execute y close incluye la cláusula global_rule v3: elige la recomendada por Kyro, scope-only si no hay recomendación, nunca pregunta",
+        "La cláusula exige un ADR por regla y la sección 'Reglas agregadas' (scope o global + texto) en el informe final",
+        "POLICY_VERSION es 3 y docs/plan.md describe el cambio; tests del piloto, typecheck y lint en verde"
+      ],
+      "depends_on": [],
+      "scenario_refs": [
+        "S48"
+      ],
+      "status": "done",
+      "evidence": {
+        "summary": "Política v3 sin cambios; se re-graba la evidencia porque se enlazó el escenario S48 (R6) a E1 por trazabilidad. La cláusula global_rule vale en plan, ejecución y cierre: toma la opción recomendada por Kyro (solo scope si no hay), no pregunta, deja ADR y la sección 'Reglas agregadas' en el informe final",
+        "validation": [
+          "vitest apps/api/test/pilot-policy.test.ts: el test 'rule registration (v3)' cubre plan, execute y close; suite completa de apps/api 1045 en verde",
+          "docs/plan.md describe la política v3; prettier, eslint y typecheck limpios"
+        ],
+        "files_changed": [
+          "apps/api/src/pilot/policy.ts",
+          "apps/api/test/pilot-policy.test.ts",
+          "docs/plan.md"
+        ],
+        "notes": "La política (v4 hoy) mantiene la cláusula de v3.",
+        "by": "maker",
+        "recordedAt": "2026-10-06T01:03:11.605Z"
+      },
+      "verdict": {
+        "result": "pass",
+        "checked_criteria": [
+          "buildPolicy de plan, execute y close incluye la cláusula global_rule v3: elige la recomendada por Kyro, scope-only si no hay recomendación, nunca pregunta",
+          "La cláusula exige un ADR por regla y la sección 'Reglas agregadas' (scope o global + texto) en el informe final",
+          "POLICY_VERSION es 3 y docs/plan.md describe el cambio; tests del piloto, typecheck y lint en verde"
+        ],
+        "findings": [],
+        "by": "checker",
+        "reviewedAt": "2026-10-06T01:03:11.904Z",
+        "requestDigest": "2c3a0ffd42f84f4baa396d5ebcc8b17e0b103bc6d4a65ed8fcc24f49ab3ddea8",
+        "reviewedMaterialDigest": "014d29421b6f90018b2a7f4da1f42613b86e99bbd10dced8440da71d8aa34972"
+      }
+    },
+    {
+      "id": "E2",
+      "title": "El candado de instancia no se queda trabado tras un reinicio sucio de la VM (hallazgo mayor del QA del sprint 6)",
+      "description": "acquireInstanceLock solo comprueba que el pid del lock esté vivo: tras un reinicio sucio el pid puede ser de otro proceso y el servicio quedaría en un bucle de reinicios. Guardar en panel.lock el boot_id de Linux (/proc/sys/kernel/random/boot_id) junto al pid y tratar como huérfano un lock de otro arranque. Sin boot_id legible (otro sistema) se conserva el comportamiento actual. De paso, el minor 1: push-sw.spec.ts lee el service worker con import.meta.dirname en vez de process.cwd().",
+      "files_to_touch": [
+        "apps/api/src/instance-lock.ts",
+        "apps/api/test/instance-lock.test.ts",
+        "apps/web/src/app/notifications/push-sw.spec.ts"
+      ],
+      "context": "Required by kyro qa: informe .agents/kyro/qa/autopiloto-kyro/sprint-6.md (hallazgo mayor). Tras corregir hay que repetir el QA antes de cerrar.",
+      "acceptance_criteria": [
+        "Test: un lock con el pid de un proceso vivo pero con otro boot_id se recupera; con el mismo boot_id y pid vivo sigue negándose con el mensaje claro",
+        "Test: un lock en el formato anterior (solo pid) sigue funcionando; sin boot_id legible el comportamiento no cambia",
+        "push-sw.spec.ts no depende del directorio de trabajo; typecheck, lint, format:check y tests en verde"
+      ],
+      "depends_on": [],
+      "scenario_refs": [],
+      "status": "done",
+      "evidence": {
+        "summary": "El candado de instancia guarda pid y boot_id de Linux (/proc/sys/kernel/random/boot_id) y trata como huérfano un lock de otro arranque aunque su pid esté vivo (pid reutilizado tras un reinicio sucio); un lock del formato anterior (solo pid) o un sistema sin boot_id mantienen el comportamiento de antes. push-sw.spec.ts ya no depende del directorio de trabajo",
+        "validation": [
+          "instance-lock.test.ts (7 tests): lock de otro boot con pid vivo se recupera; mismo boot con pid vivo se niega con el mensaje claro; formato viejo (solo pid) y boot_id ilegible conservan el comportamiento; el archivo guarda pid y boot_id",
+          "push-sw.spec.ts pasa corrido desde apps/web y con --root desde la raíz (16 tests en cada uno)",
+          "typecheck, eslint y format:check limpios; vitest apps/api 1048 y apps/web 255 en verde; build completo; kyro analyze sin hallazgos"
+        ],
+        "files_changed": [
+          "apps/api/src/instance-lock.ts",
+          "apps/api/test/instance-lock.test.ts",
+          "apps/web/src/app/notifications/push-sw.spec.ts"
+        ],
+        "notes": "El servicio en marcha usa el build anterior hasta el próximo restart (el lock actual es del formato viejo y el código nuevo lo acepta). Hallazgo mayor del QA del sprint 6 corregido; falta repetir el QA.",
+        "by": "maker",
+        "recordedAt": "2026-10-06T01:08:41.712Z"
+      },
+      "verdict": {
+        "result": "pass",
+        "checked_criteria": [
+          "Test: un lock con el pid de un proceso vivo pero con otro boot_id se recupera; con el mismo boot_id y pid vivo sigue negándose con el mensaje claro",
+          "Test: un lock en el formato anterior (solo pid) sigue funcionando; sin boot_id legible el comportamiento no cambia",
+          "push-sw.spec.ts no depende del directorio de trabajo; typecheck, lint, format:check y tests en verde"
+        ],
+        "findings": [],
+        "by": "checker",
+        "reviewedAt": "2026-10-06T01:08:42.010Z",
+        "requestDigest": "cbfa57ddbea1dbe958dc59ef53099aef0d1daacf1d396c29c85b5334bb6fa6c0",
+        "reviewedMaterialDigest": "e136b40f02fc607d033bb72e0959c712105e45120eeddb7262805f7b4b02fb0d"
+      }
+    }
+  ],
+  "definitionOfDone": [
+    "Todas las tareas terminadas con evidencia y veredicto pass",
+    "typecheck, lint, format:check, test y build en verde; kyro analyze sin CRITICAL ni HIGH",
+    "QA del sprint con kyro-qa APPROVED o APPROVED WITH NOTES",
+    "Funnel publica el servicio systemd (build de producción), no ng serve",
+    "debt-1, debt-5, debt-9, debt-10 y debt-11 resueltas, o diferidas con OK explícito del usuario",
+    "PR de ventas (R19) abierta y registrada en plan.md",
+    "Docs al día: plan.md, vm-setup.md (paso 16, bitácora, Costos), panel-desarrollo.md, estados.md y CLAUDE.md"
+  ]
+}

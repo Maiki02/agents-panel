@@ -1,0 +1,79 @@
+{
+  "schemaVersion": 5,
+  "kind": "scope-remediation",
+  "id": "R-003",
+  "scope": "autopiloto-kyro",
+  "createdAt": "2026-10-06T01:09:48.765Z",
+  "base": {
+    "stateSha256": "30eb1b65958692b8d7b8598952a220dedf1f8bf8f5e458de969af54f32302a01",
+    "remediationHead": "8e02bd709099f645a86f5441d02cda3abedbe6abdc86d9fe8d7140d39925eda1",
+    "checkpoints": [
+      {
+        "path": "archive/sprint-001-preguntas-web.checkpoint.json",
+        "commitment": "22317dc5a9a7361765764e975fe791bb331006b2bda78cef0ba3f9e67113d9ed"
+      },
+      {
+        "path": "archive/sprint-002-modelos-estado-permisos.checkpoint.json",
+        "commitment": "652aa3bccf79d54622ef0ceae60732e3b9756b416e3dbf11d17b7c3398f40433"
+      },
+      {
+        "path": "archive/sprint-003-orquestador-politica.checkpoint.json",
+        "commitment": "e761c56de72c282a28d2e950f4e6983f583143ac20b7e65bdd7f8e97ba0110cd"
+      },
+      {
+        "path": "archive/sprint-004-idea-cierre-merge.checkpoint.json",
+        "commitment": "9e31c367c85a2117c9a68585124c85528e443cf792119f521e6c7eb3d132c7a2"
+      },
+      {
+        "path": "archive/sprint-005-web-piloto-push.checkpoint.json",
+        "commitment": "a472b05b3280b274f3771b7bf4af773a09d20f07fa076927b2700270affd0054"
+      },
+      {
+        "path": "archive/sprint-006-docs-ventas-cierre.checkpoint.json",
+        "commitment": "be94562f074c815a457579f99446fbcf5bb25950d4dfab8d6a12ea29a4a69a17"
+      }
+    ]
+  },
+  "issues": [
+    {
+      "id": "I1",
+      "code": "DEBT_TRANSITION",
+      "path": "debt[debt-14]",
+      "observedValueSha256": "42a143188328c9f25a0865a52bc0ad2c35314e0e7c4ca246c65130f7276812f6"
+    }
+  ],
+  "operations": [
+    {
+      "id": "O1",
+      "kind": "debt.change",
+      "resolves": [
+        "I1"
+      ],
+      "action": "defer",
+      "debtId": "debt-14",
+      "expectedDebtCollectionSha256": "42a143188328c9f25a0865a52bc0ad2c35314e0e7c4ca246c65130f7276812f6",
+      "after": {
+        "id": "debt-14",
+        "title": "T2.1: comprobar en una corrida real que el primer turno de un Work o Scope no tiene permission_denied de lectura fuera del worktree con el prompt nuevo y la política v4. No probado: los 8 denegados que hay en la base son del sprint 5",
+        "origin": 6,
+        "priority": "medium",
+        "status": "deferred",
+        "targetSprint": 7,
+        "note": "Diferida por el usuario el 06/10/2026 al completar el scope; no se probó. Guía en docs/panel-desarrollo.md."
+      },
+      "reason": "Diferida por el usuario el 06/10/2026 al completar el scope; no se probó. Guía en docs/panel-desarrollo.md."
+    }
+  ],
+  "result": {
+    "stateSha256": "0146c6fdb516d74242572cea29197426d2da6c8273222d48a6a29eadc549257f",
+    "witness": {
+      "schemaVersion": 1,
+      "kind": "operations-replay"
+    }
+  },
+  "provenance": {
+    "reason": "Diferida por el usuario el 06/10/2026 al completar el scope; no se probó. Guía en docs/panel-desarrollo.md.",
+    "actor": "maker",
+    "kyroVersion": "6.1.0"
+  }
+}
