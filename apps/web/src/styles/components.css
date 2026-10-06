@@ -34,6 +34,11 @@
     @apply resize-y;
   }
 
+  /* A link inside a sentence: same white/gray as the text, told apart by a gray underline. */
+  .link {
+    @apply text-text underline decoration-muted underline-offset-2 hover:decoration-text;
+  }
+
   /* Messages */
   .error {
     @apply mt-2 text-danger;
@@ -72,8 +77,17 @@
   .chat-head h1 {
     @apply m-0 text-xl;
   }
+  /* The chat page is a column of the height it gets: .chat-top (title, state, cards) with a
+     max height, .chat-scroll (the feed or the Timeline) taking the rest with its own scroll,
+     and .composer at the bottom. The document never scrolls because of the chat. */
+  .chat-top {
+    @apply max-h-[40dvh] shrink-0 overflow-y-auto;
+  }
+  .chat-scroll {
+    @apply my-2 min-h-0 flex-1 overflow-y-auto overscroll-contain pr-1;
+  }
   .feed {
-    @apply my-3 flex flex-col gap-2;
+    @apply flex flex-col gap-2;
   }
   .msg {
     @apply rounded-card border border-border px-3 py-2 break-words whitespace-pre-wrap;
@@ -147,6 +161,6 @@
     @apply m-0 flex list-none flex-col gap-1 p-0 text-sm;
   }
   .composer {
-    @apply sticky bottom-0 bg-bg py-2;
+    @apply shrink-0 border-t border-border bg-bg pt-2;
   }
 }
