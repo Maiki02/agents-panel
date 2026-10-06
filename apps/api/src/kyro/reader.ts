@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { readFile, readdir } from 'node:fs/promises';
+import { readFile, readdir, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import {
@@ -57,6 +57,26 @@ async function readJsonFile(path: string): Promise<unknown> {
   return JSON.parse(await readFile(path, 'utf8')) as unknown;
 }
 
+async function fileExists(path: string): Promise<boolean> {
+  try {
+    return (await stat(path)).isFile();
+  } catch {
+    return false;
+  }
+}
+
+/** `createdAt` of a work.json in ms; null when it cannot be read. */
+async function workCreatedAt(path: string): Promise<number | null> {
+  try {
+    const data = await readJsonFile(path);
+    const created = isRecord(data) ? data['createdAt'] : undefined;
+    const ms = typeof created === 'string' ? Date.parse(created) : Number.NaN;
+    return Number.isNaN(ms) ? null : ms;
+  } catch {
+    return null;
+  }
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -70,28 +90,38 @@ export class KyroReader {
   ) {}
 
   /**
-   * Scope of the worktree: `activeScope` in `.agents/kyro/local.json`. context-pack and status are
-   * read together; when they disagree the state moved between the two calls, so it reads once more.
+   * Scope of the worktree: the one named like the chat (`preferred`, the chat's slug) when its
+   * `sprint.json` exists, otherwise `activeScope` in `.agents/kyro/local.json`. `local.json` is
+   * git-ignored, so a fresh worktree of a repo that already has the scope does not have it.
+   * context-pack and status are read together; when they disagree the state moved between the two
+   * calls, so it reads once more.
    */
-  async readScope(cwd: string): Promise<KyroReadResult<KyroScopeState>> {
+  async readScope(cwd: string, preferred?: string): Promise<KyroReadResult<KyroScopeState>> {
     let scope: string;
     let artifactRoot = join('.agents', 'kyro', 'scopes');
-    try {
-      const local = await readJsonFile(join(cwd, '.agents', 'kyro', 'local.json'));
-      const active = isRecord(local) ? local['activeScope'] : undefined;
-      if (typeof active !== 'string' || active === '') {
-        return fail('no_target', 'local.json no tiene un scope activo');
-      }
-      scope = active;
-    } catch {
-      return fail('no_target', 'No se pudo leer .agents/kyro/local.json del worktree');
-    }
     try {
       const project = await readJsonFile(join(cwd, '.agents', 'kyro', 'project.json'));
       const root = isRecord(project) ? project['artifactRoot'] : undefined;
       if (typeof root === 'string' && root !== '') artifactRoot = root;
     } catch {
       // The default artifact root applies.
+    }
+    if (
+      preferred !== undefined &&
+      (await fileExists(join(cwd, artifactRoot, preferred, 'sprint.json')))
+    ) {
+      scope = preferred;
+    } else {
+      try {
+        const local = await readJsonFile(join(cwd, '.agents', 'kyro', 'local.json'));
+        const active = isRecord(local) ? local['activeScope'] : undefined;
+        if (typeof active !== 'string' || active === '') {
+          return fail('no_target', 'local.json no tiene un scope activo');
+        }
+        scope = active;
+      } catch {
+        return fail('no_target', 'No se pudo leer .agents/kyro/local.json del worktree');
+      }
     }
 
     let lastError: KyroReadError | undefined;
@@ -116,27 +146,49 @@ export class KyroReader {
   }
 
   /**
-   * Work of the worktree: `work` when given, otherwise the only folder under `.agents/kyro/work`
-   * (one worktree owns one work).
+   * Work of the worktree. `work` names it outright. Otherwise, among the folders of
+   * `.agents/kyro/work`: the one named like the chat (`hints.preferred`), or else the ones created
+   * since the worktree exists (`hints.since`, ms; `createdAt` of its work.json), because a repo may
+   * already carry other works. Exactly one is read; none or several is an error. Without hints
+   * every folder is a candidate, as before (one worktree owns one work).
    */
-  async readWork(cwd: string, work?: string): Promise<KyroReadResult<KyroWorkState>> {
+  async readWork(
+    cwd: string,
+    work?: string,
+    hints: { preferred?: string; since?: number } = {},
+  ): Promise<KyroReadResult<KyroWorkState>> {
     let slug = work;
     if (slug === undefined) {
+      const root = join(cwd, '.agents', 'kyro', 'work');
+      let dirs: string[];
       try {
-        const entries = await readdir(join(cwd, '.agents', 'kyro', 'work'), {
-          withFileTypes: true,
-        });
-        const dirs = entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name);
-        if (dirs.length !== 1 || dirs[0] === undefined) {
-          return fail(
-            'no_target',
-            `Se esperaba un solo Work en el worktree y hay ${String(dirs.length)}`,
-          );
-        }
-        slug = dirs[0];
+        const entries = await readdir(root, { withFileTypes: true });
+        dirs = entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name);
       } catch {
         return fail('no_target', 'El worktree no tiene Works de Kyro');
       }
+      let candidates = dirs;
+      if (hints.preferred !== undefined && dirs.includes(hints.preferred)) {
+        candidates = [hints.preferred];
+      } else if (hints.since !== undefined) {
+        const since = hints.since;
+        const fresh: string[] = [];
+        for (const dir of dirs) {
+          const created = await workCreatedAt(join(root, dir, 'work.json'));
+          if (created !== null && created >= since) fresh.push(dir);
+        }
+        candidates = fresh;
+      }
+      if (candidates.length === 0) {
+        return fail('no_target', 'Todavía no hay un Work creado en este worktree');
+      }
+      if (candidates.length > 1 || candidates[0] === undefined) {
+        return fail(
+          'no_target',
+          `Se esperaba un solo Work para este trabajo y hay ${String(candidates.length)}: ${candidates.join(', ')}`,
+        );
+      }
+      slug = candidates[0];
     }
     try {
       const status = await this.json(cwd, ['work', 'status', '--work', slug, '--json']);

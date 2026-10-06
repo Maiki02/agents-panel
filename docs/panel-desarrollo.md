@@ -286,6 +286,16 @@ Prueba de H3 con vos mirando. **Un Work de prueba en un repo de prueba**, nunca 
 
 **Resultado de H3 (2026-10-05, PC con Chrome y Android con Chrome cerrado, por la URL de Funnel):** confirmada. Un trabajo que frena, hace una pregunta o deja la PR lista avisa a la PC y al Android con el motivo y al tocar el aviso abre el trabajo. Dos hallazgos: en el Android el **ahorro de batería de Chrome** (Ajustes → Apps → Chrome → Batería, «Sin restricciones») demora o descarta los avisos, y por eso el envío usa `urgency: high`; y el reinicio de la API con una pregunta pendiente la cancela (ahora deja el evento `question_cancelled`). **No probado en real:** que una suscripción vencida (404 o 410 del servicio de push) se borre sola en el envío siguiente; está cubierto por tests automáticos y queda como deuda con target 6.
 
+### Continuar un scope o work que ya existe en el repo
+
+El piloto encuentra el scope o work de un chat por **su nombre**: el slug del chat. Para continuar uno que ya existe:
+
+1. El scope o work tiene que estar **commiteado en la rama base** del proyecto (`main`): un worktree nuevo sale de ella y no ve lo que quedó sin commitear.
+2. En la web, **Nuevo chat** del tipo Scope o Work con el **slug igual al nombre** (por ejemplo `capacidad-y-tiempos`) y, en el pedido, «Continuá el scope/work <nombre>». Si la rama `feature/<slug>` ya existe, el alta falla: hay que borrar esa rama (con otro slug el piloto no encontraría el scope o work por nombre).
+3. Con el piloto encendido desde el alta (o encendiéndolo después con **Encender piloto**), el piloto lee ese scope o work, decide el paso siguiente con las señales de Kyro y sigue.
+
+Qué elige el piloto (`KyroReader`): **scope**, el que se llama como el chat si existe su `sprint.json`, si no el `activeScope` de `local.json` (que no viaja con git); **work**, la carpeta que se llama como el chat, si no la única creada desde que existe el worktree (`createdAt` de su `work.json`), así los works que el repo ya tiene no se confunden con el del chat. Un Work nuevo (el agente lo crea en el primer turno) se encuentra por la fecha; con un nombre distinto del slug y varios works nuevos, frena con el motivo.
+
 ### Corrida real del piloto en test-panel (pendiente)
 
 Es la prueba de punta a punta del piloto con el servicio de producción. **No se hizo** (el usuario la dejó para otro día el 06/10/2026) y sus partes están como deuda abierta del scope `autopiloto-kyro`: `debt-1`, `debt-10` y las de «Corrida real…» (ver `.agents/kyro/scopes/autopiloto-kyro/sprint.json`). Ningún punto de esta lista está probado todavía.

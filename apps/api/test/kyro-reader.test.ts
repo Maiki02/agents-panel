@@ -278,3 +278,88 @@ describe('KyroReader completion verbs', () => {
     });
   });
 });
+
+describe('KyroReader: the scope or work of the chat among existing ones', () => {
+  const T0 = Date.parse('2026-10-05T00:00:00Z');
+  const iso = (ms: number) => new Date(ms).toISOString();
+
+  /** A worktree with works; `created` maps each slug to its work.json createdAt (ms). */
+  function worksCreated(created: Record<string, number>): string {
+    const root = mkdtempSync(join(tmpdir(), 'panel-kyro-work-'));
+    for (const [slug, at] of Object.entries(created)) {
+      const dir = join(root, '.agents', 'kyro', 'work', slug);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, 'work.json'), JSON.stringify({ createdAt: iso(at) }));
+    }
+    return root;
+  }
+  const workArg = (calls: { args: string[] }[]) => calls[0]?.args[3];
+
+  it('reads the work named like the chat even when the repo has other works', async () => {
+    const { run, calls } = runner({});
+    const cwd = worksCreated({ 'capacidad-y-tiempos': T0, 'monorepo-skeleton': T0 });
+    await new KyroReader(run).readWork(cwd, undefined, { preferred: 'capacidad-y-tiempos' });
+    expect(workArg(calls)).toBe('capacidad-y-tiempos');
+  });
+
+  it('otherwise reads the single work created since the chat, ignoring the older ones', async () => {
+    const { run, calls } = runner({});
+    const cwd = worksCreated({ viejo: T0, 'mi-cambio': T0 + 3_600_000 });
+    await new KyroReader(run).readWork(cwd, undefined, {
+      preferred: 'otro-nombre',
+      since: T0 + 1_000,
+    });
+    expect(workArg(calls)).toBe('mi-cambio');
+  });
+
+  it('says there is no work yet when only older ones exist, and refuses several new ones', async () => {
+    const reader = new KyroReader(runner({}).run);
+    const none = await reader.readWork(worksCreated({ viejo: T0, otro: T0 }), undefined, {
+      since: T0 + 1_000,
+    });
+    expect(none).toMatchObject({ ok: false, error: { kind: 'no_target' } });
+    expect(JSON.stringify(none)).toContain('Todavía no hay un Work');
+    const several = await reader.readWork(
+      worksCreated({ a: T0 + 5_000, b: T0 + 6_000 }),
+      undefined,
+      { since: T0 + 1_000 },
+    );
+    expect(several).toMatchObject({ ok: false, error: { kind: 'no_target' } });
+    expect(JSON.stringify(several)).toContain('a, b');
+  });
+
+  it('treats a work.json that cannot be read as not created since the chat', async () => {
+    const cwd = worksCreated({ bueno: T0 + 5_000 });
+    mkdirSync(join(cwd, '.agents', 'kyro', 'work', 'roto'), { recursive: true });
+    const { run, calls } = runner({});
+    await new KyroReader(run).readWork(cwd, undefined, { since: T0 });
+    expect(workArg(calls)).toBe('bueno');
+  });
+
+  it('keeps the old behaviour without hints, and an explicit work wins over the hints', async () => {
+    const { run, calls } = runner({});
+    const reader = new KyroReader(run);
+    const ambiguous = await reader.readWork(worksCreated({ a: T0, b: T0 }));
+    expect(ambiguous).toMatchObject({ ok: false, error: { kind: 'no_target' } });
+    await reader.readWork(worksCreated({ a: T0, b: T0 }), 'b', { preferred: 'a', since: T0 + 1 });
+    expect(workArg(calls)).toBe('b');
+  });
+
+  it('readScope uses the scope named like the chat when local.json has none, and local.json otherwise', async () => {
+    const { run, calls } = runner({});
+    const reader = new KyroReader(run);
+    const noActive = worktree('execute_task', null);
+    const byName = await reader.readScope(noActive, 'demo');
+    expect(byName).toMatchObject({ ok: true });
+    expect(calls[0]?.args).toContain('demo');
+    // The chat's scope wins over a different activeScope of local.json.
+    const other = worktree('execute_task', 'otro');
+    await reader.readScope(other, 'demo');
+    expect(calls.at(-1)?.args).toContain('demo');
+    // A name with no scope folder falls back to local.json, and without it there is no target.
+    await reader.readScope(worktree('execute_task', 'demo'), 'no-existe');
+    expect(calls.at(-1)?.args).toContain('demo');
+    const lost = await reader.readScope(noActive, 'no-existe');
+    expect(lost).toMatchObject({ ok: false, error: { kind: 'no_target' } });
+  });
+});

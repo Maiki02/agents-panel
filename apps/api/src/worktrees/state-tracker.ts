@@ -15,8 +15,14 @@ import type { WorktreeStateRepository } from './state-repo.js';
 
 /** The part of KyroReader the tracker needs; tests inject a fake backed by fixtures. */
 export interface KyroStateReader {
-  readScope(cwd: string): Promise<KyroReadResult<KyroScopeState>>;
-  readWork(cwd: string, work?: string): Promise<KyroReadResult<KyroWorkState>>;
+  /** `preferred` is the chat's slug: the scope named like it wins over `local.json`. */
+  readScope(cwd: string, preferred?: string): Promise<KyroReadResult<KyroScopeState>>;
+  /** `hints` narrow the works of the worktree to the chat's own (see KyroReader.readWork). */
+  readWork(
+    cwd: string,
+    work?: string,
+    hints?: { preferred?: string; since?: number },
+  ): Promise<KyroReadResult<KyroWorkState>>;
 }
 
 export interface TurnInfo {
@@ -168,8 +174,11 @@ export class WorktreeStateTracker implements TurnObserver {
     }
     const read =
       chat.kind === 'scope'
-        ? await this.reader.readScope(chat.worktreePath)
-        : await this.reader.readWork(chat.worktreePath);
+        ? await this.reader.readScope(chat.worktreePath, chat.slug)
+        : await this.reader.readWork(chat.worktreePath, undefined, {
+            preferred: chat.slug,
+            since: chat.createdAt,
+          });
     if (!read.ok) {
       this.states.transition(chat.id, {
         state: 'error',

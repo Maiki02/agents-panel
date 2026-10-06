@@ -240,7 +240,10 @@ export class Autopilot {
         this.stop(chat, blocked);
         return;
       }
-      const read = chat.kind === 'scope' ? await kyro.readScope(cwd) : await kyro.readWork(cwd);
+      const read =
+        chat.kind === 'scope'
+          ? await kyro.readScope(cwd, chat.slug)
+          : await kyro.readWork(cwd, undefined, { preferred: chat.slug, since: chat.createdAt });
 
       // A session cut by a restart goes on in its own SDK session. When it was the plan or the init
       // (what creates the scope or work), Kyro has nothing to read yet and that is not a block.

@@ -10,7 +10,7 @@ export interface AcceptDebtDeps {
   states: WorktreeStateRepository;
   runs: AutopilotRunRepository;
   kyro: {
-    readScope(cwd: string): Promise<KyroReadResult<KyroScopeState>>;
+    readScope(cwd: string, preferred?: string): Promise<KyroReadResult<KyroScopeState>>;
     completeScope(
       cwd: string,
       scope: string,
@@ -51,7 +51,7 @@ export class DebtAcceptance {
     if (this.busy.has(chatId)) throw new ChatError('Ya hay una decisión en curso', 409);
     this.busy.add(chatId);
     try {
-      const read = await kyro.readScope(chat.worktreePath);
+      const read = await kyro.readScope(chat.worktreePath, chat.slug);
       if (!read.ok) throw new ChatError(`No se pudo leer Kyro: ${read.error.message}`, 409);
       const debt = read.state.debtItems ?? [];
       const keep = { role: current.role, model: current.model };

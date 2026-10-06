@@ -23,14 +23,17 @@ async function boot() {
   const runner = new FakeRunner();
   // Fake Kyro: the pilot's first read is recorded and never answers, so nothing else runs.
   const reads: string[] = [];
+  const readArgs: unknown[][] = [];
   const never = () => new Promise<never>(() => undefined);
   const pilotKyro: PilotKyro = {
-    readScope: (cwd: string) => {
+    readScope: (cwd: string, ...rest: unknown[]) => {
       reads.push(cwd);
+      readArgs.push(['scope', ...rest]);
       return never();
     },
-    readWork: (cwd: string) => {
+    readWork: (cwd: string, ...rest: unknown[]) => {
       reads.push(cwd);
+      readArgs.push(['work', ...rest]);
       return never();
     },
     capabilities: () => Promise.resolve({ ok: true, state: [...REQUIRED_CAPABILITIES] }),
@@ -80,7 +83,7 @@ async function boot() {
     >();
   const seed = (id: number, state: WorktreeStateId) =>
     states.transition(id, { state, actor: 'agent' });
-  return { ...made, headers, chats, runs, states, on, newChat, timeline, seed, reads };
+  return { ...made, headers, chats, runs, states, on, newChat, timeline, seed, reads, readArgs };
 }
 
 const flush = () => new Promise((resolve) => setTimeout(resolve, 20));
@@ -102,6 +105,23 @@ describe("autopilot action 'on'", () => {
       expect(last).toMatchObject({ actor: 'user', reason: 'El usuario encendió el piloto' });
     },
   );
+
+  it('reads Kyro with the slug and the creation date of the chat, to find its own scope or work', async () => {
+    const { on, newChat, seed, readArgs } = await boot();
+    const scope = newChat('mi-scope', 'scope');
+    const work = newChat('mi-work', 'work');
+    seed(scope.id, 'planificando');
+    seed(work.id, 'planificando');
+    await on(scope.id);
+    await on(work.id);
+    await flush();
+    expect(readArgs).toContainEqual(['scope', 'mi-scope']);
+    expect(readArgs).toContainEqual([
+      'work',
+      undefined,
+      { preferred: 'mi-work', since: work.createdAt },
+    ]);
+  });
 
   it('switches a pilot that is off back on', async () => {
     const { on, newChat, runs, reads } = await boot();
