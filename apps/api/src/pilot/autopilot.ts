@@ -144,10 +144,16 @@ function toolUses(events: ChatEvent[]): { name: string; input: Record<string, un
   return uses;
 }
 
-/** True when the session loaded the skill (an `assistant` tool_use of Skill with that name). */
+/**
+ * True when the session loaded the skill: the Skill tool with that name, or a Read of its
+ * `skills/<skill>/SKILL.md`, which is how the pilot's prompts tell the agent to use a skill.
+ */
 export function usedSkill(events: ChatEvent[], skill: string): boolean {
+  const skillFile = `/skills/${skill}/SKILL.md`;
   return toolUses(events).some(
-    (use) => use.name === 'Skill' && text(use.input['skill']).includes(skill),
+    (use) =>
+      (use.name === 'Skill' && text(use.input['skill']).includes(skill)) ||
+      (use.name === 'Read' && text(use.input['file_path']).endsWith(skillFile)),
   );
 }
 

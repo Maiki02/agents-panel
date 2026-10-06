@@ -1013,6 +1013,20 @@ describe('event readers', () => {
     expect(usedSkill([event('user_prompt', { text: 'kyro-qa' })], 'kyro-qa')).toBe(false);
   });
 
+  it('usedSkill also counts reading the SKILL.md, as the pilot prompts ask', () => {
+    const read = (file_path: string) =>
+      event('assistant', {
+        message: { content: [{ type: 'tool_use', name: 'Read', input: { file_path } }] },
+      });
+    const qaFile = '/home/ubuntu/.agents/skills/kyro-qa/SKILL.md';
+    expect(usedSkill([read(qaFile)], 'kyro-qa')).toBe(true);
+    expect(usedSkill([read(qaFile)], 'kyro-forge')).toBe(false);
+    expect(usedSkill([read('/home/ubuntu/.agents/skills/kyro-qa/README.md')], 'kyro-qa')).toBe(
+      false,
+    );
+    expect(usedSkill([read('/wt/docs/kyro-qa.md')], 'kyro-qa')).toBe(false);
+  });
+
   it('hitUsageLimit detects a rejected rate limit and a limit error, not a warning', () => {
     expect(
       hitUsageLimit([event('rate_limit_event', { rate_limit_info: { status: 'rejected' } })]),
