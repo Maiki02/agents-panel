@@ -12,7 +12,7 @@ import {
   type Project,
   type ProjectStatus,
 } from '@agents-panel/shared';
-import type { BashExtras } from '../agent/permissions.js';
+import { NOT_CONFIGURABLE, type BashExtras } from '../agent/permissions.js';
 import type { Db } from '../db/index.js';
 
 const execFileAsync = promisify(execFile);
@@ -324,7 +324,10 @@ export class ProjectRepository {
         return [];
       }
     };
-    return { commands: list(row?.allowed_commands), hosts: list(row?.allowed_hosts) };
+    // A name that later joined the base (du, df, free) is not an extra any more: shown as one, the
+    // web would send it back and the save would be refused.
+    const commands = list(row?.allowed_commands).filter((name) => !NOT_CONFIGURABLE.has(name));
+    return { commands, hosts: list(row?.allowed_hosts) };
   }
 
   setBashExtras(id: number, extras: BashExtras): void {

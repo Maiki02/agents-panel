@@ -472,3 +472,12 @@ describe('quotes in Bash commands', () => {
     expect(verdict('git commit -m "`id`"')).toBe('deny');
   });
 });
+
+describe('disk and memory readers in the base', () => {
+  it('allows du, df and free in every project, without extras', () => {
+    expect(verdict('du -sx --block-size=1 /home/ubuntu/wt')).toBe('allow');
+    expect(verdict('df -B1 /')).toBe('allow');
+    expect(verdict('free -b')).toBe('allow');
+    expect(verdict('du -sh . | sort -h')).toBe('allow');
+  });
+});

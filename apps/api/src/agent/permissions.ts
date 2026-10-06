@@ -3,8 +3,20 @@ import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { PermissionDecision } from './runner.js';
 
-/** Binaries the agent may run through Bash. Everything else is denied. */
-export const ALLOWED_BASH_COMMANDS = ['git', 'gh', 'npm', 'go', 'kyro'] as const;
+/**
+ * Binaries the agent may run through Bash. Everything else is denied. du, df and free only read
+ * disk and memory usage (works that measure the VM need them in every project).
+ */
+export const ALLOWED_BASH_COMMANDS = [
+  'git',
+  'gh',
+  'npm',
+  'go',
+  'kyro',
+  'du',
+  'df',
+  'free',
+] as const;
 
 /**
  * Commands no project can enable: anything that can change what Oracle charges (oci, tailscale,
