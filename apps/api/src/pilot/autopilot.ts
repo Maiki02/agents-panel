@@ -322,11 +322,11 @@ export class Autopilot {
         continue;
       }
       if (decision.kind === 'finished') {
-        runs.finish(chatId);
-        this.deps.tracker.pilotMark(chat, {
-          state: 'terminado',
-          reason: 'El piloto terminó el trabajo',
-        });
+        // The agent closed it by itself: nobody committed, pushed or opened the PR yet, so the
+        // merge phase still runs (it is what ends in `pr_lista` and the notification). A run
+        // already in the merge phase returned above.
+        runs.setPhase(chatId, 'merge');
+        await this.mergePhase(chat, state);
         return;
       }
       if (decision.kind === 'stop') {

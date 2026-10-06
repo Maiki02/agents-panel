@@ -3,6 +3,7 @@ import type { AutopilotAction, AutopilotInfo } from '@agents-panel/shared';
 import { onlyKeys } from '../http/only-keys.js';
 import { ChatError, type ChatService } from '../chats/service.js';
 import type { DebtAcceptance } from './accept-debt.js';
+import type { PrLookup } from './pr-lookup.js';
 import type { WorktreeStateRepository } from '../worktrees/state-repo.js';
 import { AutopilotTransitionError, type AutopilotRunRepository } from './runs-repo.js';
 
@@ -38,9 +39,11 @@ export function registerAutopilotRoutes(
     debt?: DebtAcceptance;
     /** Timeline of the work: the user's `on` stays on record under their name. */
     states?: WorktreeStateRepository;
+    /** PRs of a finished work, looked up in GitHub when the pilot kept none. */
+    prs?: PrLookup;
   },
 ): void {
-  const { service, runs, maxSessionsPerSprint, onResume, debt, states } = deps;
+  const { service, runs, maxSessionsPerSprint, onResume, debt, states, prs } = deps;
 
   const info = (chatId: number): AutopilotInfo => ({
     run: runs.get(chatId) ?? null,
@@ -84,6 +87,16 @@ export function registerAutopilotRoutes(
     (request) => {
       requirePilotable(request.params.id);
       return info(request.params.id);
+    },
+  );
+
+  app.get<{ Params: { id: number } }>(
+    '/api/chats/:id/pr',
+    { schema: { params: idParams } },
+    async (request): Promise<{ urls: string[] }> => {
+      const chat = service.requireChat(request.params.id);
+      if (chat.kind === 'direct' || chat.kind === 'idea' || prs === undefined) return { urls: [] };
+      return { urls: await prs.urls(chat) };
     },
   );
 

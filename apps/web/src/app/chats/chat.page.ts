@@ -31,6 +31,7 @@ import {
   debtFromTimeline,
   movesState,
   prLinks,
+  showPrCard,
   type DebtView,
 } from './approval-logic';
 import { chatBadge } from './status';
@@ -108,22 +109,24 @@ import { Badge } from '../ui/badge';
             />
           }
           @case ('pr') {
-            <section class="card approval" aria-label="Pull request">
-              <h2>La PR está lista para revisar</h2>
-              @for (url of prUrls(); track url) {
-                <p>
-                  <a
-                    class="link break-all"
-                    [href]="url"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    >{{ url }}</a
-                  >
-                </p>
-              } @empty {
-                <p class="hint">Todavía no hay un link de la PR para mostrar.</p>
-              }
-            </section>
+            @if (prCardVisible()) {
+              <section class="card approval" aria-label="Pull request">
+                <h2>La PR está lista para revisar</h2>
+                @for (url of prUrls(); track url) {
+                  <p>
+                    <a
+                      class="link break-all"
+                      [href]="url"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      >{{ url }}</a
+                    >
+                  </p>
+                } @empty {
+                  <p class="hint">Todavía no hay un link de la PR para mostrar.</p>
+                }
+              </section>
+            }
           }
         }
       }
@@ -273,6 +276,9 @@ export class ChatPage {
     const chat = this.chat();
     return chat ? approvalCard(chat.kind, chat.workState) : null;
   });
+  protected readonly prCardVisible = computed(() =>
+    showPrCard(this.chat()?.workState, this.prUrls()),
+  );
   /** The one badge: the fine state of a scope, work or idea; the session status otherwise. */
   protected readonly badge = computed(() => {
     const chat = this.chat();
@@ -400,8 +406,8 @@ export class ChatPage {
       const card = approvalCard(fresh.kind, fresh.workState);
       if (card === 'debt') this.debt.set(debtFromTimeline(this.timeline()));
       if (card === 'pr') {
-        const info = await this.service.autopilot(id);
-        this.prUrls.set(prLinks(info.run?.prUrls ?? []));
+        const { urls } = await this.service.prs(id);
+        if (id === this.current) this.prUrls.set(prLinks(urls));
       }
     } catch {
       // The state is a view: the next event reads it again.

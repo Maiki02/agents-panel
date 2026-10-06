@@ -16,7 +16,17 @@ export function approvalCard(
   if (state === 'esperando_aprobacion_plan' && kind === 'idea') return 'idea';
   if (state === 'esperando_aprobacion_cierre' && kind === 'scope') return 'debt';
   if (state === 'pr_lista') return 'pr';
+  // A finished work may have left a PR the pilot did not open (the agent opened it by itself).
+  if (state === 'terminado' && (kind === 'scope' || kind === 'work')) return 'pr';
   return null;
+}
+
+/** The PR card shows in `pr_lista` even without links; in `terminado` only when GitHub has one. */
+export function showPrCard(
+  state: WorktreeStateId | null | undefined,
+  urls: readonly string[],
+): boolean {
+  return state === 'pr_lista' || urls.length > 0;
 }
 
 /** An action of a card: why it is disabled (null when it can be sent). */

@@ -34,6 +34,8 @@ export function makeApp(
       | 'kyroRunner'
       | 'pilotGit'
       | 'pilotGh'
+      | 'branchPrs'
+      | 'panelDeploy'
       | 'pushSender'
       | 'accountsHome'
     >
@@ -69,6 +71,12 @@ export function makeApp(
     ...(extra.kyroRunner ? { kyroRunner: extra.kyroRunner } : {}),
     ...(extra.pilotGit ? { pilotGit: extra.pilotGit } : {}),
     ...(extra.pilotGh ? { pilotGh: extra.pilotGh } : {}),
+    ...(extra.branchPrs ? { branchPrs: extra.branchPrs } : {}),
+    // Never git (fetch) nor a restart from a test unless the test asks for it.
+    panelDeploy: extra.panelDeploy ?? {
+      exec: () => Promise.reject(new Error('git is not called in tests')),
+      restart: () => undefined,
+    },
     ...(extra.pushSender ? { pushSender: extra.pushSender } : {}),
     ...(extra.accountsHome ? { accountsHome: extra.accountsHome } : {}),
   });

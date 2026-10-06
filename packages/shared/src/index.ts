@@ -240,10 +240,15 @@ export interface PendingQuestion {
 
 export type MaintenanceStatus = 'running' | 'ok' | 'error';
 
-/** One Kyro update run (see docs/vm-setup.md, step 14). */
+export type MaintenanceKind = 'kyro-update' | 'panel-deploy';
+
+/**
+ * One maintenance run: a Kyro update (docs/vm-setup.md, step 14; versions in from/to) or a panel
+ * deploy (step 18; short commits in from/to).
+ */
 export interface MaintenanceRun {
   id: number;
-  kind: 'kyro-update';
+  kind: MaintenanceKind;
   fromVersion: string | null;
   toVersion: string | null;
   status: MaintenanceStatus;
@@ -253,6 +258,17 @@ export interface MaintenanceRun {
   skipped: string[];
   startedAt: number;
   finishedAt: number | null;
+}
+
+/** The deployed panel: the commit it runs and what `origin/main` has on top of it. */
+export interface PanelDeployInfo {
+  /** Short commit the running server was started from; null when git could not tell. */
+  commit: string | null;
+  /** Commits of origin/main not deployed yet; null when unknown (no network, error). */
+  behind: number | null;
+  deployRunning: boolean;
+  /** Why the Deploy button cannot be used (not under systemd); null when it can. */
+  unavailableReason: string | null;
 }
 
 /** Installed Kyro version and the latest published one; null when unknown (no network, error). */

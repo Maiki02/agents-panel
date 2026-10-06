@@ -1,4 +1,4 @@
-import type { MaintenanceRun } from '@agents-panel/shared';
+import type { MaintenanceRun, PanelDeployInfo } from '@agents-panel/shared';
 
 function parts(version: string): number[] {
   return version
@@ -28,6 +28,36 @@ export function latestLabel(installed: string | null, latest: string | null): st
   return installed === null ? `última: ${latest}` : `última: ${latest} (al día)`;
 }
 
-export function runLabel(run: Pick<MaintenanceRun, 'fromVersion' | 'toVersion'>): string {
-  return `${run.fromVersion ?? '?'} → ${run.toVersion ?? '?'}`;
+const KIND_LABEL: Record<MaintenanceRun['kind'], string> = {
+  'kyro-update': 'Kyro',
+  'panel-deploy': 'Panel',
+};
+
+export function runLabel(run: Pick<MaintenanceRun, 'kind' | 'fromVersion' | 'toVersion'>): string {
+  return `${KIND_LABEL[run.kind]} ${run.fromVersion ?? '?'} → ${run.toVersion ?? '?'}`;
+}
+
+/** What origin/main has that the running panel does not. */
+export function behindLabel(behind: number | null): string {
+  if (behind === null) return 'commits sin desplegar: desconocido';
+  if (behind === 0) return 'al día con main';
+  return behind === 1 ? '1 commit sin desplegar' : `${String(behind)} commits sin desplegar`;
+}
+
+/**
+ * Where a deploy started from this page is: still running, waiting for the restart (the run ended
+ * ok with a new commit but the server still runs the old one, or does not answer), done (the
+ * server runs another commit: refresh) or finished without a restart (up to date or failed).
+ */
+export type DeployPhase = 'running' | 'restarting' | 'done' | 'finished';
+
+export function deployPhase(
+  from: string | null,
+  panel: Pick<PanelDeployInfo, 'commit' | 'deployRunning'> | null,
+  last: Pick<MaintenanceRun, 'status' | 'toVersion'> | undefined,
+): DeployPhase {
+  if (panel === null) return 'restarting';
+  if (panel.commit !== null && panel.commit !== from) return 'done';
+  if (panel.deployRunning || last === undefined || last.status === 'running') return 'running';
+  return last.status === 'ok' && last.toVersion !== from ? 'restarting' : 'finished';
 }
