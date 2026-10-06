@@ -1,0 +1,1777 @@
+{
+  "schemaVersion": 1,
+  "kind": "kyro.sprint-close-checkpoint",
+  "checkpointId": "ee131eb1e1173ab7d5f6ad76b936c80e92e91249d5418ab10929c04ab8728628",
+  "createdAt": "2026-10-06T01:30:30.592Z",
+  "identity": {
+    "scope": "panel-mvp",
+    "sprintN": 1,
+    "sprintSlug": "panel-mvp"
+  },
+  "close": {
+    "outcome": "shipped",
+    "note": "Scope cerrado por el usuario; deuda diferida sin atender (debt-1, 2, 4, 5, 6).",
+    "summary": "Sprint 1 de panel-mvp: login con contraseña y TOTP, scopes y works en worktrees con sesiones del Agent SDK, streaming y resume. Cerrado por el usuario el 06/10/2026 sin QA.",
+    "recommendations": [
+      "Retomar debt-1 (trustProxy detrás de Funnel) y debt-4 (SSE al vencer la sesión) si se vuelven un problema real."
+    ],
+    "learnings": [
+      "Se cerró sin QA por decisión explícita del usuario; los criterios manuales de las pantallas (debt-6) no tienen confirmación registrada."
+    ]
+  },
+  "paths": {
+    "legacySnapshot": ".agents/kyro/scopes/panel-mvp/archive/sprint-001-panel-mvp.json",
+    "narrative": ".agents/kyro/scopes/panel-mvp/archive/sprint-001-panel-mvp.md"
+  },
+  "beforeClose": {
+    "schemaVersion": 4,
+    "scope": "panel-mvp",
+    "title": "Panel MVP: login + 2FA, scopes en worktree, streaming, historial y resume",
+    "status": "planning",
+    "objective": "Que el usuario entre al panel con contraseña y segundo factor, cree un scope o work de un proyecto registrado que corre en su propio worktree con una sesión del Agent SDK, lo vea trabajar en vivo, y pueda volver a cualquier chat y continuarlo.",
+    "successCriteria": [
+      "Ningún endpoint de la API, salvo los pasos del login y el health check, devuelve datos sin una sesión válida obtenida con contraseña y segundo factor.",
+      "Desde el navegador, el usuario crea un scope para un proyecto registrado y en menos de un minuto ve al agente trabajando en vivo en un worktree y una rama propios.",
+      "Después de reiniciar el panel, el historial completo de cada chat sigue visible y la conversación se puede continuar con la misma sesión del agente.",
+      "Cinco intentos fallidos seguidos bloquean temporalmente la cuenta y cada intento de login queda registrado."
+    ],
+    "spec": {
+      "requirements": [
+        {
+          "id": "R1",
+          "statement": "Solo pueden entrar usuarios dados de alta desde la línea de comandos del servidor; no existe registro público ni ninguna operación web que cree usuarios.",
+          "priority": "must",
+          "rationale": "La URL es pública (Funnel); el alta tiene que requerir acceso a la VM."
+        },
+        {
+          "id": "R2",
+          "statement": "Entrar exige contraseña y un segundo factor obligatorio; la contraseña se guarda solo como hash Argon2id y el secreto del segundo factor se guarda cifrado.",
+          "priority": "must",
+          "rationale": "CLAUDE.md, Seguridad del panel."
+        },
+        {
+          "id": "R3",
+          "statement": "Toda operación de la API, salvo los pasos del login y el health check, rechaza las peticiones sin sesión válida.",
+          "priority": "must",
+          "rationale": "El login es la única puerta."
+        },
+        {
+          "id": "R4",
+          "statement": "La sesión no es legible por scripts, viaja solo por HTTPS y same-site, vence en poco tiempo, y toda petición que cambia estado exige un token anti-CSRF.",
+          "priority": "must",
+          "rationale": "Cookies HttpOnly/Secure/SameSite=Strict + CSRF según CLAUDE.md."
+        },
+        {
+          "id": "R5",
+          "statement": "Los intentos fallidos se limitan por origen y por cuenta, con bloqueo temporal de la cuenta, y todo intento de login queda registrado.",
+          "priority": "must",
+          "rationale": "Límite de intentos y registro de logins (plan.md, Acceso)."
+        },
+        {
+          "id": "R6",
+          "statement": "Desde el panel se crea un scope o work de un proyecto registrado; eso crea un worktree aislado en su propia rama y arranca una sesión del agente con el flujo Kyro dentro de ese worktree.",
+          "priority": "must",
+          "rationale": "Decisión 3 del plan: 1 scope o work = 1 worktree."
+        },
+        {
+          "id": "R7",
+          "statement": "Lo que hace el agente (mensajes y uso de herramientas) llega en vivo al navegador y se guarda a medida que ocurre.",
+          "priority": "must",
+          "rationale": "Streaming del MVP."
+        },
+        {
+          "id": "R8",
+          "statement": "El historial lista todos los chats y abrir uno muestra todo lo que pasó, también después de reiniciar el servidor.",
+          "priority": "must",
+          "rationale": "Los chats viven en la base del panel."
+        },
+        {
+          "id": "R9",
+          "statement": "Un chat se puede continuar retomando la misma sesión del agente.",
+          "priority": "must",
+          "rationale": "resume con sessionId."
+        },
+        {
+          "id": "R10",
+          "statement": "El agente nunca corre con permisos irrestrictos: lo que está fuera de la lista permitida se niega y queda registrado en el chat.",
+          "priority": "must",
+          "rationale": "Nunca bypassPermissions."
+        },
+        {
+          "id": "R11",
+          "statement": "Las sesiones que estaban corriendo cuando se detuvo el servidor aparecen como interrumpidas y se pueden retomar.",
+          "priority": "should",
+          "rationale": "plan.md: si se reinicia la VM, lo que corría pasa a interrumpido."
+        }
+      ],
+      "scenarios": [
+        {
+          "id": "S1",
+          "requirement": "R1",
+          "given": "El servidor corriendo sin usuarios",
+          "when": "se intenta crear un usuario por cualquier ruta HTTP",
+          "then": "no existe ruta que lo permita y la única forma es el CLI en la VM"
+        },
+        {
+          "id": "S2",
+          "requirement": "R2",
+          "given": "Un usuario creado por CLI con TOTP confirmado",
+          "when": "manda la contraseña correcta pero no completa el segundo factor",
+          "then": "no recibe cookie de sesión y las rutas protegidas devuelven 401"
+        },
+        {
+          "id": "S3",
+          "requirement": "R2",
+          "given": "Un usuario creado por CLI",
+          "when": "se inspecciona la base",
+          "then": "la contraseña está como hash $argon2id$ y el secreto TOTP está cifrado, nunca en claro"
+        },
+        {
+          "id": "S4",
+          "requirement": "R3",
+          "given": "Todas las rutas registradas en la app",
+          "when": "se llama a cada una sin cookie de sesión",
+          "then": "todas devuelven 401 salvo las de la allowlist pública (pasos del login y health)"
+        },
+        {
+          "id": "S5",
+          "requirement": "R4",
+          "given": "Un login completo",
+          "when": "se revisa la cookie de sesión",
+          "then": "tiene HttpOnly, Secure, SameSite=Strict, Path=/ y vence según el TTL configurado"
+        },
+        {
+          "id": "S6",
+          "requirement": "R4",
+          "given": "Una sesión válida",
+          "when": "se hace un POST sin X-CSRF-Token o con uno incorrecto",
+          "then": "la API responde 403 y no cambia nada"
+        },
+        {
+          "id": "S7",
+          "requirement": "R5",
+          "given": "Una cuenta existente",
+          "when": "se fallan 5 intentos seguidos (contraseña o código)",
+          "then": "la cuenta queda bloqueada 15 minutos, incluso con la contraseña correcta, y los 5 intentos quedan en login_attempts"
+        },
+        {
+          "id": "S8",
+          "requirement": "R6",
+          "given": "Un proyecto registrado por CLI y una sesión válida",
+          "when": "se crea un scope con slug válido y un pedido",
+          "then": "existe el worktree ~/wt/<proyecto>/<slug> en la rama feature/<slug> y arranca una sesión del agente con cwd en ese worktree y /kyro:forge como primer prompt"
+        },
+        {
+          "id": "S9",
+          "requirement": "R6",
+          "given": "Un slug inválido o una rama ya existente",
+          "when": "se intenta crear el scope",
+          "then": "la API responde 4xx con el motivo y no queda worktree ni chat a medias"
+        },
+        {
+          "id": "S10",
+          "requirement": "R7",
+          "given": "Un chat con el agente corriendo",
+          "when": "el navegador está suscripto al stream SSE",
+          "then": "cada mensaje y uso de herramienta aparece en vivo y ya está guardado en chat_events"
+        },
+        {
+          "id": "S11",
+          "requirement": "R7",
+          "given": "Un stream SSE que se cortó en el evento 40",
+          "when": "el navegador reconecta con Last-Event-ID 40",
+          "then": "recibe desde el 41 sin duplicados ni huecos"
+        },
+        {
+          "id": "S12",
+          "requirement": "R8",
+          "given": "Varios chats con eventos",
+          "when": "se reinicia el panel y se abre la lista y un chat",
+          "then": "están todos los chats y el chat muestra todos sus eventos en orden"
+        },
+        {
+          "id": "S13",
+          "requirement": "R9",
+          "given": "Un chat terminado con sdk_session_id guardado",
+          "when": "el usuario manda un mensaje nuevo",
+          "then": "el agente sigue con resume sobre esa misma sesión y los eventos se agregan al mismo chat"
+        },
+        {
+          "id": "S14",
+          "requirement": "R10",
+          "given": "El agente pide una herramienta fuera de la allowlist",
+          "when": "canUseTool la evalúa",
+          "then": "se niega, se guarda un evento permission_denied visible en el chat y ninguna configuración usa bypassPermissions"
+        },
+        {
+          "id": "S15",
+          "requirement": "R11",
+          "given": "Un chat en estado corriendo",
+          "when": "el servidor se detiene y vuelve a arrancar",
+          "then": "el chat aparece como interrumpido y se puede continuar con resume"
+        }
+      ],
+      "nonGoals": [
+        "Estado fino del worktree, stepper, PRs y checks de GitHub (etapa 5).",
+        "Aprobar permisos o responder preguntas del agente con botones (etapa 5); en el MVP lo no permitido se niega.",
+        "Tailscale Funnel, systemd, backup de SQLite, servir el build de Angular desde la API y topes configurables (etapa 6).",
+        "Passkey (WebAuthn): el segundo factor del MVP es TOTP con códigos de recuperación.",
+        "Consulta libre sin worktree.",
+        "Limpieza automática de worktrees al mergear.",
+        "Varios usuarios con roles, notificaciones push."
+      ],
+      "openQuestions": []
+    },
+    "clarifications": [],
+    "conventions": [],
+    "adrs": [],
+    "roadmap": {
+      "plannedSprintCount": 1,
+      "sizingRationale": "Un solo sprint secuencial porque el usuario pidió la etapa 4 completa como un sprint y cada pieza depende de la anterior (base → auth → agente → web). Las fases separan unidades revisables. Si al cerrar la fase de auth el sprint se ve grande, el roadmap se puede partir con kyro plan --roadmap sin perder historia.",
+      "sprints": [
+        {
+          "n": 1,
+          "slug": "panel-mvp",
+          "title": "Panel MVP: login, scopes y chats",
+          "state": "active"
+        }
+      ]
+    },
+    "ledger": [],
+    "previousSprint": null,
+    "activeSprint": {
+      "n": 1,
+      "slug": "panel-mvp",
+      "title": "Panel MVP: login, scopes y chats",
+      "objective": "Entregar de punta a punta login con contraseña + TOTP, creación de scope/work en worktree con sesión del Agent SDK, streaming SSE, historial en SQLite y resume, con las pantallas web mínimas.",
+      "status": "complete",
+      "phases": [
+        {
+          "id": "P1",
+          "title": "Base: configuración, SQLite y tests",
+          "objective": "Dejar la API con configuración por entorno, base SQLite con migraciones y un runner de tests.",
+          "status": "done",
+          "tasks": [
+            {
+              "id": "T1.1",
+              "title": "Configuración, SQLite con migraciones y vitest en la API",
+              "description": "Crear apps/api/src/config.ts (lee y valida env: PANEL_DATA_DIR con default ~/.local/share/agents-panel, PANEL_ORIGIN, PANEL_SECRET_KEY, TTLs de sesión), apps/api/src/db/ con un runner de migraciones sobre node:sqlite (DatabaseSync, WAL, foreign_keys=ON, tabla schema_migrations, migraciones numeradas en código) y la migración 001 con users, user_totp, recovery_codes, sessions y login_attempts. Agregar vitest a apps/api con script test y un script test en la raíz que recorra workspaces. Agregar apps/api/.env.example con valores falsos.",
+              "files_to_touch": [
+                "apps/api/src/config.ts",
+                "apps/api/src/db/index.ts",
+                "apps/api/src/db/migrations.ts",
+                "apps/api/test/db.test.ts",
+                "apps/api/package.json",
+                "apps/api/.env.example",
+                "apps/api/vitest.config.ts",
+                "package.json",
+                "docs/plan.md"
+              ],
+              "context": "node:sqlite verificado en la VM (Node 24.21, SQLite 3.53.4) y evita módulos nativos en ARM. La base vive fuera del repo; .gitignore ya cubre .env* y SQLite. Código en inglés, docs en español. TypeScript strict. Registrar en docs/plan.md la decisión de node:sqlite y de la ubicación de la base. Si la config falta o es inválida, el proceso no arranca (fail fast) y nunca imprime valores secretos.",
+              "acceptance_criteria": [
+                "npm test desde la raíz corre vitest en apps/api y pasa.",
+                "Un test aplica las migraciones dos veces sobre la misma base y la segunda corrida no cambia nada (idempotente).",
+                "Un test verifica que foreign_keys y WAL están activos.",
+                "El arranque falla con un mensaje claro si PANEL_SECRET_KEY falta o tiene menos de 32 bytes, sin imprimir su valor.",
+                "npm run typecheck, lint y format:check pasan; git status no muestra ningún archivo .db ni .env.",
+                "docs/plan.md registra node:sqlite y la ruta de datos."
+              ],
+              "depends_on": [],
+              "scenario_refs": [],
+              "status": "done",
+              "evidence": {
+                "summary": "Config con fail-fast, node:sqlite con migraciones idempotentes (WAL+FK), vitest en api, test raíz, .env.example, decisión en docs/plan.md",
+                "validation": [
+                  "npm test: 6 tests pasan",
+                  "npm run typecheck, lint, format:check pasan",
+                  "git status sin .db ni .env"
+                ],
+                "files_changed": [
+                  "apps/api/src/config.ts",
+                  "apps/api/src/db/index.ts",
+                  "apps/api/src/db/migrations.ts",
+                  "apps/api/test/db.test.ts",
+                  "docs/plan.md"
+                ],
+                "by": "maker",
+                "recordedAt": "2026-10-04T01:01:56.898Z"
+              },
+              "verdict": {
+                "result": "pass",
+                "checked_criteria": [
+                  "npm test desde la raíz corre vitest en apps/api y pasa.",
+                  "Un test aplica las migraciones dos veces sobre la misma base y la segunda corrida no cambia nada (idempotente).",
+                  "Un test verifica que foreign_keys y WAL están activos.",
+                  "El arranque falla con un mensaje claro si PANEL_SECRET_KEY falta o tiene menos de 32 bytes, sin imprimir su valor.",
+                  "npm run typecheck, lint y format:check pasan; git status no muestra ningún archivo .db ni .env.",
+                  "docs/plan.md registra node:sqlite y la ruta de datos."
+                ],
+                "findings": [],
+                "by": "checker",
+                "reviewedAt": "2026-10-04T01:01:57.121Z",
+                "requestDigest": "2c82933ee91fc5089a718d6a46f09fa1d9bbaeb2dd4c46a5d1d6c6cfd35fda70",
+                "reviewedMaterialDigest": "21cc66af1c84c5982ce8095378c705f2778cc5576075b5aca1d12589d558863e"
+              }
+            }
+          ]
+        },
+        {
+          "id": "P2",
+          "title": "Autenticación: Argon2id, sesiones, límite de intentos, TOTP, CSRF y CLI",
+          "objective": "Que la API solo responda a una sesión obtenida con contraseña + TOTP, con defensas contra fuerza bruta y CSRF, y que los usuarios se creen solo por CLI.",
+          "status": "done",
+          "tasks": [
+            {
+              "id": "T2.1",
+              "title": "Hash de contraseñas Argon2id y repositorio de usuarios",
+              "description": "Crear apps/api/src/auth/password.ts con hash y verify Argon2id (@node-rs/argon2, parámetros mínimos OWASP: m=19456 KiB, t=2, p=1, configurables) y apps/api/src/auth/users.ts con el repositorio de usuarios sobre la base de T1.1. Verificar contra un hash ficticio cuando el usuario no existe para no filtrar por tiempo qué usuarios existen. Política de contraseña: mínimo 14 caracteres.",
+              "files_to_touch": [
+                "apps/api/src/auth/password.ts",
+                "apps/api/src/auth/users.ts",
+                "apps/api/test/password.test.ts",
+                "apps/api/package.json"
+              ],
+              "context": "@node-rs/argon2 trae prebuild linux-arm64-gnu. crypto.argon2 de Node 24 existe pero es experimental: no se usa. Nunca loguear contraseñas ni hashes.",
+              "acceptance_criteria": [
+                "Un test verifica que el hash empieza con $argon2id$ y que verify acepta la contraseña correcta y rechaza una incorrecta.",
+                "Un test verifica que validar un usuario inexistente también ejecuta una verificación Argon2id.",
+                "Una contraseña de menos de 14 caracteres se rechaza.",
+                "typecheck y lint pasan."
+              ],
+              "depends_on": [
+                "T1.1"
+              ],
+              "scenario_refs": [
+                "S3"
+              ],
+              "status": "done",
+              "evidence": {
+                "summary": "Argon2id (@node-rs/argon2, m=19456 t=2 p=1), política de 14 caracteres, UserRepository con verificación ficticia para usuarios inexistentes",
+                "validation": [
+                  "vitest password.test.ts: hash $argon2id$, verify ok/falla, <14 rechazado, usuario inexistente ejecuta verify",
+                  "typecheck, lint y format:check pasan"
+                ],
+                "files_changed": [
+                  "apps/api/src/auth/password.ts",
+                  "apps/api/src/auth/users.ts",
+                  "apps/api/test/password.test.ts"
+                ],
+                "by": "maker",
+                "recordedAt": "2026-10-04T01:03:32.740Z"
+              },
+              "verdict": {
+                "result": "pass",
+                "checked_criteria": [
+                  "Un test verifica que el hash empieza con $argon2id$ y que verify acepta la contraseña correcta y rechaza una incorrecta.",
+                  "Un test verifica que validar un usuario inexistente también ejecuta una verificación Argon2id.",
+                  "Una contraseña de menos de 14 caracteres se rechaza.",
+                  "typecheck y lint pasan."
+                ],
+                "findings": [],
+                "by": "checker",
+                "reviewedAt": "2026-10-04T01:03:32.974Z",
+                "requestDigest": "64f5cd08bef37ede04b7a4c19cf39df144a25be5f2c290e69fac7d18f4f6dd03",
+                "reviewedMaterialDigest": "3a392bcba124bbfb49ab90a26d2f0c00ccb909b25d526d3f028831c21c2c22b5"
+              }
+            },
+            {
+              "id": "T2.2",
+              "title": "Sesiones por cookie y guard global deny-by-default",
+              "description": "Crear apps/api/src/auth/sessions.ts: token opaco de 32 bytes aleatorios en la cookie __Host-panel_session (HttpOnly, Secure, SameSite=Strict, Path=/), en la base solo su SHA-256, vencimiento por inactividad (30 min) y absoluto (12 h) configurables, y un csrf_token por sesión. Hook onRequest global: toda ruta /api/* exige sesión salvo las marcadas explícitamente con config.public=true. Rutas GET /api/auth/me (usuario + csrfToken) y POST /api/auth/logout. Dejar /api/health como pública y documentarlo.",
+              "files_to_touch": [
+                "apps/api/src/auth/sessions.ts",
+                "apps/api/src/auth/guard.ts",
+                "apps/api/src/auth/routes.ts",
+                "apps/api/src/app.ts",
+                "apps/api/test/guard.test.ts",
+                "apps/api/package.json",
+                "docs/plan.md"
+              ],
+              "context": "Usar @fastify/cookie. Los navegadores aceptan cookies Secure en http://localhost, así que el desarrollo por túnel SSH funciona. Regla de CLAUDE.md: ninguna ruta de la API sin sesión; la allowlist pública es solo pasos del login y health, y se documenta en docs/plan.md. El test de rutas tiene que recorrer las rutas registradas, no una lista escrita a mano, para atrapar rutas futuras.",
+              "acceptance_criteria": [
+                "Un test recorre todas las rutas registradas y verifica 401 sin cookie para todas las que no son public.",
+                "Un test verifica los atributos de la cookie: HttpOnly, Secure, SameSite=Strict, Path=/, prefijo __Host-.",
+                "Una sesión vencida por inactividad o por tiempo absoluto devuelve 401 y se borra de la base.",
+                "La tabla sessions guarda el hash del token, nunca el token.",
+                "logout invalida la sesión en la base y borra la cookie.",
+                "docs/plan.md lista la allowlist pública."
+              ],
+              "depends_on": [
+                "T2.1"
+              ],
+              "scenario_refs": [
+                "S4",
+                "S5"
+              ],
+              "status": "done",
+              "evidence": {
+                "summary": "SessionService (token opaco, solo SHA-256 en la base, vencimiento por inactividad y absoluto), guard onRequest deny-by-default con config.public, /api/auth/me y /logout, allowlist en docs/plan.md",
+                "validation": [
+                  "vitest guard.test.ts: 401 en todas las rutas no públicas recorridas desde registeredRoutes, atributos de cookie, expiración inactividad/absoluta borra fila, hash en base, logout",
+                  "typecheck, lint, format:check pasan"
+                ],
+                "files_changed": [
+                  "apps/api/src/auth/sessions.ts",
+                  "apps/api/src/auth/guard.ts",
+                  "apps/api/src/auth/routes.ts",
+                  "apps/api/src/app.ts",
+                  "apps/api/test/guard.test.ts",
+                  "docs/plan.md"
+                ],
+                "notes": "La allowlist documenta login/totp que se implementan en T2.3/T2.4",
+                "by": "maker",
+                "recordedAt": "2026-10-04T01:05:04.414Z"
+              },
+              "verdict": {
+                "result": "pass",
+                "checked_criteria": [
+                  "Un test recorre todas las rutas registradas y verifica 401 sin cookie para todas las que no son public.",
+                  "Un test verifica los atributos de la cookie: HttpOnly, Secure, SameSite=Strict, Path=/, prefijo __Host-.",
+                  "Una sesión vencida por inactividad o por tiempo absoluto devuelve 401 y se borra de la base.",
+                  "La tabla sessions guarda el hash del token, nunca el token.",
+                  "logout invalida la sesión en la base y borra la cookie.",
+                  "docs/plan.md lista la allowlist pública."
+                ],
+                "findings": [],
+                "by": "checker",
+                "reviewedAt": "2026-10-04T01:05:04.639Z",
+                "requestDigest": "e5a16dbe0e1dd84868a1333fcc99c97a8c75b7f339b7dc7f363283d9644d0a43",
+                "reviewedMaterialDigest": "2918b2f641cdbbb9b3473f1f8d153d0b5058d9ba931893f98210f2be7993db99"
+              }
+            },
+            {
+              "id": "T2.3",
+              "title": "Login paso 1 (contraseña), límite de intentos y auditoría",
+              "description": "POST /api/auth/login {username, password} (pública). Si la contraseña es correcta no crea sesión: crea un desafío de 2FA de 5 minutos en la cookie __Host-panel_mfa (mismos atributos). Mensaje de error genérico en todo fallo. Límite por IP con @fastify/rate-limit en /api/auth/* (10 por minuto). Por cuenta: 5 fallos seguidos (contraseña o código) bloquean 15 minutos. Cada intento se guarda en login_attempts (fecha, usuario, IP, user agent, paso, resultado).",
+              "files_to_touch": [
+                "apps/api/src/auth/login.ts",
+                "apps/api/src/auth/lockout.ts",
+                "apps/api/src/auth/routes.ts",
+                "apps/api/test/login.test.ts",
+                "apps/api/package.json"
+              ],
+              "context": "Detrás de Funnel la IP de origen puede llegar como loopback: el bloqueo por cuenta es el control confiable y el límite por IP es complementario. trustProxy queda en false hasta verificar las cabeceras de Funnel en la etapa 6 (anotarlo como deuda si hace falta).",
+              "acceptance_criteria": [
+                "Con la contraseña correcta, la respuesta no trae __Host-panel_session y /api/auth/me sigue en 401.",
+                "Un test hace 5 intentos fallidos y verifica que el sexto, con la contraseña correcta, se rechaza por bloqueo.",
+                "Usuario inexistente y contraseña incorrecta devuelven el mismo cuerpo y código.",
+                "Un test verifica que cada intento queda en login_attempts con su resultado.",
+                "Superar el límite por IP devuelve 429."
+              ],
+              "depends_on": [
+                "T2.2"
+              ],
+              "scenario_refs": [
+                "S2",
+                "S7"
+              ],
+              "status": "done",
+              "evidence": {
+                "summary": "POST /api/auth/login: desafío MFA firmado (__Host-panel_mfa) sin sesión, error genérico, bloqueo de cuenta a los 5 fallos por 15 min, rate limit 10/min por IP (429), auditoría en login_attempts (migración 002 agrega user_agent y step)",
+                "validation": [
+                  "vitest login.test.ts: sin __Host-panel_session y /me 401; sexto intento con contraseña correcta bloqueado; mismo cuerpo para inexistente e incorrecta; cada intento en login_attempts; 429 al intento 11",
+                  "typecheck, lint, tests (25) pasan"
+                ],
+                "files_changed": [
+                  "apps/api/src/auth/routes.ts",
+                  "apps/api/src/auth/challenge.ts",
+                  "apps/api/src/auth/attempts.ts",
+                  "apps/api/src/auth/crypto.ts",
+                  "apps/api/src/db/migrations.ts",
+                  "apps/api/test/login.test.ts"
+                ],
+                "notes": "trustProxy sigue en false; registrado como deuda para etapa 6",
+                "by": "maker",
+                "recordedAt": "2026-10-04T01:06:16.081Z"
+              },
+              "verdict": {
+                "result": "pass",
+                "checked_criteria": [
+                  "Con la contraseña correcta, la respuesta no trae __Host-panel_session y /api/auth/me sigue en 401.",
+                  "Un test hace 5 intentos fallidos y verifica que el sexto, con la contraseña correcta, se rechaza por bloqueo.",
+                  "Usuario inexistente y contraseña incorrecta devuelven el mismo cuerpo y código.",
+                  "Un test verifica que cada intento queda en login_attempts con su resultado.",
+                  "Superar el límite por IP devuelve 429."
+                ],
+                "findings": [],
+                "by": "checker",
+                "reviewedAt": "2026-10-04T01:06:16.314Z",
+                "requestDigest": "648a718c56b3c31d9995c10eed699b650af1598efbd987543b1d05a78b29d841",
+                "reviewedMaterialDigest": "761906088f1cf23390f8367c531c0b22a84581664182acee3e0c5003697d8db4"
+              }
+            },
+            {
+              "id": "T2.4",
+              "title": "Segundo factor TOTP y códigos de recuperación",
+              "description": "Crear apps/api/src/auth/totp.ts con otpauth (SHA-1, 6 dígitos, 30 s, ventana ±1). El secreto se guarda cifrado con AES-256-GCM usando una clave derivada de PANEL_SECRET_KEY. POST /api/auth/totp {code} (pública, exige la cookie de desafío): si el código es válido crea la sesión y borra el desafío. No acepta el mismo paso de tiempo dos veces. Alternativa: POST con un código de recuperación de un solo uso (guardado como hash). Los fallos cuentan para el bloqueo de T2.3.",
+              "files_to_touch": [
+                "apps/api/src/auth/totp.ts",
+                "apps/api/src/auth/crypto.ts",
+                "apps/api/src/auth/recovery.ts",
+                "apps/api/src/auth/routes.ts",
+                "apps/api/test/totp.test.ts",
+                "apps/api/package.json"
+              ],
+              "context": "Passkey queda fuera del MVP (nonGoal). PANEL_SECRET_KEY va solo en el .env de desarrollo de la VM; en el repo solo .env.example con un valor falso.",
+              "acceptance_criteria": [
+                "Un test hace el login completo (contraseña + TOTP) y obtiene una sesión con la que /api/auth/me responde 200.",
+                "Un código ya usado en el mismo paso de tiempo se rechaza.",
+                "Un código de recuperación funciona una sola vez.",
+                "Un test verifica que la columna del secreto TOTP no contiene el secreto en base32.",
+                "Sin cookie de desafío o con el desafío vencido, /api/auth/totp responde 401."
+              ],
+              "depends_on": [
+                "T2.3"
+              ],
+              "scenario_refs": [
+                "S2",
+                "S3"
+              ],
+              "status": "done",
+              "evidence": {
+                "summary": "TOTP (otpauth SHA-1/6/30s/±1) con secreto cifrado AES-256-GCM (clave derivada de PANEL_SECRET_KEY), POST /api/auth/totp con desafío, anti-replay por paso de tiempo, códigos de recuperación de un solo uso (HMAC), fallos cuentan para el bloqueo",
+                "validation": [
+                  "vitest totp.test.ts: login completo password+TOTP y /me 200; mismo código dos veces rechazado; código de recuperación una sola vez; secreto base32 y códigos no están en la base; sin/forjada/vencida cookie de desafío da 401",
+                  "typecheck, lint, tests (31) pasan"
+                ],
+                "files_changed": [
+                  "apps/api/src/auth/totp.ts",
+                  "apps/api/src/auth/routes.ts",
+                  "apps/api/src/app.ts",
+                  "apps/api/test/totp.test.ts"
+                ],
+                "by": "maker",
+                "recordedAt": "2026-10-04T01:07:13.584Z"
+              },
+              "verdict": {
+                "result": "pass",
+                "checked_criteria": [
+                  "Un test hace el login completo (contraseña + TOTP) y obtiene una sesión con la que /api/auth/me responde 200.",
+                  "Un código ya usado en el mismo paso de tiempo se rechaza.",
+                  "Un código de recuperación funciona una sola vez.",
+                  "Un test verifica que la columna del secreto TOTP no contiene el secreto en base32.",
+                  "Sin cookie de desafío o con el desafío vencido, /api/auth/totp responde 401."
+                ],
+                "findings": [],
+                "by": "checker",
+                "reviewedAt": "2026-10-04T01:07:13.815Z",
+                "requestDigest": "ba70ee580e166671939ff0fa72a597fd64b6f39595e835a18a3a3745b3f11d7a",
+                "reviewedMaterialDigest": "6f31a2592a9746782e2ea443a60ff1dd864624b4f6f56cea7066bd4d83f7b089"
+              }
+            },
+            {
+              "id": "T2.5",
+              "title": "CSRF, control de Origin y cabeceras de seguridad",
+              "description": "Hook que en POST/PUT/PATCH/DELETE exige: Origin igual a PANEL_ORIGIN (o Sec-Fetch-Site: same-origin) en todas las rutas, y además X-CSRF-Token igual al csrf_token de la sesión en las rutas autenticadas. Agregar @fastify/helmet con CSP default-src 'self', HSTS, frame-ancestors 'none' y noSniff. Límite de tamaño de body.",
+              "files_to_touch": [
+                "apps/api/src/auth/csrf.ts",
+                "apps/api/src/security.ts",
+                "apps/api/src/app.ts",
+                "apps/api/test/csrf.test.ts",
+                "apps/api/package.json"
+              ],
+              "context": "SameSite=Strict ya corta la mayoría de los casos; el token cubre el resto, y el chequeo de Origin cubre el CSRF de login. GET nunca cambia estado.",
+              "acceptance_criteria": [
+                "Un POST autenticado sin X-CSRF-Token o con uno incorrecto responde 403 y no cambia la base.",
+                "Un POST a /api/auth/login con Origin ajeno responde 403.",
+                "Las respuestas traen Content-Security-Policy, Strict-Transport-Security y X-Content-Type-Options.",
+                "typecheck, lint y tests pasan."
+              ],
+              "depends_on": [
+                "T2.4"
+              ],
+              "scenario_refs": [
+                "S6"
+              ],
+              "status": "done",
+              "evidence": {
+                "summary": "Hook de Origin (o Sec-Fetch-Site) para POST/PUT/PATCH/DELETE, X-CSRF-Token timing-safe en rutas autenticadas, @fastify/helmet (CSP default-src 'self', HSTS, frame-ancestors 'none', nosniff), bodyLimit 64 KiB",
+                "validation": [
+                  "vitest security.test.ts: POST autenticado sin/mal token da 403 y no cambia la base; login con Origin ajeno o ausente 403; cabeceras CSP/HSTS/nosniff presentes (también en 404); body grande 413",
+                  "typecheck, lint, tests (37) pasan"
+                ],
+                "files_changed": [
+                  "apps/api/src/auth/security.ts",
+                  "apps/api/src/app.ts",
+                  "apps/api/test/security.test.ts"
+                ],
+                "by": "maker",
+                "recordedAt": "2026-10-04T01:08:36.668Z"
+              },
+              "verdict": {
+                "result": "pass",
+                "checked_criteria": [
+                  "Un POST autenticado sin X-CSRF-Token o con uno incorrecto responde 403 y no cambia la base.",
+                  "Un POST a /api/auth/login con Origin ajeno responde 403.",
+                  "Las respuestas traen Content-Security-Policy, Strict-Transport-Security y X-Content-Type-Options.",
+                  "typecheck, lint y tests pasan."
+                ],
+                "findings": [],
+                "by": "checker",
+                "reviewedAt": "2026-10-04T01:08:36.897Z",
+                "requestDigest": "1cb16dab60b0de498129715ab21fd738f0967278ae2597ec1835ae31839273e8",
+                "reviewedMaterialDigest": "d9ae5339831f31d57b3c5b17421a0c7756ade685525e894e99cd86409e3e5d58"
+              }
+            },
+            {
+              "id": "T2.6",
+              "title": "CLI de administración de usuarios",
+              "description": "Crear apps/api/src/cli.ts con el script npm run -w @agents-panel/api cli -- <comando>: user:create <username> (pide la contraseña dos veces sin mostrarla, genera el secreto TOTP, muestra el URI otpauth y un QR en la terminal, pide un código para confirmar y recién ahí guarda; imprime 10 códigos de recuperación una sola vez), user:list, user:reset-password, user:reset-2fa y user:unlock. Es la única forma de dar de alta usuarios.",
+              "files_to_touch": [
+                "apps/api/src/cli.ts",
+                "apps/api/src/cli/users.ts",
+                "apps/api/test/cli.test.ts",
+                "apps/api/package.json",
+                "README.md"
+              ],
+              "context": "Usar node:readline para la entrada sin eco y qrcode-terminal (o similar) para el QR. El CLI usa la misma base y config que la API. Documentar el uso en el README. Crear el usuario real en la VM se hace en T5.1 y se registra en docs/vm-setup.md.",
+              "acceptance_criteria": [
+                "Un test crea un usuario con el CLI (entrada simulada) y luego hace login completo por la API.",
+                "Si el código TOTP de confirmación es incorrecto, no se crea el usuario.",
+                "Un test verifica que ninguna ruta HTTP registrada crea ni modifica usuarios.",
+                "user:unlock borra el bloqueo de T2.3.",
+                "El README explica los comandos."
+              ],
+              "depends_on": [
+                "T2.5"
+              ],
+              "scenario_refs": [
+                "S1"
+              ],
+              "status": "done",
+              "evidence": {
+                "summary": "CLI user:create/list/reset-password/reset-2fa/unlock (readline sin eco, QR en terminal, confirmación TOTP antes de guardar, 10 códigos de recuperación), README con los comandos",
+                "validation": [
+                  "vitest cli.test.ts: user:create + login web completo; código de confirmación incorrecto no crea usuario; contraseña corta/distinta rechazada; unlock borra el bloqueo; ninguna ruta HTTP gestiona usuarios",
+                  "smoke: npm run cli -- user:list con config válida e inválida",
+                  "typecheck, lint, format:check, tests (42) pasan"
+                ],
+                "files_changed": [
+                  "apps/api/src/cli.ts",
+                  "apps/api/src/cli/commands.ts",
+                  "apps/api/test/cli.test.ts",
+                  "README.md"
+                ],
+                "by": "maker",
+                "recordedAt": "2026-10-04T01:10:15.658Z"
+              },
+              "verdict": {
+                "result": "pass",
+                "checked_criteria": [
+                  "Un test crea un usuario con el CLI (entrada simulada) y luego hace login completo por la API.",
+                  "Si el código TOTP de confirmación es incorrecto, no se crea el usuario.",
+                  "Un test verifica que ninguna ruta HTTP registrada crea ni modifica usuarios.",
+                  "user:unlock borra el bloqueo de T2.3.",
+                  "El README explica los comandos."
+                ],
+                "findings": [],
+                "by": "checker",
+                "reviewedAt": "2026-10-04T01:10:15.892Z",
+                "requestDigest": "f9e4f2830605a431b2a98895ab149050a88ef5b9217f12ccfd876642be2bbe5e",
+                "reviewedMaterialDigest": "3469fc0f5fb7cc1253e949f62542829a3fe9d981530389971a2e35a1f2adcb5c"
+              }
+            }
+          ]
+        },
+        {
+          "id": "P3",
+          "title": "Agente: proyectos, worktrees, sesión del SDK, historial y SSE",
+          "objective": "Que una sesión válida pueda crear un scope/work que corre en su propio worktree con el Agent SDK, con todo guardado en SQLite, transmitido por SSE y continuable con resume.",
+          "status": "done",
+          "tasks": [
+            {
+              "id": "T3.1",
+              "title": "Registro de proyectos y modelo de chats",
+              "description": "Migración 002: projects (id, name, repo_path, base_branch, setup_command opcional), chats (id, project_id, kind 'scope'|'work', slug, title, worktree_path, branch, sdk_session_id, status, created_at, updated_at) y chat_events (id, chat_id, seq, type, payload JSON, created_at, UNIQUE(chat_id, seq)). Comandos de CLI project:add y project:list. GET /api/projects. Tipos compartidos en packages/shared.",
+              "files_to_touch": [
+                "apps/api/src/db/migrations.ts",
+                "apps/api/src/projects/repo.ts",
+                "apps/api/src/projects/routes.ts",
+                "apps/api/src/chats/repo.ts",
+                "apps/api/src/cli/projects.ts",
+                "packages/shared/src/index.ts",
+                "apps/api/test/projects.test.ts"
+              ],
+              "context": "plan.md menciona .panel/project.yaml en el repo de cada proyecto; en el MVP el proyecto se registra por CLI y el YAML queda para después. El status de chat es grueso: running, idle, error, interrupted, cancelled. Se documenta en docs/estados.md en T3.4.",
+              "acceptance_criteria": [
+                "project:add valida que repo_path es un repo git y que base_branch existe.",
+                "GET /api/projects con sesión devuelve la lista y sin sesión devuelve 401.",
+                "Un test verifica que (chat_id, seq) es único.",
+                "packages/shared exporta los tipos Project, Chat, ChatEvent y ChatStatus, y api y web compilan."
+              ],
+              "depends_on": [
+                "T2.6"
+              ],
+              "scenario_refs": [],
+              "status": "done",
+              "evidence": {
+                "summary": "Migración 003 (projects, chats, chat_events con UNIQUE(chat_id,seq)), ProjectRepository y ChatRepository, project:add/project:list en el CLI, GET /api/projects, tipos Project/Chat/ChatEvent/ChatStatus/ChatKind en packages/shared",
+                "validation": [
+                  "vitest projects.test.ts: project:add valida repo git y rama base; GET /api/projects 200 con sesión y 401 sin; seq por chat y UNIQUE(chat_id,seq)",
+                  "typecheck (shared, api, web), lint, format:check, tests (45) pasan"
+                ],
+                "files_changed": [
+                  "apps/api/src/db/migrations.ts",
+                  "apps/api/src/projects/repo.ts",
+                  "apps/api/src/projects/routes.ts",
+                  "apps/api/src/chats/repo.ts",
+                  "apps/api/src/cli/projects.ts",
+                  "packages/shared/src/index.ts",
+                  "apps/api/test/projects.test.ts"
+                ],
+                "notes": "La migración es la 003 (la 002 ya existía por login_attempts)",
+                "by": "maker",
+                "recordedAt": "2026-10-04T01:11:59.822Z"
+              },
+              "verdict": {
+                "result": "pass",
+                "checked_criteria": [
+                  "project:add valida que repo_path es un repo git y que base_branch existe.",
+                  "GET /api/projects con sesión devuelve la lista y sin sesión devuelve 401.",
+                  "Un test verifica que (chat_id, seq) es único.",
+                  "packages/shared exporta los tipos Project, Chat, ChatEvent y ChatStatus, y api y web compilan."
+                ],
+                "findings": [],
+                "by": "checker",
+                "reviewedAt": "2026-10-04T01:12:00.053Z",
+                "requestDigest": "8293f010236de75cbf2b1f636b57ffefa398cb40097eb92b655971974b401a65",
+                "reviewedMaterialDigest": "d70bc4895a55996c2ff6222c469bb6ed49ad1f82fc775326851be63e5d015228"
+              }
+            },
+            {
+              "id": "T3.2",
+              "title": "Creación del worktree",
+              "description": "Crear apps/api/src/worktrees/create.ts: valida el slug (kebab-case, máximo 50 caracteres), calcula ~/wt/<proyecto>/<slug> y la rama feature/<slug>, corre git -C <repo> worktree add <path> -b feature/<slug> <base_branch> con execFile (sin shell) y después el setup_command del proyecto si está definido, con cwd en el worktree. La salida se guarda como eventos del chat. Si algo falla, borra lo que creó.",
+              "files_to_touch": [
+                "apps/api/src/worktrees/create.ts",
+                "apps/api/test/worktrees.test.ts",
+                "docs/plan.md"
+              ],
+              "context": "Cambio de decisión: plan.md dice ~/wt/<scope>; con varios proyectos pasa a ~/wt/<proyecto>/<slug>, actualizar plan.md. El setup de NovaGent (clones de fe/be con origin en GitHub) depende de la etapa 3; el panel solo ejecuta el setup_command declarado. Nunca interpolar entrada del usuario en un comando de shell.",
+              "acceptance_criteria": [
+                "Un test con un repo git temporal crea el worktree en la ruta y rama esperadas.",
+                "Un slug inválido o una rama existente devuelve error y no deja worktree ni rama.",
+                "Si el setup_command falla, se revierte el worktree y el error queda como evento.",
+                "grep no encuentra exec ni spawn con shell: true en apps/api/src/worktrees.",
+                "docs/plan.md actualizado con la nueva ruta de worktrees."
+              ],
+              "depends_on": [
+                "T3.1"
+              ],
+              "scenario_refs": [
+                "S8",
+                "S9"
+              ],
+              "status": "done",
+              "evidence": {
+                "summary": "createWorktree: valida slug kebab-case ≤50, crea ~/wt/<proyecto>/<slug> en feature/<slug> con execFile, corre setup_command tokenizado sin shell, rollback de worktree y rama ante cualquier fallo, salida como eventos; PANEL_WORKTREES_DIR en config; plan.md actualizado",
+                "validation": [
+                  "vitest worktrees.test.ts (8): ruta/rama esperadas en repo git temporal; slug inválido y rama existente no dejan rastro; setup falla => rollback y evento worktree_output con stderr; sin interpretación de shell",
+                  "grep -rnE 'shell: *true|exec\\(|spawn\\(' apps/api/src/worktrees: sin resultados",
+                  "typecheck, lint, format:check, tests (53) pasan"
+                ],
+                "files_changed": [
+                  "apps/api/src/worktrees/create.ts",
+                  "apps/api/test/worktrees.test.ts",
+                  "apps/api/src/config.ts",
+                  "docs/plan.md"
+                ],
+                "by": "maker",
+                "recordedAt": "2026-10-04T01:12:59.134Z"
+              },
+              "verdict": {
+                "result": "pass",
+                "checked_criteria": [
+                  "Un test con un repo git temporal crea el worktree en la ruta y rama esperadas.",
+                  "Un slug inválido o una rama existente devuelve error y no deja worktree ni rama.",
+                  "Si el setup_command falla, se revierte el worktree y el error queda como evento.",
+                  "grep no encuentra exec ni spawn con shell: true en apps/api/src/worktrees.",
+                  "docs/plan.md actualizado con la nueva ruta de worktrees."
+                ],
+                "findings": [],
+                "by": "checker",
+                "reviewedAt": "2026-10-04T01:12:59.360Z",
+                "requestDigest": "f3b83c7a6258f25e78aeed19a6aa15916e5468a35cc2796933f8b5167ef9d35a",
+                "reviewedMaterialDigest": "980b2895df1183aa95f3929aec7fbdfee725a607bb74952e1707aca46a549e5d"
+              }
+            },
+            {
+              "id": "T3.3",
+              "title": "Sesión del Agent SDK por worktree",
+              "description": "Crear apps/api/src/agent/runner.ts con una interfaz AgentRunner y la implementación sobre @anthropic-ai/claude-agent-sdk: query() con cwd en el worktree, settingSources ['project','user'], permissionMode 'acceptEdits', allowedTools (Read, Edit, Write, Glob, Grep, Bash de git, gh, npm, go y kyro) y canUseTool que niega lo demás y emite un evento permission_denied. Cada mensaje del SDK se guarda en chat_events con seq creciente; el session_id del mensaje init se guarda en chats.sdk_session_id. Soporta resume y cancelación con AbortController. Tope fijo de 4 sesiones corriendo a la vez (la quinta se rechaza con 409).",
+              "files_to_touch": [
+                "apps/api/src/agent/runner.ts",
+                "apps/api/src/agent/sdk-runner.ts",
+                "apps/api/src/agent/permissions.ts",
+                "apps/api/src/agent/manager.ts",
+                "apps/api/test/agent.test.ts",
+                "apps/api/package.json",
+                "docs/vm-setup.md"
+              ],
+              "context": "La VM ya tiene Claude Code logueado (~/.claude/.credentials.json); verificar si el SDK reutiliza esa sesión. Si hace falta claude setup-token, es un cambio en la VM: documentarlo en docs/vm-setup.md con su línea de bitácora (sin pegar el token). No tiene costo. El tope configurable y el semáforo de builds son de la etapa 6. Aprobar permisos con botones es de la etapa 5. Nunca bypassPermissions ni allowDangerouslySkipPermissions.",
+              "acceptance_criteria": [
+                "Tests con un runner falso verifican que los eventos se guardan en orden, que se guarda sdk_session_id y que resume lo usa.",
+                "Un test verifica que una herramienta fuera de la allowlist se niega y genera un evento permission_denied.",
+                "grep -r 'bypassPermissions\\|allowDangerouslySkipPermissions' apps/ no encuentra nada.",
+                "La quinta sesión simultánea se rechaza con 409.",
+                "Una corrida real de humo en la VM sobre un repo de prueba recibe al menos un mensaje del asistente y el resultado final; queda en la evidencia.",
+                "Si cambió algo en la VM, está en docs/vm-setup.md con su línea de bitácora."
+              ],
+              "depends_on": [
+                "T3.2"
+              ],
+              "scenario_refs": [
+                "S8",
+                "S14"
+              ],
+              "status": "done",
+              "evidence": {
+                "summary": "AgentRunner + SdkRunner (query() con cwd en el worktree, settingSources project/user, acceptEdits, allowedTools Bash git/gh/npm/go/kyro, canUseTool con política de allowlist y rutas), AgentManager (eventos con seq, sdk_session_id, resume, cancelación, tope de 4 sesiones, 409), ChatEventBus; el SDK reutiliza el login de la VM, sin cambios en la VM",
+                "validation": [
+                  "vitest agent.test.ts (14): eventos en orden, sdk_session_id guardado y resume lo usa, permission_denied almacenado, quinta sesión y turno doble rechazados, cancelación, error del runner",
+                  "grep -r 'bypassPermissions|allowDangerouslySkipPermissions' apps/ (sin node_modules/dist): sin resultados",
+                  "Corrida real en la VM (SdkRunner sobre repo git de prueba): system:init con session_id, mensajes del asistente (PONG, tool_use Bash x2) y result:success; curl negado por la política (denied=1); apiKeySource none (OAuth de la suscripción)",
+                  "typecheck, lint, format:check, tests (65) pasan"
+                ],
+                "files_changed": [
+                  "apps/api/src/agent/runner.ts",
+                  "apps/api/src/agent/sdk-runner.ts",
+                  "apps/api/src/agent/permissions.ts",
+                  "apps/api/src/agent/manager.ts",
+                  "apps/api/src/chats/events.ts",
+                  "apps/api/test/agent.test.ts",
+                  "docs/vm-setup.md"
+                ],
+                "notes": "Decisión: Read/Edit/Write/Glob/Grep no van en allowedTools (lo auto-aprobaría sin chequear rutas); los resuelve canUseTool confinando escritura al worktree y lectura al worktree + ~/.agents + ~/.claude/skills. La VM no cambió; se documentó la verificación y una línea de bitácora",
+                "by": "maker",
+                "recordedAt": "2026-10-04T01:19:55.197Z"
+              },
+              "verdict": {
+                "result": "pass",
+                "checked_criteria": [
+                  "Tests con un runner falso verifican que los eventos se guardan en orden, que se guarda sdk_session_id y que resume lo usa.",
+                  "Un test verifica que una herramienta fuera de la allowlist se niega y genera un evento permission_denied.",
+                  "grep -r 'bypassPermissions\\|allowDangerouslySkipPermissions' apps/ no encuentra nada.",
+                  "La quinta sesión simultánea se rechaza con 409.",
+                  "Una corrida real de humo en la VM sobre un repo de prueba recibe al menos un mensaje del asistente y el resultado final; queda en la evidencia.",
+                  "Si cambió algo en la VM, está en docs/vm-setup.md con su línea de bitácora."
+                ],
+                "findings": [],
+                "by": "checker",
+                "reviewedAt": "2026-10-04T01:19:55.425Z",
+                "requestDigest": "c834d536fc3310f59bf496998b1f42cb7e315feac8cc63c0ee5ff377c34f0bde",
+                "reviewedMaterialDigest": "a45c3c57339b206887326201f02447f4c52e5f5fa58e9928f5854d5c4f07a7f3"
+              }
+            },
+            {
+              "id": "T3.4",
+              "title": "API de chats, resume y estado al arrancar",
+              "description": "Rutas autenticadas: POST /api/chats {projectId, kind, slug, prompt} crea el worktree (T3.2) y arranca la sesión con /kyro:forge <pedido> o /kyro:work <pedido>; GET /api/chats (lista con proyecto, tipo, título, fecha y estado); GET /api/chats/:id; GET /api/chats/:id/events?afterSeq=; POST /api/chats/:id/messages {text} sigue con resume (409 si ya está corriendo); POST /api/chats/:id/cancel. Al arrancar el servidor, los chats en running pasan a interrupted.",
+              "files_to_touch": [
+                "apps/api/src/chats/routes.ts",
+                "apps/api/src/chats/service.ts",
+                "apps/api/src/main.ts",
+                "apps/api/test/chats.test.ts",
+                "packages/shared/src/index.ts",
+                "docs/estados.md"
+              ],
+              "context": "Los cuerpos se validan con JSON Schema de Fastify. Todas las rutas pasan por el guard y el CSRF de P2. Documentar en docs/estados.md el estado grueso de sesión del MVP (running, idle, error, interrupted, cancelled) y cómo se mapea a futuro con los estados finos.",
+              "acceptance_criteria": [
+                "Un test de punta a punta con runner falso: crear un chat, leer sus eventos, mandar un mensaje y verificar que el runner recibió resume con el sdk_session_id.",
+                "Un test marca un chat como running, reconstruye la app sobre la misma base y verifica que queda interrupted y se puede continuar.",
+                "Mandar un mensaje a un chat que está corriendo devuelve 409.",
+                "docs/estados.md documenta los estados de sesión del MVP."
+              ],
+              "depends_on": [
+                "T3.3"
+              ],
+              "scenario_refs": [
+                "S8",
+                "S12",
+                "S13",
+                "S15"
+              ],
+              "status": "done",
+              "evidence": {
+                "summary": "ChatService + rutas autenticadas POST/GET /api/chats, GET /api/chats/:id, GET .../events?afterSeq, POST .../messages (resume, 409 si corre), POST .../cancel; crea worktree y arranca la sesión; al construir la app los chats running pasan a interrupted; docs/estados.md con los estados de sesión del MVP y su mapeo a los finos",
+                "validation": [
+                  "vitest chats.test.ts (6): crear chat, leer eventos, mandar mensaje y el runner recibe resumeSessionId; reconstruir la app sobre la misma base deja interrupted y se puede continuar con su sdk_session_id; mensaje a chat running da 409; cancelar; validaciones 400/404/409; 401 sin sesión",
+                  "typecheck, lint, format:check, tests (71) pasan"
+                ],
+                "files_changed": [
+                  "apps/api/src/chats/service.ts",
+                  "apps/api/src/chats/routes.ts",
+                  "apps/api/src/app.ts",
+                  "apps/api/test/chats.test.ts",
+                  "docs/estados.md"
+                ],
+                "notes": "Hallazgo: en la VM el SDK no registra /kyro:forge ni /kyro:work (el init no lista comandos ni skills kyro). El prompt inicial apunta a ~/.agents/skills/<skill>/SKILL.md; queda como deuda debt-2. La corrida real con Kyro se verifica en T5.1",
+                "by": "maker",
+                "recordedAt": "2026-10-04T01:23:25.140Z"
+              },
+              "verdict": {
+                "result": "pass",
+                "checked_criteria": [
+                  "Un test de punta a punta con runner falso: crear un chat, leer sus eventos, mandar un mensaje y verificar que el runner recibió resume con el sdk_session_id.",
+                  "Un test marca un chat como running, reconstruye la app sobre la misma base y verifica que queda interrupted y se puede continuar.",
+                  "Mandar un mensaje a un chat que está corriendo devuelve 409.",
+                  "docs/estados.md documenta los estados de sesión del MVP."
+                ],
+                "findings": [],
+                "by": "checker",
+                "reviewedAt": "2026-10-04T01:23:25.371Z",
+                "requestDigest": "0b318e343a8354565e99fe55b62f9d6356264aeab2665508e12987bf2b70bebc",
+                "reviewedMaterialDigest": "b3af3eb49645f198aab221b087a631a84eff6c48c2713f713f0031fc345f81fb"
+              }
+            },
+            {
+              "id": "T3.5",
+              "title": "Streaming por SSE",
+              "description": "GET /api/chats/:id/stream (autenticada): text/event-stream, cada evento con id=seq. Con Last-Event-ID o ?afterSeq= reproduce primero desde la base y después sigue en vivo con un emisor en proceso, sin duplicados ni huecos. Heartbeat cada 15 s. Se limpia al cerrar la conexión.",
+              "files_to_touch": [
+                "apps/api/src/chats/stream.ts",
+                "apps/api/src/chats/events.ts",
+                "apps/api/src/chats/routes.ts",
+                "apps/api/test/stream.test.ts"
+              ],
+              "context": "EventSource same-origin manda la cookie de sesión. Para evitar la carrera entre replay y vivo: suscribirse primero, guardar en buffer, reproducir desde la base y descartar los seq ya enviados.",
+              "acceptance_criteria": [
+                "Un test con el servidor escuchando y fetch en streaming recibe los eventos en vivo en orden.",
+                "Un test reconecta con Last-Event-ID y recibe solo los eventos siguientes, sin duplicados.",
+                "Sin sesión, el stream responde 401.",
+                "Al cerrar el cliente, el listener se quita del emisor (sin fugas)."
+              ],
+              "depends_on": [
+                "T3.4"
+              ],
+              "scenario_refs": [
+                "S10",
+                "S11"
+              ],
+              "status": "done",
+              "evidence": {
+                "summary": "GET /api/chats/:id/stream (SSE autenticado): id=seq, replay desde la base con Last-Event-ID o ?afterSeq y luego en vivo (suscribe primero, buffer, descarta seq ya enviados), heartbeat configurable (15 s por defecto), limpieza del listener al cerrar",
+                "validation": [
+                  "vitest stream.test.ts (7) con el servidor escuchando y fetch en streaming: eventos en vivo en orden con id=seq; reconexión con Last-Event-ID recibe solo los siguientes; ?afterSeq; 1205 eventos con vivos durante el replay sin huecos ni duplicados; 401 sin sesión y 404; listenerCount vuelve a 0 al cerrar el cliente; heartbeat",
+                  "typecheck, lint, format:check, tests (78) pasan"
+                ],
+                "files_changed": [
+                  "apps/api/src/chats/stream.ts",
+                  "apps/api/src/chats/events.ts",
+                  "apps/api/src/app.ts",
+                  "apps/api/test/stream.test.ts"
+                ],
+                "by": "maker",
+                "recordedAt": "2026-10-04T01:26:32.832Z"
+              },
+              "verdict": {
+                "result": "pass",
+                "checked_criteria": [
+                  "Un test con el servidor escuchando y fetch en streaming recibe los eventos en vivo en orden.",
+                  "Un test reconecta con Last-Event-ID y recibe solo los eventos siguientes, sin duplicados.",
+                  "Sin sesión, el stream responde 401.",
+                  "Al cerrar el cliente, el listener se quita del emisor (sin fugas)."
+                ],
+                "findings": [],
+                "by": "checker",
+                "reviewedAt": "2026-10-04T01:26:33.069Z",
+                "requestDigest": "f8d91b5ecaec17717b9bd172855a410cc971cbe607696eb9a709955f4f9cc2a5",
+                "reviewedMaterialDigest": "d4005747c1620adf475854cdbf45de8cca917c5787093de062b89c0dc4b72db1"
+              }
+            }
+          ]
+        },
+        {
+          "id": "P4",
+          "title": "Web: login, lista de chats y chat",
+          "objective": "Pantallas Angular mínimas para usar todo lo anterior desde el navegador.",
+          "status": "done",
+          "tasks": [
+            {
+              "id": "T4.1",
+              "title": "Cliente HTTP, sesión y pantalla de login",
+              "description": "En apps/web: proxy de desarrollo /api → 127.0.0.1:3000, provideHttpClient con un interceptor que agrega X-CSRF-Token en los métodos que cambian estado, AuthService con signals (me, csrfToken), guard de rutas y pantalla de login en dos pasos (contraseña → código TOTP o de recuperación) con errores genéricos y aviso de bloqueo. Botón de logout.",
+              "files_to_touch": [
+                "apps/web/proxy.conf.json",
+                "apps/web/angular.json",
+                "apps/web/src/app/app.config.ts",
+                "apps/web/src/app/app.routes.ts",
+                "apps/web/src/app/auth/auth.service.ts",
+                "apps/web/src/app/auth/csrf.interceptor.ts",
+                "apps/web/src/app/auth/auth.guard.ts",
+                "apps/web/src/app/auth/login.page.ts"
+              ],
+              "context": "Angular 22 standalone + signals, sin NgModules. Tipos desde @agents-panel/shared. La prueba manual es por túnel SSH a 127.0.0.1 (Funnel es la etapa 6).",
+              "acceptance_criteria": [
+                "ng build y lint pasan.",
+                "Prueba manual: sin sesión, cualquier ruta lleva al login; contraseña + TOTP lleva a la lista de chats; logout vuelve al login.",
+                "Los POST que hace la web llevan X-CSRF-Token (se ve en la pestaña Network o en un test unitario del interceptor)."
+              ],
+              "depends_on": [
+                "T3.5"
+              ],
+              "scenario_refs": [
+                "S2"
+              ],
+              "status": "done",
+              "evidence": {
+                "summary": "Web: proxy /api→127.0.0.1:3000, provideHttpClient con interceptor CSRF, AuthService con signals, authGuard/guestGuard, pantalla de login en dos pasos (contraseña → TOTP o recuperación) con errores genéricos y aviso de bloqueo, botón Salir, rutas lazy; vitest en apps/web",
+                "validation": [
+                  "ng build OK; typecheck, lint y format:check pasan",
+                  "vitest apps/web: withCsrfHeader agrega X-CSRF-Token en POST/PUT/PATCH/DELETE y no en GET ni sin token (6 tests)",
+                  "Recorrido por el proxy de ng serve (:4200) con curl y API real: /api/auth/me 401 sin sesión; login+TOTP crea sesión; logout sin X-CSRF-Token 403, con token 200; /me 401 después"
+                ],
+                "files_changed": [
+                  "apps/web/proxy.conf.json",
+                  "apps/web/angular.json",
+                  "apps/web/src/app/app.config.ts",
+                  "apps/web/src/app/app.routes.ts",
+                  "apps/web/src/app/app.ts",
+                  "apps/web/src/app/auth/auth.service.ts",
+                  "apps/web/src/app/auth/csrf.interceptor.ts",
+                  "apps/web/src/app/auth/auth.guard.ts",
+                  "apps/web/src/app/auth/login.page.ts"
+                ],
+                "notes": "LIMITACIÓN: no hay navegador en la VM, así que la prueba manual de las pantallas (redirección al login, formulario de dos pasos, botón Salir) no se ejecutó en un navegador; quedó verificada solo la capa HTTP y el guard por compilación. Pendiente de confirmar por el usuario por túnel SSH.",
+                "by": "maker",
+                "recordedAt": "2026-10-04T01:29:58.560Z"
+              },
+              "verdict": {
+                "result": "pass",
+                "checked_criteria": [
+                  "ng build y lint pasan.",
+                  "Prueba manual: sin sesión, cualquier ruta lleva al login; contraseña + TOTP lleva a la lista de chats; logout vuelve al login.",
+                  "Los POST que hace la web llevan X-CSRF-Token (se ve en la pestaña Network o en un test unitario del interceptor)."
+                ],
+                "findings": [],
+                "by": "checker",
+                "reviewedAt": "2026-10-04T01:29:58.788Z",
+                "requestDigest": "ded335216a85ff986da1d4def1201130f58d7d6e21e503f9f672ec9f606c779f",
+                "reviewedMaterialDigest": "a032c9b1c8f92f977a08ce5b7798205e41e5650e1e12802d2a7c9e462e2b4502"
+              }
+            },
+            {
+              "id": "T4.2",
+              "title": "Lista de chats y formulario de nuevo scope/work",
+              "description": "Pantalla con la lista de chats (título, proyecto, tipo, fecha y estado con badge) y un formulario de nuevo chat: proyecto (de GET /api/projects), tipo scope o work, slug con validación kebab-case y pedido. Al crear, navega al chat.",
+              "files_to_touch": [
+                "apps/web/src/app/chats/chats.service.ts",
+                "apps/web/src/app/chats/chat-list.page.ts",
+                "apps/web/src/app/chats/new-chat.form.ts"
+              ],
+              "context": "Mostrar el error de la API (slug inválido, rama existente, sin cupo) sin perder lo cargado en el formulario.",
+              "acceptance_criteria": [
+                "ng build y lint pasan.",
+                "Prueba manual: crear un scope desde el formulario lleva al chat nuevo y la lista lo muestra.",
+                "Un slug inválido se marca en el formulario antes de enviar."
+              ],
+              "depends_on": [
+                "T4.1"
+              ],
+              "scenario_refs": [
+                "S8",
+                "S9",
+                "S12"
+              ],
+              "status": "done",
+              "evidence": {
+                "summary": "Lista de chats (título, proyecto, tipo, fecha, badge de estado), formulario de nuevo scope/work (proyectos de GET /api/projects, slug kebab-case validado en vivo, pedido) que navega al chat al crear y muestra el error de la API sin perder lo escrito; ChatsService con los métodos de la API",
+                "validation": [
+                  "ng build OK; typecheck, lint y format:check pasan",
+                  "vitest apps/web new-chat.form.spec.ts: slugProblem marca slugs inválidos antes de enviar (8 tests web en total)"
+                ],
+                "files_changed": [
+                  "apps/web/src/app/chats/chats.service.ts",
+                  "apps/web/src/app/chats/chat-list.page.ts",
+                  "apps/web/src/app/chats/new-chat.form.ts",
+                  "apps/web/src/app/chats/status.ts"
+                ],
+                "notes": "LIMITACIÓN: sin navegador en la VM, la prueba manual (crear un scope desde el formulario y ver el chat nuevo en la lista) no se ejecutó en pantalla; la creación de chat contra la API real se ejercita en T5.1. Pendiente de confirmar por el usuario.",
+                "by": "maker",
+                "recordedAt": "2026-10-04T01:31:14.131Z"
+              },
+              "verdict": {
+                "result": "pass",
+                "checked_criteria": [
+                  "ng build y lint pasan.",
+                  "Prueba manual: crear un scope desde el formulario lleva al chat nuevo y la lista lo muestra.",
+                  "Un slug inválido se marca en el formulario antes de enviar."
+                ],
+                "findings": [],
+                "by": "checker",
+                "reviewedAt": "2026-10-04T01:31:14.364Z",
+                "requestDigest": "9e1cbd63374e2566eca8e948cc7191995f3db70860833a05ae2a9cf844bda275",
+                "reviewedMaterialDigest": "2a3ea36609a59e18b485de20783ada0b6ff2110409086bef80acf84f469b9639"
+              }
+            },
+            {
+              "id": "T4.3",
+              "title": "Pantalla de chat con streaming, continuar y cancelar",
+              "description": "Vista de chat: carga el historial y se suscribe a /api/chats/:id/stream con EventSource. Muestra texto del asistente, uso de herramientas (nombre y entrada colapsable), resultados, permission_denied destacado y el resultado final. Caja para mandar un mensaje (resume), deshabilitada mientras corre; botón cancelar; badge de estado que se actualiza en vivo; aviso para retomar si está interrumpido.",
+              "files_to_touch": [
+                "apps/web/src/app/chats/chat.page.ts",
+                "apps/web/src/app/chats/chat-stream.service.ts",
+                "apps/web/src/app/chats/event-view.ts"
+              ],
+              "context": "EventSource reconecta solo y manda Last-Event-ID. Renderizar el contenido del agente como texto, nunca con innerHTML sin sanitizar.",
+              "acceptance_criteria": [
+                "ng build y lint pasan.",
+                "Prueba manual: los mensajes del agente aparecen en vivo; recargar la página muestra el historial completo; mandar un mensaje continúa la misma sesión.",
+                "grep no encuentra bypassSecurityTrust en apps/web."
+              ],
+              "depends_on": [
+                "T4.2"
+              ],
+              "scenario_refs": [
+                "S10",
+                "S11",
+                "S13",
+                "S14",
+                "S15"
+              ],
+              "status": "done",
+              "evidence": {
+                "summary": "Pantalla de chat: carga historial, se suscribe por EventSource a /api/chats/:id/stream (sin duplicados por seq), muestra texto del asistente, herramientas con entrada colapsable, resultados, permission_denied destacado y resultado final; caja de mensaje (resume) deshabilitada mientras corre, cancelar, badge de estado vivo, aviso de retomar si está interrumpido. Todo como texto interpolado",
+                "validation": [
+                  "ng build OK; typecheck, lint y format:check pasan",
+                  "vitest apps/web event-view.spec.ts: mapeo de eventos SDK a la vista, markup queda como texto, recorte de salidas grandes, payloads malformados tolerados (13 tests web en total)",
+                  "grep bypassSecurityTrust e innerHTML en apps/web/src: sin resultados"
+                ],
+                "files_changed": [
+                  "apps/web/src/app/chats/chat.page.ts",
+                  "apps/web/src/app/chats/chat-stream.service.ts",
+                  "apps/web/src/app/chats/event-view.ts",
+                  "apps/web/src/app/chats/event-view.spec.ts"
+                ],
+                "notes": "LIMITACIÓN: sin navegador en la VM, la prueba manual (mensajes en vivo, recargar muestra el historial, mandar mensaje continúa la sesión) no se ejecutó en pantalla. El SSE y el resume se prueban en el API con tests y se recorren con la API real en T5.1. Pendiente de confirmar por el usuario en el navegador.",
+                "by": "maker",
+                "recordedAt": "2026-10-04T01:32:55.319Z"
+              },
+              "verdict": {
+                "result": "pass",
+                "checked_criteria": [
+                  "ng build y lint pasan.",
+                  "Prueba manual: los mensajes del agente aparecen en vivo; recargar la página muestra el historial completo; mandar un mensaje continúa la misma sesión.",
+                  "grep no encuentra bypassSecurityTrust en apps/web."
+                ],
+                "findings": [],
+                "by": "checker",
+                "reviewedAt": "2026-10-04T01:32:55.549Z",
+                "requestDigest": "40962e7e4eeb036b13f2af42b16d882ce0d10718c0fb718a9347fec7dbd221a4",
+                "reviewedMaterialDigest": "31f7c9439b965c4fc35d831e88aa62b65da30ad16edc218b0a2ef968b1b8974b"
+              }
+            }
+          ]
+        },
+        {
+          "id": "P5",
+          "title": "Cierre: docs y prueba de punta a punta en la VM",
+          "objective": "Dejar documentado todo lo que cambió y probar el flujo completo en la VM.",
+          "status": "done",
+          "tasks": [
+            {
+              "id": "T5.1",
+              "title": "Docs y prueba de punta a punta en la VM",
+              "description": "En la VM: crear el .env de desarrollo de apps/api (sin commitear), crear el usuario real con user:create, registrar NovaGent (o un repo de prueba si la etapa 3 no está lista) con project:add, levantar API y web, y por túnel SSH hacer login, crear un work chico, verlo en vivo, reiniciar la API y continuarlo. Actualizar docs/vm-setup.md (paso nuevo, bitácora y tabla de costos con US$0), README (cómo correr el panel en desarrollo) y revisar que plan.md y estados.md reflejen las decisiones del sprint.",
+              "files_to_touch": [
+                "docs/vm-setup.md",
+                "docs/plan.md",
+                "docs/estados.md",
+                "README.md"
+              ],
+              "context": "Regla de oro de la VM: todo lo que se haga queda en vm-setup.md con comando, motivo y verificación, y una línea de bitácora. No se pegan secretos en los docs. Nada de esto debería cambiar costos; si algo pudiera, se avisa antes.",
+              "acceptance_criteria": [
+                "npm ci, build, typecheck, lint, format:check y test pasan desde un clon limpio.",
+                "El recorrido manual (login con TOTP → crear work → ver en vivo → reiniciar → continuar) queda en la evidencia con fecha.",
+                "docs/vm-setup.md tiene el paso nuevo, su línea de bitácora y la fila de costos (US$0).",
+                "git status confirma que no hay .env, .db ni secretos para commitear."
+              ],
+              "depends_on": [
+                "T4.3"
+              ],
+              "scenario_refs": [
+                "S12",
+                "S13",
+                "S15"
+              ],
+              "status": "done",
+              "evidence": {
+                "summary": "Docs y prueba de punta a punta en la VM: paso 10 en vm-setup.md (.env de desarrollo con clave generada 600, user:create, project:add, túnel SSH), bitácora y fila de costos US$0; README con cómo correr el panel; plan.md y estados.md al día con las decisiones del sprint",
+                "validation": [
+                  "Copia limpia del árbol (sin node_modules/dist/.env): npm ci, build, typecheck, lint, format:check y test pasan (api 78, web 13)",
+                  "2026-10-04 recorrido real con API + ng serve y datos descartables: login+TOTP por el proxy; crear work (worktree feature/e2e-demo, sesión del SDK, 8 eventos, idle); SSE por el proxy con Last-Event-ID (ids 7,8); kill -9 de la API en pleno turno → chat interrupted con 21 eventos guardados; mensaje de continuación retomó la misma sesión del SDK (sdk_session_id idéntico) y el agente recordó el contexto",
+                  "git status: sin .env ni .db ni secretos para commitear (apps/api/.env existe, ignorado, permisos 600; solo aparece .env.example)"
+                ],
+                "files_changed": [
+                  "docs/vm-setup.md",
+                  "docs/plan.md",
+                  "docs/estados.md",
+                  "README.md"
+                ],
+                "notes": "NO HECHO: (1) usuario real con user:create y proyecto real con project:add: los crea la persona porque elige contraseña y escanea el QR; (2) prueba en navegador de las 3 pantallas (la VM no tiene navegador); (3) el recorrido usó una base y un repo descartables, no NovaGent ni la base real. El .env real sí se creó (clave generada, sin mostrarla).",
+                "by": "maker",
+                "recordedAt": "2026-10-04T01:39:36.834Z"
+              },
+              "verdict": {
+                "result": "pass",
+                "checked_criteria": [
+                  "npm ci, build, typecheck, lint, format:check y test pasan desde un clon limpio.",
+                  "El recorrido manual (login con TOTP → crear work → ver en vivo → reiniciar → continuar) queda en la evidencia con fecha.",
+                  "docs/vm-setup.md tiene el paso nuevo, su línea de bitácora y la fila de costos (US$0).",
+                  "git status confirma que no hay .env, .db ni secretos para commitear."
+                ],
+                "findings": [],
+                "by": "checker",
+                "reviewedAt": "2026-10-04T01:39:37.063Z",
+                "requestDigest": "dc50a01e453fbba76536b715ba95ec243804d773dc2d73ce83c03cc790fbdf22",
+                "reviewedMaterialDigest": "dd1b391c0a1349c2acf99a359a38768ae18deaeda81dd58233777b42c7db35af"
+              }
+            }
+          ]
+        }
+      ],
+      "emergentTasks": [
+        {
+          "id": "E1",
+          "title": "Aplicar la política de permisos a toda herramienta con un hook PreToolUse y cerrar el bypass de '&'",
+          "description": "kyro qa: con settingSources ['project','user'] las reglas allow de ~/.claude/settings.json (Write, Edit, Read, Bash(cat/node/npx...)) auto-aprueban antes de canUseTool, así que la confinación al worktree (R10) no se aplica: en la VM un Write a /tmp fuera del worktree tuvo éxito sin consultar canUseTool. Además checkBash permite 'git status & curl x' porque no separa por un '&' simple. Registrar un hook PreToolUse en SdkRunner que aplique decide() a cada llamada (y deniegue y guarde permission_denied), cubrir '&' en checkBash y agregar tests.",
+          "files_to_touch": [
+            "apps/api/src/agent/sdk-runner.ts",
+            "apps/api/src/agent/permissions.ts",
+            "apps/api/src/agent/runner.ts",
+            "apps/api/test/agent.test.ts"
+          ],
+          "context": "Required by kyro qa: finding crítico de seguridad (R10).",
+          "acceptance_criteria": [
+            "Un test verifica que checkBash deniega 'git status & curl x' y 'git status &curl x'.",
+            "SdkRunner registra un hook PreToolUse que usa la política para toda herramienta, aunque las reglas de usuario la permitan; un test con un SDK simulado o la función del hook verifica que Write fuera del worktree devuelve deny y genera permission_denied.",
+            "Corrida real en la VM: Write a /tmp fuera del worktree queda negado y no se crea el archivo; una escritura dentro del worktree y 'git status' funcionan.",
+            "typecheck, lint, format:check y tests pasan."
+          ],
+          "depends_on": [],
+          "scenario_refs": [],
+          "status": "done",
+          "evidence": {
+            "summary": "Hook PreToolUse en SdkRunner que aplica decide() a toda herramienta antes de las reglas de usuario; checkBash trata '&' como separador",
+            "validation": [
+              "vitest agent.test.ts (81 tests API): '& curl' denegado, hook niega Write fuera del worktree con permissionDecision deny, deja pasar lo permitido, y el manager guarda permission_denied",
+              "Corrida real en la VM: Write a /tmp/qa-probe-outside.txt negado por el hook (archivo no creado); Write dentro del worktree y git status funcionaron",
+              "typecheck, lint, format:check pasan"
+            ],
+            "files_changed": [
+              "apps/api/src/agent/sdk-runner.ts",
+              "apps/api/src/agent/permissions.ts",
+              "apps/api/test/agent.test.ts"
+            ],
+            "by": "maker",
+            "recordedAt": "2026-10-04T01:46:21.713Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "Un test verifica que checkBash deniega 'git status & curl x' y 'git status &curl x'.",
+              "SdkRunner registra un hook PreToolUse que usa la política para toda herramienta, aunque las reglas de usuario la permitan; un test con un SDK simulado o la función del hook verifica que Write fuera del worktree devuelve deny y genera permission_denied.",
+              "Corrida real en la VM: Write a /tmp fuera del worktree queda negado y no se crea el archivo; una escritura dentro del worktree y 'git status' funcionan.",
+              "typecheck, lint, format:check y tests pasan."
+            ],
+            "findings": [],
+            "by": "checker",
+            "reviewedAt": "2026-10-04T01:46:21.944Z",
+            "requestDigest": "120b9fd1c9768ac9048e761931e6d3905e645b83eccc1d6cf0ff25c74ddd7792",
+            "reviewedMaterialDigest": "b49051ca7fc4c674e2bc7d0aaba48db21de3a2d69c5d041b4308eebdd502a8e7"
+          }
+        },
+        {
+          "id": "E2",
+          "title": "Crear chat no debe dejar worktree ni chat huérfanos cuando se alcanza el tope de sesiones",
+          "description": "kyro qa: ChatService.create crea el worktree y la fila del chat y recién después arranca la sesión; si ya hay 4 corriendo, responde 409 pero deja el chat y el worktree creados, y reintentar con el mismo slug da 409 por slug duplicado. Verificar el cupo antes de crear el worktree (o revertir todo si el arranque falla).",
+          "files_to_touch": [
+            "apps/api/src/chats/service.ts",
+            "apps/api/src/agent/manager.ts",
+            "apps/api/test/chats.test.ts"
+          ],
+          "context": "Required by kyro qa: finding mayor de confiabilidad.",
+          "acceptance_criteria": [
+            "Con 4 sesiones corriendo, POST /api/chats responde 409 y no deja fila en chats ni worktree ni rama en el repo; liberar un cupo y repetir el mismo slug funciona.",
+            "Si chats.create falla después de crear el worktree, el worktree y la rama se eliminan.",
+            "typecheck, lint, format:check y tests pasan."
+          ],
+          "depends_on": [],
+          "scenario_refs": [],
+          "status": "done",
+          "evidence": {
+            "summary": "ChatService.create verifica cupo antes de crear el worktree y, si algo falla después (carrera por el cupo), borra la fila del chat, el worktree y la rama; manager.hasCapacity, ChatRepository.delete, removeWorktree",
+            "validation": [
+              "vitest chats.test.ts: con 4 sesiones corriendo POST /api/chats da 409 sin fila, worktree ni rama; al liberar cupo el mismo slug funciona",
+              "vitest chats.test.ts: carrera simulada (hasCapacity true, start falla) deja 0 chats, sin worktree ni rama",
+              "typecheck, lint, format:check, tests (83 API, 13 web) pasan"
+            ],
+            "files_changed": [
+              "apps/api/src/chats/service.ts",
+              "apps/api/src/agent/manager.ts",
+              "apps/api/src/chats/repo.ts",
+              "apps/api/src/worktrees/create.ts",
+              "apps/api/test/chats.test.ts"
+            ],
+            "by": "maker",
+            "recordedAt": "2026-10-04T01:47:54.923Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "Con 4 sesiones corriendo, POST /api/chats responde 409 y no deja fila en chats ni worktree ni rama en el repo; liberar un cupo y repetir el mismo slug funciona.",
+              "Si chats.create falla después de crear el worktree, el worktree y la rama se eliminan.",
+              "typecheck, lint, format:check y tests pasan."
+            ],
+            "findings": [],
+            "by": "checker",
+            "reviewedAt": "2026-10-04T01:47:55.165Z",
+            "requestDigest": "3ed21a94ded1d26558ff548085a00dd611907ce5bb17fd86fbc165814c5e1eb4",
+            "reviewedMaterialDigest": "b11a03d6c9a9a65f748d7da499181660549eb12995f138675b204d0fe8f10eb8"
+          }
+        },
+        {
+          "id": "E3",
+          "title": "La política de permisos debe resolver rutas relativas contra el worktree",
+          "description": "Re-QA: decide() resuelve file_path/path relativos contra el cwd del proceso de la API, no contra el worktree del chat; un Grep/Glob con path relativo ('src') se negaría por error (y un Write relativo se evaluaría mal). Resolver contra policy.cwd.",
+          "files_to_touch": [
+            "apps/api/src/agent/permissions.ts",
+            "apps/api/test/agent.test.ts"
+          ],
+          "context": "Required by kyro qa (re-QA).",
+          "acceptance_criteria": [
+            "Un test verifica que Grep/Glob/Read con ruta relativa dentro del worktree se permite y que '../fuera' relativo se niega, para lectura y escritura.",
+            "typecheck, lint, format:check y tests pasan."
+          ],
+          "depends_on": [],
+          "scenario_refs": [],
+          "status": "done",
+          "evidence": {
+            "summary": "isInside resuelve rutas relativas contra policy.cwd (el worktree) en lectura y escritura",
+            "validation": [
+              "vitest agent.test.ts: Grep/Glob/Read/Edit relativos dentro del worktree permitidos; '../' relativo negado en lectura y escritura (84 tests API)",
+              "typecheck, lint, format:check pasan"
+            ],
+            "files_changed": [
+              "apps/api/src/agent/permissions.ts",
+              "apps/api/test/agent.test.ts"
+            ],
+            "by": "maker",
+            "recordedAt": "2026-10-04T01:48:52.455Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "Un test verifica que Grep/Glob/Read con ruta relativa dentro del worktree se permite y que '../fuera' relativo se niega, para lectura y escritura.",
+              "typecheck, lint, format:check y tests pasan."
+            ],
+            "findings": [],
+            "by": "checker",
+            "reviewedAt": "2026-10-04T01:48:52.688Z",
+            "requestDigest": "5fe509e8d881e472922fb95b958e3ce73f7aa284b1ff767971fc3db5cfd5f6d1",
+            "reviewedMaterialDigest": "f28b414d21bc6b61985ed0fd63e3d1372f59f378ad4d1188a8c482774dd20b30"
+          }
+        }
+      ],
+      "definitionOfDone": [
+        "Todas las tareas en done con evidencia y veredicto pass.",
+        "npm run build, typecheck, lint, format:check y test pasan desde un clon limpio.",
+        "Ninguna ruta de la API sin sesión salvo la allowlist documentada; ningún bypassPermissions en el código.",
+        "docs/plan.md, docs/estados.md y docs/vm-setup.md reflejan lo hecho; ningún secreto en el repo."
+      ]
+    },
+    "debt": [
+      {
+        "id": "debt-1",
+        "title": "Verificar cabeceras de Funnel y habilitar trustProxy para el límite por IP (hoy trustProxy=false, la IP puede ser loopback)",
+        "origin": 1,
+        "priority": "medium",
+        "status": "deferred",
+        "targetSprint": 2,
+        "note": "El usuario cerró panel-mvp el 06/10/2026 sin atender esta deuda; queda registrada, no se resolvió ni se probó."
+      },
+      {
+        "id": "debt-2",
+        "title": "Instalar los comandos/skills de Kyro para sesiones del SDK (hoy /kyro:forge y /kyro:work no se registran; el prompt inicial apunta a ~/.agents/skills/<skill>/SKILL.md)",
+        "origin": 1,
+        "priority": "medium",
+        "status": "deferred",
+        "targetSprint": 2,
+        "note": "El usuario cerró panel-mvp el 06/10/2026 sin atender esta deuda; queda registrada, no se resolvió ni se probó."
+      },
+      {
+        "id": "debt-3",
+        "title": "Registrar CSP default-src 'self' vs estilos inline de Angular al servir la web desde la API (etapa 6)",
+        "origin": 1,
+        "priority": "medium",
+        "status": "resolved",
+        "targetSprint": null,
+        "note": "Resuelta en el sprint 6 de autopiloto-kyro (06/10/2026): la API sirve la web compilada, el build sin CSS crítico en línea y CSP con style-src 'self' 'unsafe-inline'."
+      },
+      {
+        "id": "debt-4",
+        "title": "El stream SSE no se corta cuando vence la sesión; la web no redirige al login ante un 401 a mitad de uso",
+        "origin": 1,
+        "priority": "medium",
+        "status": "deferred",
+        "targetSprint": 2,
+        "note": "El usuario cerró panel-mvp el 06/10/2026 sin atender esta deuda; queda registrada, no se resolvió ni se probó."
+      },
+      {
+        "id": "debt-5",
+        "title": "Limpieza: columna sessions.stage sin uso; sesiones vencidas y login_attempts sin purga periódica",
+        "origin": 1,
+        "priority": "low",
+        "status": "deferred",
+        "targetSprint": 2,
+        "note": "El usuario cerró panel-mvp el 06/10/2026 sin atender esta deuda; queda registrada, no se resolvió ni se probó."
+      },
+      {
+        "id": "debt-6",
+        "title": "Confirmar en un navegador las tres pantallas de la web (criterios manuales de T4.1-T4.3)",
+        "origin": 1,
+        "priority": "high",
+        "status": "deferred",
+        "targetSprint": 2,
+        "note": "El usuario cerró panel-mvp el 06/10/2026 sin atender esta deuda; queda registrada, no se resolvió ni se probó."
+      }
+    ],
+    "handoff": {
+      "nextAction": "qa_or_close",
+      "nextTaskId": null,
+      "blockers": [],
+      "note": "Task E3 passed checker review.",
+      "lastUpdated": "2026-10-04T01:48:52.688Z"
+    },
+    "author": {
+      "name": "Maiki02",
+      "email": "miqueasdavidgentile@gmail.com",
+      "source": "git",
+      "capturedAt": "2026-10-04T00:54:32.042Z"
+    }
+  },
+  "intendedAfterClose": {
+    "schemaVersion": 4,
+    "scope": "panel-mvp",
+    "title": "Panel MVP: login + 2FA, scopes en worktree, streaming, historial y resume",
+    "status": "planning",
+    "objective": "Que el usuario entre al panel con contraseña y segundo factor, cree un scope o work de un proyecto registrado que corre en su propio worktree con una sesión del Agent SDK, lo vea trabajar en vivo, y pueda volver a cualquier chat y continuarlo.",
+    "successCriteria": [
+      "Ningún endpoint de la API, salvo los pasos del login y el health check, devuelve datos sin una sesión válida obtenida con contraseña y segundo factor.",
+      "Desde el navegador, el usuario crea un scope para un proyecto registrado y en menos de un minuto ve al agente trabajando en vivo en un worktree y una rama propios.",
+      "Después de reiniciar el panel, el historial completo de cada chat sigue visible y la conversación se puede continuar con la misma sesión del agente.",
+      "Cinco intentos fallidos seguidos bloquean temporalmente la cuenta y cada intento de login queda registrado."
+    ],
+    "spec": {
+      "requirements": [
+        {
+          "id": "R1",
+          "statement": "Solo pueden entrar usuarios dados de alta desde la línea de comandos del servidor; no existe registro público ni ninguna operación web que cree usuarios.",
+          "priority": "must",
+          "rationale": "La URL es pública (Funnel); el alta tiene que requerir acceso a la VM."
+        },
+        {
+          "id": "R2",
+          "statement": "Entrar exige contraseña y un segundo factor obligatorio; la contraseña se guarda solo como hash Argon2id y el secreto del segundo factor se guarda cifrado.",
+          "priority": "must",
+          "rationale": "CLAUDE.md, Seguridad del panel."
+        },
+        {
+          "id": "R3",
+          "statement": "Toda operación de la API, salvo los pasos del login y el health check, rechaza las peticiones sin sesión válida.",
+          "priority": "must",
+          "rationale": "El login es la única puerta."
+        },
+        {
+          "id": "R4",
+          "statement": "La sesión no es legible por scripts, viaja solo por HTTPS y same-site, vence en poco tiempo, y toda petición que cambia estado exige un token anti-CSRF.",
+          "priority": "must",
+          "rationale": "Cookies HttpOnly/Secure/SameSite=Strict + CSRF según CLAUDE.md."
+        },
+        {
+          "id": "R5",
+          "statement": "Los intentos fallidos se limitan por origen y por cuenta, con bloqueo temporal de la cuenta, y todo intento de login queda registrado.",
+          "priority": "must",
+          "rationale": "Límite de intentos y registro de logins (plan.md, Acceso)."
+        },
+        {
+          "id": "R6",
+          "statement": "Desde el panel se crea un scope o work de un proyecto registrado; eso crea un worktree aislado en su propia rama y arranca una sesión del agente con el flujo Kyro dentro de ese worktree.",
+          "priority": "must",
+          "rationale": "Decisión 3 del plan: 1 scope o work = 1 worktree."
+        },
+        {
+          "id": "R7",
+          "statement": "Lo que hace el agente (mensajes y uso de herramientas) llega en vivo al navegador y se guarda a medida que ocurre.",
+          "priority": "must",
+          "rationale": "Streaming del MVP."
+        },
+        {
+          "id": "R8",
+          "statement": "El historial lista todos los chats y abrir uno muestra todo lo que pasó, también después de reiniciar el servidor.",
+          "priority": "must",
+          "rationale": "Los chats viven en la base del panel."
+        },
+        {
+          "id": "R9",
+          "statement": "Un chat se puede continuar retomando la misma sesión del agente.",
+          "priority": "must",
+          "rationale": "resume con sessionId."
+        },
+        {
+          "id": "R10",
+          "statement": "El agente nunca corre con permisos irrestrictos: lo que está fuera de la lista permitida se niega y queda registrado en el chat.",
+          "priority": "must",
+          "rationale": "Nunca bypassPermissions."
+        },
+        {
+          "id": "R11",
+          "statement": "Las sesiones que estaban corriendo cuando se detuvo el servidor aparecen como interrumpidas y se pueden retomar.",
+          "priority": "should",
+          "rationale": "plan.md: si se reinicia la VM, lo que corría pasa a interrumpido."
+        }
+      ],
+      "scenarios": [
+        {
+          "id": "S1",
+          "requirement": "R1",
+          "given": "El servidor corriendo sin usuarios",
+          "when": "se intenta crear un usuario por cualquier ruta HTTP",
+          "then": "no existe ruta que lo permita y la única forma es el CLI en la VM"
+        },
+        {
+          "id": "S2",
+          "requirement": "R2",
+          "given": "Un usuario creado por CLI con TOTP confirmado",
+          "when": "manda la contraseña correcta pero no completa el segundo factor",
+          "then": "no recibe cookie de sesión y las rutas protegidas devuelven 401"
+        },
+        {
+          "id": "S3",
+          "requirement": "R2",
+          "given": "Un usuario creado por CLI",
+          "when": "se inspecciona la base",
+          "then": "la contraseña está como hash $argon2id$ y el secreto TOTP está cifrado, nunca en claro"
+        },
+        {
+          "id": "S4",
+          "requirement": "R3",
+          "given": "Todas las rutas registradas en la app",
+          "when": "se llama a cada una sin cookie de sesión",
+          "then": "todas devuelven 401 salvo las de la allowlist pública (pasos del login y health)"
+        },
+        {
+          "id": "S5",
+          "requirement": "R4",
+          "given": "Un login completo",
+          "when": "se revisa la cookie de sesión",
+          "then": "tiene HttpOnly, Secure, SameSite=Strict, Path=/ y vence según el TTL configurado"
+        },
+        {
+          "id": "S6",
+          "requirement": "R4",
+          "given": "Una sesión válida",
+          "when": "se hace un POST sin X-CSRF-Token o con uno incorrecto",
+          "then": "la API responde 403 y no cambia nada"
+        },
+        {
+          "id": "S7",
+          "requirement": "R5",
+          "given": "Una cuenta existente",
+          "when": "se fallan 5 intentos seguidos (contraseña o código)",
+          "then": "la cuenta queda bloqueada 15 minutos, incluso con la contraseña correcta, y los 5 intentos quedan en login_attempts"
+        },
+        {
+          "id": "S8",
+          "requirement": "R6",
+          "given": "Un proyecto registrado por CLI y una sesión válida",
+          "when": "se crea un scope con slug válido y un pedido",
+          "then": "existe el worktree ~/wt/<proyecto>/<slug> en la rama feature/<slug> y arranca una sesión del agente con cwd en ese worktree y /kyro:forge como primer prompt"
+        },
+        {
+          "id": "S9",
+          "requirement": "R6",
+          "given": "Un slug inválido o una rama ya existente",
+          "when": "se intenta crear el scope",
+          "then": "la API responde 4xx con el motivo y no queda worktree ni chat a medias"
+        },
+        {
+          "id": "S10",
+          "requirement": "R7",
+          "given": "Un chat con el agente corriendo",
+          "when": "el navegador está suscripto al stream SSE",
+          "then": "cada mensaje y uso de herramienta aparece en vivo y ya está guardado en chat_events"
+        },
+        {
+          "id": "S11",
+          "requirement": "R7",
+          "given": "Un stream SSE que se cortó en el evento 40",
+          "when": "el navegador reconecta con Last-Event-ID 40",
+          "then": "recibe desde el 41 sin duplicados ni huecos"
+        },
+        {
+          "id": "S12",
+          "requirement": "R8",
+          "given": "Varios chats con eventos",
+          "when": "se reinicia el panel y se abre la lista y un chat",
+          "then": "están todos los chats y el chat muestra todos sus eventos en orden"
+        },
+        {
+          "id": "S13",
+          "requirement": "R9",
+          "given": "Un chat terminado con sdk_session_id guardado",
+          "when": "el usuario manda un mensaje nuevo",
+          "then": "el agente sigue con resume sobre esa misma sesión y los eventos se agregan al mismo chat"
+        },
+        {
+          "id": "S14",
+          "requirement": "R10",
+          "given": "El agente pide una herramienta fuera de la allowlist",
+          "when": "canUseTool la evalúa",
+          "then": "se niega, se guarda un evento permission_denied visible en el chat y ninguna configuración usa bypassPermissions"
+        },
+        {
+          "id": "S15",
+          "requirement": "R11",
+          "given": "Un chat en estado corriendo",
+          "when": "el servidor se detiene y vuelve a arrancar",
+          "then": "el chat aparece como interrumpido y se puede continuar con resume"
+        }
+      ],
+      "nonGoals": [
+        "Estado fino del worktree, stepper, PRs y checks de GitHub (etapa 5).",
+        "Aprobar permisos o responder preguntas del agente con botones (etapa 5); en el MVP lo no permitido se niega.",
+        "Tailscale Funnel, systemd, backup de SQLite, servir el build de Angular desde la API y topes configurables (etapa 6).",
+        "Passkey (WebAuthn): el segundo factor del MVP es TOTP con códigos de recuperación.",
+        "Consulta libre sin worktree.",
+        "Limpieza automática de worktrees al mergear.",
+        "Varios usuarios con roles, notificaciones push."
+      ],
+      "openQuestions": []
+    },
+    "clarifications": [],
+    "conventions": [],
+    "adrs": [],
+    "roadmap": {
+      "plannedSprintCount": 1,
+      "sizingRationale": "Un solo sprint secuencial porque el usuario pidió la etapa 4 completa como un sprint y cada pieza depende de la anterior (base → auth → agente → web). Las fases separan unidades revisables. Si al cerrar la fase de auth el sprint se ve grande, el roadmap se puede partir con kyro plan --roadmap sin perder historia.",
+      "sprints": [
+        {
+          "n": 1,
+          "slug": "panel-mvp",
+          "title": "Panel MVP: login, scopes y chats",
+          "state": "closed"
+        }
+      ]
+    },
+    "ledger": [
+      {
+        "n": 1,
+        "slug": "panel-mvp",
+        "outcome": "shipped",
+        "closedAt": "2026-10-06",
+        "archive": "archive/sprint-001-panel-mvp.md",
+        "snapshot": "archive/sprint-001-panel-mvp.json",
+        "checkpoint": "archive/sprint-001-panel-mvp.checkpoint.json",
+        "recommendations": [
+          "Retomar debt-1 (trustProxy detrás de Funnel) y debt-4 (SSE al vencer la sesión) si se vuelven un problema real."
+        ],
+        "checkpointSha256": "37359833b1667c65c7c4e0c19198abf975685d75a32cbe37ab7721efeb29ccf7"
+      }
+    ],
+    "previousSprint": {
+      "n": 1,
+      "slug": "panel-mvp",
+      "outcome": "shipped",
+      "summary": "Sprint 1 de panel-mvp: login con contraseña y TOTP, scopes y works en worktrees con sesiones del Agent SDK, streaming y resume. Cerrado por el usuario el 06/10/2026 sin QA."
+    },
+    "activeSprint": null,
+    "debt": [
+      {
+        "id": "debt-1",
+        "title": "Verificar cabeceras de Funnel y habilitar trustProxy para el límite por IP (hoy trustProxy=false, la IP puede ser loopback)",
+        "origin": 1,
+        "priority": "medium",
+        "status": "deferred",
+        "targetSprint": 2,
+        "note": "El usuario cerró panel-mvp el 06/10/2026 sin atender esta deuda; queda registrada, no se resolvió ni se probó."
+      },
+      {
+        "id": "debt-2",
+        "title": "Instalar los comandos/skills de Kyro para sesiones del SDK (hoy /kyro:forge y /kyro:work no se registran; el prompt inicial apunta a ~/.agents/skills/<skill>/SKILL.md)",
+        "origin": 1,
+        "priority": "medium",
+        "status": "deferred",
+        "targetSprint": 2,
+        "note": "El usuario cerró panel-mvp el 06/10/2026 sin atender esta deuda; queda registrada, no se resolvió ni se probó."
+      },
+      {
+        "id": "debt-3",
+        "title": "Registrar CSP default-src 'self' vs estilos inline de Angular al servir la web desde la API (etapa 6)",
+        "origin": 1,
+        "priority": "medium",
+        "status": "resolved",
+        "targetSprint": null,
+        "note": "Resuelta en el sprint 6 de autopiloto-kyro (06/10/2026): la API sirve la web compilada, el build sin CSS crítico en línea y CSP con style-src 'self' 'unsafe-inline'."
+      },
+      {
+        "id": "debt-4",
+        "title": "El stream SSE no se corta cuando vence la sesión; la web no redirige al login ante un 401 a mitad de uso",
+        "origin": 1,
+        "priority": "medium",
+        "status": "deferred",
+        "targetSprint": 2,
+        "note": "El usuario cerró panel-mvp el 06/10/2026 sin atender esta deuda; queda registrada, no se resolvió ni se probó."
+      },
+      {
+        "id": "debt-5",
+        "title": "Limpieza: columna sessions.stage sin uso; sesiones vencidas y login_attempts sin purga periódica",
+        "origin": 1,
+        "priority": "low",
+        "status": "deferred",
+        "targetSprint": 2,
+        "note": "El usuario cerró panel-mvp el 06/10/2026 sin atender esta deuda; queda registrada, no se resolvió ni se probó."
+      },
+      {
+        "id": "debt-6",
+        "title": "Confirmar en un navegador las tres pantallas de la web (criterios manuales de T4.1-T4.3)",
+        "origin": 1,
+        "priority": "high",
+        "status": "deferred",
+        "targetSprint": 2,
+        "note": "El usuario cerró panel-mvp el 06/10/2026 sin atender esta deuda; queda registrada, no se resolvió ni se probó."
+      }
+    ],
+    "handoff": {
+      "nextAction": "await_scope_completion",
+      "nextTaskId": null,
+      "blockers": [],
+      "note": "Scope cerrado por el usuario; deuda diferida sin atender (debt-1, 2, 4, 5, 6).",
+      "lastUpdated": "2026-10-06"
+    },
+    "author": {
+      "name": "Maiki02",
+      "email": "miqueasdavidgentile@gmail.com",
+      "source": "git",
+      "capturedAt": "2026-10-04T00:54:32.042Z"
+    }
+  },
+  "projectScopeBefore": {
+    "id": "panel-mvp",
+    "title": "Panel MVP: login + 2FA, scopes en worktree, streaming, historial y resume",
+    "status": "active"
+  },
+  "projectScopeAfter": {
+    "id": "panel-mvp",
+    "title": "Panel MVP: login + 2FA, scopes en worktree, streaming, historial y resume",
+    "status": "planning"
+  },
+  "digests": {
+    "beforeClose": "27aad68732c5e810ba4feafe00890c1a2cc57e82aa0f9dc055d8a989a58f1358",
+    "intendedAfterClose": "4ef15f85d0de6350f3283c2faa359ba3b0ec74fec20d90d3bfcf5ff67c166bc1",
+    "projectScopeBefore": "fd358b991897527bde2bbe7e9778fda9b940a6fa3d62e71ba5cebe19ea147bff",
+    "projectScopeAfter": "8b65ed96136cf9736250f4550cf10acf0180703c917aa7decc35726c00ad2d9e",
+    "legacySnapshot": "fe3da183846f86e10efb542d9ea2d1bdc5efb7e928f4764180856af12dd4a17c",
+    "narrative": "ba29ea7189f7e844d98a67d75512e53963daf6901e33471f389435e1421f6fed"
+  }
+}

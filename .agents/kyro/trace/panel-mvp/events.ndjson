@@ -76,3 +76,15 @@
 {"v":1,"ts":"2026-10-04T01:48:52.700Z","scope":"panel-mvp","type":"tool_command_run","surface":"cli","command":"review","args":{"task":"E3","verdict":"pass","requestDigest":"5fe509e8d881e472922fb95b958e3ce73f7aa284b1ff767971fc3db5cfd5f6d1"}}
 {"v":1,"ts":"2026-10-04T01:48:52.708Z","scope":"panel-mvp","type":"gate_approved","gate":"checker","taskId":"E3"}
 {"v":1,"ts":"2026-10-04T01:51:42.951Z","scope":"panel-mvp","type":"route_selected","nextAction":"qa_or_close","packMode":"scope","budgetClass":"close","reasoningTier":"deep"}
+{"v":1,"ts":"2026-10-06T01:30:18.237Z","scope":"panel-mvp","type":"validation_result","source":"analyze","blocking":false,"findingCount":5,"codes":["A001","A002","A003","A004","A005"]}
+{"v":1,"ts":"2026-10-06T01:30:28.529Z","scope":"panel-mvp","type":"tool_command_run","surface":"cli","command":"debt","args":{"op":"resolve","id":"debt-3"}}
+{"v":1,"ts":"2026-10-06T01:30:28.758Z","scope":"panel-mvp","type":"tool_command_run","surface":"cli","command":"debt","args":{"op":"defer","id":"debt-1","target":2}}
+{"v":1,"ts":"2026-10-06T01:30:28.981Z","scope":"panel-mvp","type":"tool_command_run","surface":"cli","command":"debt","args":{"op":"defer","id":"debt-2","target":2}}
+{"v":1,"ts":"2026-10-06T01:30:29.215Z","scope":"panel-mvp","type":"tool_command_run","surface":"cli","command":"debt","args":{"op":"defer","id":"debt-4","target":2}}
+{"v":1,"ts":"2026-10-06T01:30:29.449Z","scope":"panel-mvp","type":"tool_command_run","surface":"cli","command":"debt","args":{"op":"defer","id":"debt-5","target":2}}
+{"v":1,"ts":"2026-10-06T01:30:29.681Z","scope":"panel-mvp","type":"tool_command_run","surface":"cli","command":"debt","args":{"op":"defer","id":"debt-6","target":2}}
+{"v":1,"ts":"2026-10-06T01:30:30.597Z","scope":"panel-mvp","type":"tool_command_run","surface":"cli","command":"close-sprint","args":{"outcome":"shipped"}}
+{"v":1,"ts":"2026-10-06T01:30:30.598Z","scope":"panel-mvp","type":"gate_approved","gate":"close_sprint"}
+{"v":1,"ts":"2026-10-06T01:30:30.877Z","scope":"panel-mvp","type":"close_snapshot","sprintN":1,"snapshotId":"sprint-001-panel-mvp.json","outcome":"shipped"}
+{"v":1,"ts":"2026-10-06T01:30:31.647Z","scope":"panel-mvp","type":"gate_approved","gate":"scope_complete"}
+{"v":1,"ts":"2026-10-06T01:30:31.648Z","scope":"panel-mvp","type":"tool_command_run","surface":"cli","command":"scope complete","args":{}}
