@@ -47,13 +47,18 @@ describe('deployPhase', () => {
   const panel = (commit: string, deployRunning = false) => ({ commit, deployRunning });
 
   it('is running while the script runs', () => {
-    expect(deployPhase('aaa', panel('aaa', true), { status: 'running', toVersion: null })).toBe(
+    expect(deployPhase('aaa', panel('aaa', true), { status: 'running', output: null })).toBe(
       'running',
     );
   });
 
   it('waits for the restart when the run built a new commit or the server does not answer', () => {
-    expect(deployPhase('aaa', panel('aaa'), { status: 'ok', toVersion: 'bbb' })).toBe('restarting');
+    expect(
+      deployPhase('aaa', panel('aaa'), {
+        status: 'ok',
+        output: 'DEPLOY_TO=bbb\nDEPLOY_RESTART=yes\n',
+      }),
+    ).toBe('restarting');
     expect(deployPhase('aaa', null, undefined)).toBe('restarting');
   });
 
@@ -62,7 +67,18 @@ describe('deployPhase', () => {
   });
 
   it('finishes without a restart when main was up to date or the deploy failed', () => {
-    expect(deployPhase('aaa', panel('aaa'), { status: 'ok', toVersion: 'aaa' })).toBe('finished');
-    expect(deployPhase('aaa', panel('aaa'), { status: 'error', toVersion: null })).toBe('finished');
+    expect(deployPhase('aaa', panel('aaa'), { status: 'ok', output: 'DEPLOY_RESTART=no\n' })).toBe(
+      'finished',
+    );
+    // A run that found the disk already on another commit but did not restart is not waited on.
+    expect(
+      deployPhase('aaa', panel('aaa'), {
+        status: 'ok',
+        output: 'DEPLOY_TO=bbb\nDEPLOY_RESTART=no\n',
+      }),
+    ).toBe('finished');
+    expect(deployPhase('aaa', panel('aaa'), { status: 'error', output: 'ERROR\n' })).toBe(
+      'finished',
+    );
   });
 });

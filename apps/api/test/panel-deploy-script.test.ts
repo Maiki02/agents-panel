@@ -46,9 +46,9 @@ exit 0
     git(other, 'push', '-q', 'origin', 'main');
     return git(other, 'rev-parse', '--short', 'HEAD');
   };
-  const run = () => {
+  const run = (running?: string) => {
     try {
-      const out = execFileSync('bash', [SCRIPT, repo], {
+      const out = execFileSync('bash', [SCRIPT, repo, ...(running ? [running] : [])], {
         encoding: 'utf8',
         stdio: 'pipe',
         env: { ...process.env, PATH: `${bin}:${process.env['PATH'] ?? ''}` },
@@ -101,6 +101,25 @@ describe('12-panel-deploy.sh', () => {
     // Second run: nothing new, nothing built.
     expect(tail(run().out).at(-1)).toBe('DEPLOY_RESTART=no');
     expect(calls()).toHaveLength(1);
+  });
+
+  it('builds and asks for the restart when the disk is up to date but the service runs an older commit', () => {
+    const { repo, push, run, calls, head, tail } = sandbox();
+    const running = head();
+    const to = push('feature.txt');
+    // Someone ran `git pull` without restarting the service.
+    git(repo, 'pull', '-q', '--ff-only');
+    expect(head()).toBe(to);
+    const result = run(running);
+    expect(result.code).toBe(0);
+    expect(tail(result.out)).toEqual([
+      `DEPLOY_FROM=${running}`,
+      `DEPLOY_TO=${to}`,
+      'DEPLOY_RESTART=yes',
+    ]);
+    expect(calls()).toEqual([`npm run build @ ${to}`]);
+    // Once the service runs it, nothing is left to deploy.
+    expect(tail(run(to).out).at(-1)).toBe('DEPLOY_RESTART=no');
   });
 
   it('runs npm ci when package-lock.json changed', () => {

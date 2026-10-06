@@ -120,6 +120,8 @@ describe('POST /api/versions/panel/deploy', () => {
     await waitFinished();
     expect(script).toHaveBeenCalledTimes(1);
     expect(script.mock.calls[0]?.[0][0]).toMatch(/scripts\/vm\/12-panel-deploy\.sh$/);
+    // The running commit goes to the script: a pull without a restart still gets deployed.
+    expect(script.mock.calls[0]?.[0].at(-1)).toBe('aaa1111');
     const [run] = await runs();
     expect(run).toMatchObject({
       kind: 'panel-deploy',

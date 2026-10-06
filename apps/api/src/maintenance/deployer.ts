@@ -116,7 +116,9 @@ export class PanelDeployer {
     const { manager, runs, repoPath, scriptPath } = this.deps;
     let restart = false;
     try {
-      const result = await this.runner([scriptPath, repoPath], this.timeoutMs);
+      // The running commit, not the disk's: a `git pull` without a restart still needs a deploy.
+      const args = [scriptPath, repoPath, ...(this.commit === null ? [] : [this.commit])];
+      const result = await this.runner(args, this.timeoutMs);
       const ok = result.exitCode === 0;
       restart = ok && RESTART_RE.test(result.output);
       runs.finish(runId, {
