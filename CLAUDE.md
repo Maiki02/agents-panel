@@ -50,7 +50,7 @@ El objetivo: poder rehacer la VM desde cero siguiendo solo el runbook.
 - Rama principal: `main`. Conventional Commits con scope (`feat(api): …`, `docs(vm): …`).
 - Nunca `push --force` ni `rebase` de ramas ya pusheadas.
 - Para leer el estado usar `git --no-optional-locks` (`status`, `diff`, `log`).
-- Commits y push solo cuando el usuario lo pide.
+- Commits y push solo cuando el usuario lo pide. Excepción: el piloto del panel commitea al cerrar cada sprint y pushea la rama de su worktree (en cualquier repo del trabajo); nunca `--force`, nunca la rama base y nunca mergea la PR.
 
 ## Flujo de trabajo (Kyro)
 
@@ -85,5 +85,5 @@ La URL es pública (Tailscale Funnel), así que el login es la única puerta:
 - Argon2id + segundo factor obligatorio (passkey o TOTP). Sin registro público.
 - Cookies `HttpOnly`, `Secure`, `SameSite=Strict`; CSRF; límite de intentos.
 - Ninguna ruta de la API sin sesión (solo `/api/health` y los pasos del login son públicos). El agente nunca corre con `bypassPermissions`.
-- Funnel se prende con `scripts/vm/09-tailscale-funnel.sh` (paso 15 de `docs/vm-setup.md`) tras un login manual de Tailscale; la URL de Funnel se declara en `PANEL_EXTRA_ORIGINS`. Mientras el panel corra con `ng serve`, Funnel publica el servidor de desarrollo (el servicio systemd es de la etapa 6).
+- Funnel se prende con `scripts/vm/09-tailscale-funnel.sh` (paso 15 de `docs/vm-setup.md`) tras un login manual de Tailscale; la URL de Funnel se declara en `PANEL_EXTRA_ORIGINS`. Funnel publica el puerto 3000, donde el servicio systemd `agents-panel` (`scripts/vm/10-panel-service.sh`, paso 16) sirve la API y la web compilada; `ng serve` y `tsx watch` son solo para desarrollo, con el servicio parado (un candado de instancia única impide dos APIs sobre la misma base).
 - Web Push: las claves VAPID (`PUSH_VAPID_*`) son secretos y viven solo en el `.env` del panel; cada ruta de `/api/push` exige sesión y CSRF, y cada usuario solo toca sus dispositivos, y el endpoint de una suscripción solo se acepta si es de un servicio de push de un navegador (FCM, Mozilla, Windows, Apple): el servidor hace un POST a esa URL.

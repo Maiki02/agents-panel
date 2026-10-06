@@ -257,7 +257,7 @@ bash ~/proyectos/agents-panel/scripts/vm/09-tailscale-funnel.sh      # 2ª vez: 
 
 Publica la web del panel en una URL `https://<vm>.<tailnet>.ts.net` para entrar desde el celular y la PC sin túnel SSH y para que Web Push (que exige HTTPS) funcione en el Android. Se adelantó de la etapa 6 por el sprint 5 de `autopiloto-kyro`.
 
-- **Qué hace, en orden:** (1) instala Tailscale desde su repositorio oficial de apt (`pkgs.tailscale.com/stable/ubuntu/<codename>`, con su clave en `/usr/share/keyrings`) si falta; (2) `systemctl enable --now tailscaled`; (3) si el nodo no tiene sesión, avisa que falta `sudo tailscale up`, imprime `FUNNEL_URL=` vacío y sale con 0; (4) con sesión, `sudo tailscale funnel --bg 4200`: Funnel en 443 hacia `http://127.0.0.1:4200` (la web con `ng serve`; el proxy de la web reenvía `/api` a la API). Acepta otro puerto como argumento.
+- **Qué hace, en orden:** (1) instala Tailscale desde su repositorio oficial de apt (`pkgs.tailscale.com/stable/ubuntu/<codename>`, con su clave en `/usr/share/keyrings`) si falta; (2) `systemctl enable --now tailscaled`; (3) si el nodo no tiene sesión, avisa que falta `sudo tailscale up`, imprime `FUNNEL_URL=` vacío y sale con 0; (4) con sesión, `sudo tailscale funnel --bg 3000`: Funnel en 443 hacia `http://127.0.0.1:3000` (desde el paso 16, la API que sirve la web compilada; en el sprint 5 el valor por defecto era 4200, la web con `ng serve`). Acepta otro puerto como argumento.
 - **Idempotente:** con todo hecho solo escribe `ya publicado`; la última línea es `FUNNEL_URL=<url>`. `--bg` deja la configuración guardada en `tailscaled`, así que sobrevive a reinicios de la VM.
 - **Sin secretos:** el login es interactivo (link + cuenta); no se usan authkeys. El script y este doc no llevan ninguno.
 - **Requisitos en la cuenta de Tailscale (una sola vez, a mano):** habilitar HTTPS en el tailnet y el atributo `funnel` del nodo en las ACL. Si falta, `tailscale funnel` imprime el link para habilitarlo.
@@ -265,16 +265,39 @@ Publica la web del panel en una URL `https://<vm>.<tailnet>.ts.net` para entrar 
   - API (`apps/api/.env`): `PANEL_EXTRA_ORIGINS=https://<vm>.<tailnet>.ts.net` suma esa URL a las que se aceptan como `Origin` en las escrituras; `PANEL_ORIGIN` sigue siendo `http://localhost:4200` y el túnel SSH sigue funcionando. Reiniciar la API.
   - Web (`apps/web/angular.json`): el dev server acepta solo hosts `*.ts.net` (y `localhost`) con `allowedHosts: [".ts.net"]`. Reiniciar `ng serve`.
   - Las cookies de sesión ya son `Secure`, `HttpOnly` y `SameSite=Strict`: con HTTPS de Funnel no hace falta cambiar nada.
-- **Riesgo:** la URL es pública. El login (Argon2id + passkey o TOTP) es la única puerta y toda ruta de la API exige sesión (test de rutas sin sesión en `apps/api/test`), pero mientras el panel corra con `ng serve` (el servicio systemd y el build de producción son de la etapa 6) Funnel publica el servidor de desarrollo. Antes de prender Funnel: confirmar que las únicas rutas públicas son `GET /api/health` y los dos pasos del login (`public: true` en `apps/api/src`).
+- **Riesgo:** la URL es pública. El login (Argon2id + passkey o TOTP) es la única puerta y toda ruta de la API exige sesión (test de rutas sin sesión en `apps/api/test`), y desde el paso 16 Funnel publica el servicio con el build de producción (puerto 3000), no el servidor de desarrollo (`ng serve` solo se usa para desarrollar). Hasta entonces (pasos 15 a 16) publicaba `ng serve`. Antes de prender Funnel: confirmar que las únicas rutas públicas son `GET /api/health` y los dos pasos del login (`public: true` en `apps/api/src`).
 - Sin costo (US$0): plan gratis de Tailscale (Personal), sin recursos de Oracle. Aprobado por Miqueas el 2026-10-05.
-- **Verificar:** `tailscale funnel status` muestra solo `https://<vm>.<tailnet>.ts.net` → `proxy http://127.0.0.1:4200`; desde un dispositivo fuera de la VM esa URL muestra el login y el login con TOTP funciona; correr el script dos veces seguidas no cambia nada.
+- **Verificar:** `tailscale funnel status` muestra solo `https://<vm>.<tailnet>.ts.net` → `proxy http://127.0.0.1:3000`; desde un dispositivo fuera de la VM esa URL muestra el login y el login con TOTP funciona; correr el script dos veces seguidas no cambia nada.
 - **Si el navegador da `DNS_PROBE_FINISHED_NXDOMAIN` (2026-10-05):** el nombre solo lo resolvía la VM (por Tailscale) y el DNS público no tenía registro, ni siquiera el servidor autoritativo de `ts.net`; apagar y volver a prender Funnel no lo arregló. Lo resolvió pedir el certificado una vez a mano: `cd /tmp && sudo tailscale cert <vm>.<tailnet>.ts.net && sudo rm -f /tmp/<vm>.<tailnet>.ts.net.*` (el `.crt` y el `.key` que deja no se usan: Funnel maneja su certificado dentro de `tailscaled`, por eso se borran). El registro público apareció a los pocos minutos. Se comprueba con `dig +short @8.8.8.8 <vm>.<tailnet>.ts.net`.
 - Estado (2026-10-05): **corrido en la VM**. Tailscale 1.102.4 (arm64, Ubuntu `resolute`), login hecho por la persona, HTTPS Certificates y Funnel habilitados en el admin de Tailscale. La segunda corrida respondió `ya publicado` sin cambios. Falta la prueba del login con TOTP desde un dispositivo fuera de la VM.
 
+### 16. Servicio systemd del panel (API + web compilada)
+
+```bash
+# 1. parar el desarrollo (libera el puerto 3000 y el lock de la base)
+tmux kill-session -t panel-api; tmux kill-session -t panel-web
+# 2. instalar y arrancar el servicio (pide sudo; compila con npm ci + npm run build)
+bash ~/proyectos/agents-panel/scripts/vm/10-panel-service.sh
+# 3. pasar Funnel del puerto 4200 al 3000
+bash ~/proyectos/agents-panel/scripts/vm/09-tailscale-funnel.sh
+```
+
+El panel deja de correr con `tsx watch` y `ng serve`: la API compilada (`node dist/main.js`) sirve también la web compilada (`PANEL_WEB_DIR`) en `127.0.0.1:3000` y Funnel publica ese puerto. Así editar `apps/api` ya no reinicia al piloto en medio de una corrida (deuda `debt-9`) y se publica el build, no el servidor de desarrollo.
+
+- **Qué hace `10-panel-service.sh`, en orden:** (1) `npm ci` + `npm run build` en la raíz (shared, api y web); (2) renderiza la plantilla `scripts/vm/agents-panel.service` (reemplaza `@REPO@`, `@NODE@`, `@HOME@`) y, si difiere de `/etc/systemd/system/agents-panel.service`, la instala (`sudo install -m 644`) y hace `daemon-reload`; (3) `systemctl enable` si no estaba habilitado; (4) `start` si estaba parado, `restart` solo si la unidad cambió o se pasó `--restart`. Si el puerto 3000 está ocupado por otro proceso (un `tsx watch`), frena con un mensaje antes de tocar nada.
+- **La unidad:** `User=ubuntu`, `WorkingDirectory=<repo>/apps/api`, `ExecStart=<node> --env-file-if-exists=.env dist/main.js`, `HOST=127.0.0.1`, `PORT=3000`, `PANEL_WEB_DIR=<repo>/apps/web/dist/web/browser`, `PATH` con `~/.local/bin` (claude), `~/.npm-global/bin` (kyro) y Go, `Restart=on-failure`, `NoNewPrivileges=true`. Los secretos siguen en `apps/api/.env` (600); la unidad no lleva ninguno.
+- **Idempotente:** con la unidad igual y el servicio activo, la segunda corrida imprime `sin cambios` y `activo, sin cambios` y no reinicia. (El `npm ci` + build corre igual; `PANEL_SKIP_BUILD=1` lo saltea.)
+- **Actualizar tras un `git pull`:** `bash scripts/vm/10-panel-service.sh --restart`. Reiniciar corta las sesiones en curso; el piloto retoma al arrancar (R15).
+- **Convivencia con el desarrollo:** el servicio y `tsx watch` no pueden correr a la vez sobre la misma base (candado `panel.lock` en el directorio de datos: el segundo se niega a arrancar). Para desarrollar: `sudo systemctl stop agents-panel` y `bash scripts/dev-panel.sh`; al terminar, `sudo systemctl start agents-panel`. Para probar sin parar el servicio, usar otra base con `PANEL_DATA_DIR` y otro `PORT`.
+- **Logs:** `journalctl -u agents-panel -f`.
+- Sin costo (US$0): sin recursos de Oracle ni planes pagos.
+- **Verificar:** `systemctl is-active agents-panel` da `active`; `ss -ltn 'sport = :3000'` muestra `127.0.0.1:3000` y no `0.0.0.0`; `tailscale funnel status` muestra `https://<vm>.<tailnet>.ts.net` → `proxy http://127.0.0.1:3000` y nada en 4200; por la URL de Funnel la web carga, `/api/health` da 200, una ruta con sesión da 401 sin cookie y el login con TOTP funciona.
+- **CSP y la web compilada (2026-10-06):** la API manda `default-src 'self'` y ahora también lo aplica a la web. El build de Angular inyectaba CSS crítico y un script en línea y la web salía sin estilos. Se desactivó `inlineCritical` en `apps/web/angular.json` (el `index.html` no lleva `<style>` ni `<script>` en línea) y el CSP permite estilos en línea (`style-src 'self' 'unsafe-inline'`, que Angular necesita para los estilos de componentes); los scripts siguen solo `'self'`.
+- Estado (2026-10-06): **corrido en la VM**. Servicio `active` y `enabled`, `127.0.0.1:3000` solo en loopback, nada en 4200, Funnel en `https://<vm>.<tailnet>.ts.net` → `proxy http://127.0.0.1:3000`, `/api/health` 200 y una ruta con sesión 401 por la URL pública, login con TOTP confirmado por la persona.
+
 ### Pendiente (etapas siguientes del plan)
 
-
-- Servicio systemd del panel (etapa 6).
+Nada por ahora.
 
 ## Costos
 
@@ -290,6 +313,7 @@ Regla del repo (`CLAUDE.md`): todo cambio que pueda modificar lo que se paga se 
 | 2026-10-04 | Panel en desarrollo (etapa 4): `.env`, base SQLite local, worktrees en `~/wt`, sesiones del Agent SDK con la suscripción existente | US$0: sin recursos nuevos de Oracle ni planes pagos | — |
 | 2026-10-04 | Actualización de Kyro con `08-kyro-update.sh` (paquete npm global, runtime y symlinks locales) | US$0: sin recursos de Oracle ni planes pagos | — |
 | 2026-10-05 | Tailscale (repositorio oficial) y Funnel en 443 hacia la web del panel (`09-tailscale-funnel.sh`, paso 15) | US$0: plan gratis de Tailscale (Personal), sin recursos de Oracle | Miqueas, 2026-10-05 (adelantado de la etapa 6) |
+| 2026-10-06 | Servicio systemd `agents-panel` (API + web compilada en 127.0.0.1:3000) y Funnel hacia el puerto 3000 (`10-panel-service.sh`, paso 16) | US$0: sin recursos de Oracle ni planes pagos; sin cambios de shape, disco ni IPs | Miqueas, 2026-10-06 |
 
 ## Bitácora
 
@@ -327,3 +351,6 @@ Regla del repo (`CLAUDE.md`): todo cambio que pueda modificar lo que se paga se 
 | 2026-10-05 | Paso 15: se escribió `scripts/vm/09-tailscale-funnel.sh` (instala Tailscale desde el repo oficial, habilita `tailscaled`, publica la web con `tailscale funnel --bg 4200`), `PANEL_EXTRA_ORIGINS` en la API y `allowedHosts: [".ts.net"]` en el dev server | Probado con stubs (`apps/api/test/funnel.test.ts`): 2ª corrida sin cambios, sin login no publica nada. **Sin correr todavía en la VM**: falta el login manual (`sudo tailscale up`) y la verificación desde un dispositivo externo. Sin costo |
 | 2026-10-05 | Paso 15 corrido: `09-tailscale-funnel.sh` instaló Tailscale 1.102.4, `sudo tailscale up` (login manual), HTTPS Certificates y Funnel habilitados en el admin; segunda corrida `ya publicado`. Se agregaron al `apps/api/.env` (600) `PANEL_EXTRA_ORIGINS` con la URL de Funnel y las claves VAPID generadas con `push:vapid-keys` (sin valores en este doc), y se reinició el panel con `dev-panel.sh` | OK desde la VM: la URL de Funnel sirve la web (200), `/push-sw.js` 200, `/api/health` 200, rutas con sesión dan 401, login con `Origin` de Funnel pasa el chequeo y con un `Origin` ajeno da 403; `funnel status` muestra solo el puerto 4200. Pendiente: login con TOTP desde un dispositivo externo. Sin costo |
 | 2026-10-05 | Paso 15: el navegador daba `DNS_PROBE_FINISHED_NXDOMAIN` (sin registro DNS público). Se apagó y prendió Funnel (`tailscale funnel --https=443 off` + `09-tailscale-funnel.sh`) sin efecto y después se pidió el certificado con `sudo tailscale cert` (archivos borrados) | OK: el DNS público resolvió a los pocos minutos; con `curl --resolve` hacia las IPs de Funnel la web da 200 con certificado válido, `/api/health` 200, rutas con sesión 401. Sin costo |
+| 2026-10-06 | Paso 16: se escribieron `scripts/vm/10-panel-service.sh` y la plantilla `scripts/vm/agents-panel.service`; `09-tailscale-funnel.sh` pasa a publicar el puerto 3000 por defecto (antes 4200) | Probado con stubs (`apps/api/test/panel-service.test.ts` y `funnel.test.ts`): 2ª corrida sin cambios, `--restart` y cambio de unidad reinician, puerto ocupado frena. **Sin correr todavía en la VM** (sudo y parar el desarrollo). Sin costo |
+| 2026-10-06 | Paso 16 corrido por la persona: paró `panel-api` y `panel-web` (tmux), `10-panel-service.sh` (npm ci + build, unidad instalada, servicio habilitado y arrancado) y `09-tailscale-funnel.sh` (Funnel pasó de 4200 a 3000). La web salió sin CSS por el CSP: se desactivó `inlineCritical`, se agregó `style-src 'self' 'unsafe-inline'` y se reinició el servicio (`sudo systemctl restart agents-panel`) | OK: `active`/`enabled`, 3000 solo en 127.0.0.1, `funnel status` solo hacia 3000, `/api/health` 200 y `/api/projects` 401 por Funnel, login con TOTP confirmado. Sin costo |
+| 2026-10-06 | Paso 16: `10-panel-service.sh --restart` tras compilar la política v3 del piloto | OK: el servicio reinició (`NRestarts=0`, `journalctl` muestra `Server listening at http://127.0.0.1:3000`) y la unidad quedó intacta (`/etc/systemd/system/agents-panel.service` conserva la fecha de su instalación). Sin costo |

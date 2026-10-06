@@ -1,8 +1,17 @@
 # Panel en desarrollo: cuenta, API, web y túnel
 
-Cómo trabajar con el panel en desarrollo (la publicación con Funnel es el paso 15 de [`vm-setup.md`](vm-setup.md) y el servicio systemd es de la etapa 6): crear la cuenta, levantar backend y frontend en la VM y verlos desde la PC en `localhost` por un túnel SSH. Para instalar la VM en sí, ver [`vm-setup.md`](vm-setup.md) (paso 10).
+Cómo trabajar con el panel en desarrollo (la publicación con Funnel es el paso 15 de [`vm-setup.md`](vm-setup.md) y el servicio systemd de producción es el paso 16): crear la cuenta, levantar backend y frontend en la VM y verlos desde la PC en `localhost` por un túnel SSH. Para instalar la VM en sí, ver [`vm-setup.md`](vm-setup.md) (paso 10).
 
-## Cómo encaja todo
+## Cómo se corre ahora: servicio y desarrollo
+
+En la VM el panel corre como **servicio systemd** (`agents-panel`, paso 16 de [`vm-setup.md`](vm-setup.md)): la API compilada (`node dist/main.js`) sirve también la web compilada en `127.0.0.1:3000`, y Funnel publica ese puerto. No hay `tsx watch` ni `ng serve` en producción, así que editar el código no reinicia al piloto en medio de una corrida.
+
+- Estado y logs: `systemctl is-active agents-panel`, `journalctl -u agents-panel -f`.
+- Después de un `git pull`: `bash scripts/vm/10-panel-service.sh --restart` (recompila y reinicia; el piloto retoma solo).
+- **Desarrollar sin chocar con el servicio:** el servicio y `tsx watch` no pueden usar la misma base a la vez (candado de instancia única `panel.lock` en el directorio de datos: la segunda API se niega a arrancar con un mensaje claro). Para desarrollar: `sudo systemctl stop agents-panel`, trabajar con `scripts/dev-panel.sh` (lo de abajo) y al terminar `sudo systemctl start agents-panel`. Para probar sin parar el servicio, usar otra base con `PANEL_DATA_DIR` y otro `PORT`.
+- Lo que sigue en esta guía (túnel SSH, `ng serve` en el 4200) es el **modo desarrollo**.
+
+## Cómo encaja todo (modo desarrollo)
 
 ```
 PC (navegador)                      VM vm-ia
@@ -276,6 +285,22 @@ Prueba de H3 con vos mirando. **Un Work de prueba en un repo de prueba**, nunca 
 5. Anotá el resultado: lo que no se pueda probar en la sesión queda como deuda con target 6 del scope.
 
 **Resultado de H3 (2026-10-05, PC con Chrome y Android con Chrome cerrado, por la URL de Funnel):** confirmada. Un trabajo que frena, hace una pregunta o deja la PR lista avisa a la PC y al Android con el motivo y al tocar el aviso abre el trabajo. Dos hallazgos: en el Android el **ahorro de batería de Chrome** (Ajustes → Apps → Chrome → Batería, «Sin restricciones») demora o descarta los avisos, y por eso el envío usa `urgency: high`; y el reinicio de la API con una pregunta pendiente la cancela (ahora deja el evento `question_cancelled`). **No probado en real:** que una suscripción vencida (404 o 410 del servicio de push) se borre sola en el envío siguiente; está cubierto por tests automáticos y queda como deuda con target 6.
+
+### Corrida real del piloto en test-panel (pendiente)
+
+Es la prueba de punta a punta del piloto con el servicio de producción. **No se hizo** (el usuario la dejó para otro día el 06/10/2026) y sus partes están como deuda abierta del scope `autopiloto-kyro`: `debt-1`, `debt-10` y las de «Corrida real…» (ver `.agents/kyro/scopes/autopiloto-kyro/sprint.json`). Ningún punto de esta lista está probado todavía.
+
+Reglas: solo en **test-panel** (nunca ventas ni este repo), **sin mergear la PR** de prueba, y sin editar `apps/api` ni reiniciar la API mientras alguien prueba.
+
+1. **Preparar el servicio:** después de un `git pull`, `bash scripts/vm/10-panel-service.sh --restart` (compila y reinicia; el servicio queda `active`). `systemctl is-active agents-panel` y `curl -s localhost:3000/api/health`.
+2. **Crear el trabajo:** en la web (URL de Funnel), proyecto test-panel, un **Scope chico de un sprint** con el piloto encendido, que incluya una **pregunta material** (el agente tiene que preguntar algo que no se puede asumir).
+3. **Pregunta con botones (`debt-1`):** responder con un botón desde la web (y una vez con texto libre). Comprobar que el agente sigue con esa respuesta y que la pregunta queda con su respuesta y quién la dio.
+4. **Reinicio a mitad de la ejecución (R15):** con el piloto ejecutando, `sudo systemctl restart agents-panel`. Comprobar en el Timeline que el piloto se retoma solo y que no hay dos sesiones del mismo paso a la vez (en la base: una sola fila `running` por chat y un solo paso nuevo tras el reinicio).
+5. **Llegar a la PR:** el trabajo termina en `pr_lista` y la evidencia guarda la URL de la PR. No mergearla.
+6. **Cero `permission_denied` de lectura:** en el primer turno del Work o Scope no tiene que haber denegaciones de lectura fuera del worktree (`sqlite3 -readonly ~/.local/share/agents-panel/panel.sqlite "select seq, substr(payload,1,160) from chat_events where chat_id=<id> and type='permission_denied'"`, sin leer `.env`).
+7. **Avisos push:** confirmar que llegan en la PC y en el Android (pregunta pendiente, frenos y PR lista).
+8. **Suscripción vencida (`debt-10`):** en un navegador quitar el permiso de notificaciones del sitio, tocar **Probar** desde otro dispositivo y comprobar que la suscripción vencida desaparece de la lista.
+9. **Registrar:** pasar la URL de la PR y el resultado de cada punto; lo que no se pruebe sigue como deuda.
 
 ## 4. Levantar backend y frontend en la VM
 
