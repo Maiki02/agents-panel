@@ -8,6 +8,7 @@ import {
   parseInline,
   parseMarkdown,
   prLinks,
+  showPrCard,
 } from './approval-logic';
 
 describe('approvalCard', () => {
@@ -28,11 +29,26 @@ describe('approvalCard', () => {
       expect(approvalCard(kind, 'pr_lista')).toBe('pr');
   });
 
+  it('looks for the PR of a finished scope or work, never of an idea or a direct chat', () => {
+    expect(approvalCard('work', 'terminado')).toBe('pr');
+    expect(approvalCard('scope', 'terminado')).toBe('pr');
+    expect(approvalCard('idea', 'terminado')).toBeNull();
+    expect(approvalCard('direct', 'terminado')).toBeNull();
+  });
+
   it('shows nothing in any other state, or without state', () => {
     expect(approvalCard('idea', 'madurando_idea')).toBeNull();
     expect(approvalCard('scope', 'planificando')).toBeNull();
     expect(approvalCard('scope', null)).toBeNull();
     expect(approvalCard('direct', undefined)).toBeNull();
+  });
+});
+
+describe('showPrCard', () => {
+  it('always shows the card when the PR is ready, and a finished work only with a link', () => {
+    expect(showPrCard('pr_lista', [])).toBe(true);
+    expect(showPrCard('terminado', ['https://github.com/a/b/pull/1'])).toBe(true);
+    expect(showPrCard('terminado', [])).toBe(false);
   });
 });
 

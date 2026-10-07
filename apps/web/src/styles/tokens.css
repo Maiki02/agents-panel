@@ -42,7 +42,9 @@
   --ui-accent: var(--palette-brand-600);
   --ui-accent-hover: var(--palette-brand-500);
   --ui-accent-fg: var(--palette-paper-0);
-  --ui-link: var(--palette-brand-600);
+  /* Texts are white or gray, never the brand color: links take the text color of the theme
+     (they resolve per element, so the dark overrides of --ui-text apply too). */
+  --ui-link: var(--ui-text);
   --ui-danger: var(--palette-red-700);
   --ui-ok: var(--palette-green-700);
   --ui-warn: var(--palette-amber-700);
@@ -63,7 +65,6 @@
     --ui-muted: var(--palette-ink-500);
     --ui-accent: var(--palette-brand-500);
     --ui-accent-hover: var(--palette-brand-400);
-    --ui-link: var(--palette-brand-400);
     --ui-danger: var(--palette-red-500);
     --ui-ok: var(--palette-green-500);
     --ui-warn: var(--palette-amber-500);
@@ -79,7 +80,6 @@
   --ui-muted: var(--palette-ink-500);
   --ui-accent: var(--palette-brand-500);
   --ui-accent-hover: var(--palette-brand-400);
-  --ui-link: var(--palette-brand-400);
   --ui-danger: var(--palette-red-500);
   --ui-ok: var(--palette-green-500);
   --ui-warn: var(--palette-amber-500);

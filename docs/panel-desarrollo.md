@@ -167,6 +167,8 @@ Referencia de la API (todas piden sesión, CSRF y `Origin`):
 
 Desde la web: menú **Versiones**. Muestra la versión instalada y la última publicada, y un icono de refresh (**Actualizar Kyro**) que abre el modal de código TOTP. Si hay sesiones corriendo (409 con la cantidad), el aviso aparece dentro del modal. Mientras actualiza, el icono gira y queda deshabilitado, la pantalla se refresca sola y el historial de corridas muestra la salida desplegable.
 
+En la misma pantalla, la tarjeta **Panel** muestra el commit que corre el servicio y cuántos commits de `main` faltan desplegar. Su icono (**Desplegar el panel**) pide TOTP, corre `scripts/vm/12-panel-deploy.sh` y reinicia el servicio; la pantalla sigue el reinicio y ofrece refrescar cuando vuelve. Solo funciona con el servicio systemd (paso 16 de `vm-setup.md`): con `tsx watch` el icono queda deshabilitado con el motivo. El repo `~/proyectos/agents-panel` tiene que estar en `main` y sin cambios, o el deploy se niega.
+
 Referencia de la API:
 
 `POST /api/versions/kyro/update` con la sesión, el token CSRF y `{ "code": "123456" }` (un TOTP vigente que no se haya usado) corre `scripts/vm/08-kyro-update.sh` con las raíces de los proyectos listos que tienen Kyro. Responde **202** `{ "runId": 1 }`, **401** `{ "error": "invalid_totp" }`, o **409** si hay sesiones corriendo (`running` trae la cantidad) o ya hay una actualización en curso. `GET /api/versions` muestra la versión instalada y la última publicada (`null` sin red), y `GET /api/maintenance-runs?kind=kyro-update` el historial con la salida recortada.
@@ -241,7 +243,8 @@ Recorrido del sprint 3 de `autopiloto-kyro`. Se puede seguir por la API, con la 
 4. **En la base** (`~/.local/share/agents-panel/panel.sqlite`): `SELECT step, role, model, policy_version, result FROM agent_sessions WHERE chat_id = <id> ORDER BY id;` muestra una sesión por paso (plan con Opus, ejecución y cierre con Sonnet) y `SELECT * FROM autopilot_runs WHERE chat_id = <id>;` el estado del piloto.
 5. **Frenos:** el piloto se detiene con el motivo en `run.stopReason` (por ejemplo, deuda abierta, un conflicto o un build roto; el cierre y el merge se prueban en la sección siguiente). Si frena por `sin_avance` o `tope_de_sesiones`, resolvelo y mandá `resume`.
 6. **Reinicio:** con el piloto a mitad de un paso, matá la API y levantala de nuevo: retoma solo el mismo paso con `resume` de su sesión (sin mensaje tuyo). Un run pausado o apagado no se retoma.
-7. El tope de sesiones por sprint sale de `PILOT_MAX_SESSIONS_PER_SPRINT` en el `.env` de la API (6 por defecto).
+7. El tope de sesiones sale de `PILOT_MAX_SESSIONS_PER_SPRINT` en el `.env` de la API (6 por defecto) y cuenta las sesiones seguidas del sprint **sin cerrar una tarea**: cada ejecución que cierra una tarea reinicia la cuenta, así un sprint largo no frena; un bucle de correcciones o de reinicios sí.
+8. **Después de la PR:** el panel no mergea. Al mergear la PR en GitHub, el trabajo pasa solo a `mergeada` en la vuelta siguiente del sondeo (`PILOT_PR_POLL_MINUTES` en el `.env` de la API, 5 por defecto; 0 lo apaga) o al abrir el chat en la web. Si la PR se cierra sin mergear, pasa a `revisar`.
 
 **Importante:** hasta tener el servicio systemd (etapa 6), cerrar la terminal donde corre la API la corta y con ella el piloto. Levantala dentro de `tmux` (`tmux new -s panel`, y desconectate con `Ctrl-b d`) para que sobreviva a cerrar la conexión SSH; si la VM se reinicia, al levantar la API los pilotos activos se retoman solos.
 
@@ -259,7 +262,7 @@ Recorrido del sprint 4 de `autopiloto-kyro`. **Usá siempre un repo de prueba** 
    - Fuera de `esperando_aprobacion_plan` da 409; sin sesión 401 y sin CSRF 403. Cada decisión queda en `GET /api/chats/:id/timeline` con actor `user`, la ruta y el usuario.
 5. **Seguir el piloto** como en la sección anterior. Al terminar cada sprint verificá que la rama quedó en el remoto (`git ls-remote origin feature/<slug>`) y que la base del remoto no se movió.
 6. **Cierre del scope:** sin deuda abierta el panel corre `kyro scope complete --yes` y commitea solo `.agents/kyro/` (`chore(kyro): completar scope <slug>`). Con deuda abierta frena **una vez** en `esperando_aprobacion_cierre` con la lista en el Timeline; para seguir, `POST /api/chats/:id/autopilot` con `{ "action": "accept_debt", "reason": "…" }` (el motivo es obligatorio). Un work en `ready_to_close` se cierra con `kyro work close --outcome completed`.
-7. **Merge:** para probar un conflicto, adelantá la base del remoto con un cambio sobre el mismo archivo que tocó la rama: aparece `trayendo_dev` → `resolviendo_conflictos` (sesión `merge` del ejecutor) → `validando_post_merge` → `abriendo_pr` → `pr_lista`. La URL queda en el Timeline y en `autopilot_runs.pr_urls`. Si el repo de prueba tiene `.claude/skills/merge-dev/SKILL.md`, el piloto usa esa skill (sesión `merge_dev`).
+7. **Merge:** para probar un conflicto, adelantá la base del remoto con un cambio sobre el mismo archivo que tocó la rama: aparece `trayendo_dev` → `resolviendo_conflictos` (sesión `merge` del ejecutor) → `validando_post_merge` → `abriendo_pr` → `pr_lista`. La URL queda en el Timeline y en `autopilot_runs.pr_urls`. Si el work terminó con una PR que abrió el agente por su cuenta, al abrir el chat el panel la busca con `gh` por la rama y muestra la tarjeta igual. Si el repo de prueba tiene `.claude/skills/merge-dev/SKILL.md`, el piloto usa esa skill (sesión `merge_dev`).
 8. **Frenos para forzar:** un `validate_command` que falla → `build_roto` (sin PR); un `.env` o un token de mentira en el diff → `secretos` (el Timeline lista archivo y tipo, nunca el valor); un worktree sin `origin` → `git`; un informe de QA sin `Verdict:` → `qa_sin_aprobar`. Cada uno se resuelve y se retoma con `resume`.
 9. **Reinicio en la fase de merge:** con el piloto en `trayendo_dev`, matá la API y levantala: lee `autopilot_runs.phase = 'merge'` y retoma el merge (el pull, el push y la PR son idempotentes: una PR abierta de la rama se reusa).
 10. **Limpieza:** el panel no borra nada solo. Cerrá la PR de prueba a mano y borrá la rama del remoto y el worktree de prueba.
@@ -385,6 +388,100 @@ Con eso `http://localhost:3000/api/health` responde desde la PC. Los endpoints p
 ### Variante: web local, API en la VM
 
 Si se desarrolla el frontend en la PC, alcanza con el túnel del puerto 3000 y levantar `npm run start -w @agents-panel/web` en la PC: el proxy ya apunta a `127.0.0.1:3000`. `PANEL_ORIGIN` sigue siendo `http://localhost:4200`.
+
+## Probar las operaciones git de un trabajo (API)
+
+Recorrido del sprint 1 de `operaciones-worktree` (la misma pestaña Git está en la web: ver «Recorrido manual de la web» más abajo). **Usá un trabajo de prueba** (un Work descartable sobre un repo de prueba con un remoto que no sea el real), nunca `ventas` ni este repo. Con el túnel abierto (sección 4) se maneja con `curl` y una cookie de sesión: `POST /api/auth/login` y el segundo factor dejan la cookie en un archivo, y el token CSRF sale de `GET /api/auth/me`. Las `POST` piden la cookie, el token en el header `X-CSRF-Token` y el header `Origin` igual a `PANEL_ORIGIN`. Ni el token ni la cookie se pegan en docs ni en la bitácora.
+
+| Ruta | Para qué | Cuerpo |
+|---|---|---|
+| `GET /api/chats/:id/git` | Estado por repo: rama, archivos, adelante y atrás | — |
+| `POST /api/chats/:id/git/commit` | Commitea solo los archivos elegidos | `{ "repo": ".", "files": ["README.md"], "message": "docs: ajusta el readme" }` |
+| `POST /api/chats/:id/git/pull-base` | `git pull --no-rebase origin <base del repo>` | `{ "repo": "be-ventas" }` o `{}` para todos |
+| `POST /api/chats/:id/git/pull-branch` | `git pull --no-rebase origin <rama del trabajo>` | ídem |
+| `POST /api/chats/:id/git/push` | `git push -u origin <rama del trabajo>`, sin `--force` | ídem |
+| `POST /api/chats/:id/setup` | Reinstala dependencias (el setup del proyecto) | — |
+
+- `repo` es `.` (la raíz) o una carpeta de primer nivel del trabajo; cualquier otra cosa da 404 (un path con `..` o absoluto, 400).
+- **Sin sesión 401; `POST` sin CSRF 403.** Con el agente del trabajo corriendo o el piloto en `active`, `queued` o `waiting_quota`, 409 con el motivo y el repo no cambia: pausá el piloto o esperá el fin del turno. `files` vacío o `message` vacío dan 400.
+- **422** cuando git rechaza: un push con el remoto adelantado devuelve la salida de git en `error` y no reintenta; cuando conviene traer antes la propia rama (`pull-branch`). Un pull con conflicto se aborta y responde 200 con los archivos en conflicto.
+- Si un pull cambia un lockfile, la respuesta trae `reinstall` con el resultado del setup.
+- Cada operación queda en `GET /api/chats/:id/timeline` con actor `user`.
+
+### Probar Crear PR, cambios, descartar, borrar y los pasos del agente
+
+Sprint `paridad-manual-y-pr`. Mismas reglas: **trabajo de prueba** sobre un repo de prueba con un remoto que no sea el real, túnel abierto, cookie de sesión en un archivo y token CSRF de `GET /api/auth/me` en una variable de la shell (nunca escrito en un archivo del repo ni pegado en docs). Ejemplo, con `$COOKIES` (el archivo de cookies), `$CSRF`, `$ORIGIN` (el `PANEL_ORIGIN`) y `$ID` (el chat de prueba):
+
+```bash
+# Ver cambios sin commitear de la raíz (solo lectura; "base" compara contra la rama base)
+curl -s -b "$COOKIES" "http://localhost:3000/api/chats/$ID/git/diff?repo=.&against=worktree"
+
+# Vista previa de la PR y después crearla (editá título y cuerpo)
+curl -s -b "$COOKIES" "http://localhost:3000/api/chats/$ID/git/pr"
+curl -s -b "$COOKIES" -H "X-CSRF-Token: $CSRF" -H "Origin: $ORIGIN" -H "Content-Type: application/json" \
+  -d '{"repos":[{"repo":".","title":"feat(demo): prueba","body":"- cambio de prueba"}]}' \
+  "http://localhost:3000/api/chats/$ID/git/pr"
+
+# Descartar un archivo
+curl -s -b "$COOKIES" -H "X-CSRF-Token: $CSRF" -H "Origin: $ORIGIN" -H "Content-Type: application/json" \
+  -d '{"repo":".","files":["README.md"]}' "http://localhost:3000/api/chats/$ID/git/discard"
+
+# Pedir un paso del agente (plan, execute, qa, fix, close, merge_dev o complete)
+curl -s -b "$COOKIES" -H "X-CSRF-Token: $CSRF" -H "Origin: $ORIGIN" -H "Content-Type: application/json" \
+  -d '{"step":"plan"}' "http://localhost:3000/api/chats/$ID/steps"
+
+# Borrar: primero qué se perdería, después el borrado (deleteRemote true borra también las ramas de origin)
+curl -s -b "$COOKIES" "http://localhost:3000/api/chats/$ID/work/delete-preview"
+curl -s -b "$COOKIES" -H "X-CSRF-Token: $CSRF" -H "Origin: $ORIGIN" -H "Content-Type: application/json" \
+  -d '{"deleteRemote":false}' "http://localhost:3000/api/chats/$ID/work/delete"
+```
+
+- Qué mirar: la PR de prueba se abre contra la base del repo y repetir la llamada devuelve la misma con `existing: true`; un archivo ignorado (un `.env`) no aparece en el diff y `discard` sobre él da 400; con el piloto en `active` o el agente corriendo, todas dan 409; sin CSRF, 403; sin sesión, 401.
+- Después de borrar, el trabajo queda `archivado`: cualquier `POST` sobre ese chat da 409 («solo lectura») y el Timeline muestra `limpiando` y `archivado` con actor `user`.
+- Con un secreto en los cambios, Crear PR no pushea ni abre nada y el resultado nombra los archivos (no su contenido).
+- El Timeline (`GET /api/chats/:id/timeline`) muestra el actor de cada entrada: `user` para estas llamadas y `pilot` para lo que haga el piloto.
+
+### Probar el indicador de uso (`GET /api/usage`)
+
+Con el túnel abierto y la cookie de sesión en un archivo (sin CSRF: es un `GET` que no muta nada):
+
+```bash
+# Uso de la cuenta activa; con la caché de 60 s puede devolver lo último leído
+curl -s -b "$COOKIES" "http://localhost:3000/api/usage"
+
+# Saltar la caché y leer de nuevo (abre una sesión corta del SDK sin prompt)
+curl -s -b "$COOKIES" "http://localhost:3000/api/usage?refresh=1"
+```
+
+- La respuesta trae `accountId`, `windows` (una por ventana: `five_hour`, `seven_day` y las semanales por modelo si vienen, cada una con `utilization`, `resetsAt`, `observedAt` y `tone`), `source`, `observedAt` y `degraded`. Sin sesión da 401.
+- **Degradado:** si la lectura a pedido falla (la llamada del SDK es experimental), la respuesta sigue siendo 200 con lo último guardado, `degraded: true`, `error` recortado y `observedAt` para ver su antigüedad; sin ningún dato, `windows` vacío. Nunca un 500. Para verlo, probar con una cuenta sin sesión iniciada o con la VM sin red.
+- Cambiar la cuenta activa (Configuración) cambia lo que devuelve: cada cuenta tiene sus ventanas guardadas por separado.
+- El tono sale de `usageTone`: `ok` por debajo de 70 %, `warn` desde 70 %, `danger` desde 90 % o ventana rechazada.
+
+## Recorrido manual de la web: pestaña Git, filtros, Repositorio y uso
+
+Sprint `web-operaciones-y-uso`. Es el recorrido que hace **el usuario** en el navegador antes de completar el scope `operaciones-worktree`: el piloto no tiene navegador, así que **ni este recorrido en `ventas` ni la PR real en `agents-panel` (paso 7) los hace el agente** ni entran en la evidencia de los sprints; quedan para el usuario y se anotan como dice más abajo. Entrá por el túnel (sección 5) o por la URL de Funnel. **Las pruebas destructivas (commit, push, descartar, borrar) van sobre un trabajo descartable**; el único repo real que se toca es este (`agents-panel`) y solo para el paso 7. Ningún valor secreto se anota: ni cookies, ni tokens, ni el contenido de un `.env`.
+
+**Preparación.** En `ventas` (raíz en `main`; `fe-ventas` y `be-ventas` en `dev`) creá un Work descartable. En **Configuración → Repositorio → Detectar repos** tienen que aparecer la raíz y los dos hijos, cada uno con su base.
+
+| # | Dónde | Qué hacer | Qué mirar |
+|---|---|---|---|
+| 1 | Chat del Work → pestaña **Git** | Abrirla con cambios en la raíz y en un hijo | Una tarjeta por repo con rama, base, archivos cambiados y adelante/atrás. Un chat sin worktree no tiene la pestaña. |
+| 2 | **Ver cambios** | Mirar «Sin commitear» y «Contra la base»; en un archivo largo, **Ver más** | El parche por archivo, recortado, y el completo con «Ver más». Un `.env` ignorado no aparece. |
+| 3 | **Commit** | Elegir solo algunos archivos, escribir un mensaje sin formato (`arreglo`) y después uno bueno (`docs(demo): prueba`) | El aviso de Conventional Commits no bloquea; el commit lleva solo los archivos elegidos. |
+| 4 | **Traer base** y **Traer mi rama** | Hacer que haya un cambio nuevo en la base del hijo (en `dev`) y traerla; después provocar un conflicto | Resultado por repo con la salida recortada. Un conflicto se aborta, lista los archivos y ofrece **Pedírselo al agente** (manda el mensaje al chat). Si cambió un lockfile, se informa la reinstalación. |
+| 5 | **Push**, **Reinstalar dependencias** | Pushear la rama del trabajo; reinstalar | Resultado por repo. Nunca `--force`: con el remoto adelantado el push se rechaza con la salida de git. |
+| 6 | **Descartar** | Elegir un archivo y confirmar | La confirmación nombra cada archivo; un archivo ignorado devuelve el error de la API en el diálogo. |
+| 7 | **Crear PR** (real, en `agents-panel`) | Desde la web, en un Work chico de este repo (un ajuste de doc): abrir **Crear PR**, editar título y cuerpo, crearla | La PR sale hacia `main`, el link aparece por repo, repetir la acción actualiza la misma (`existing`). Cerrarla a mano si fue solo prueba. En un proyecto con `merge-dev` propia el botón principal es **Correr merge-dev**. |
+| 8 | **Pasos del agente** | Con el piloto pausado: Planificar, Ejecutar, QA, Corregir, Cerrar, Completar | Solo aparecen los que aplican al tipo de chat (QA solo en un scope). Con el agente corriendo o el piloto `active`, `queued` o `waiting_quota`, los botones están deshabilitados con el motivo. |
+| 9 | **Borrar trabajo** | Con un commit sin pushear en el Work descartable | La vista previa avisa del commit sin pushear; con la casilla se borran también las ramas remotas; después el chat queda `archivado`, en solo lectura. |
+| 10 | Sidebar de **Chats** | Probar **Activos**, **Te toca**, **Terminados** y **Todos** | Cada filtro muestra su cantidad; el elegido se recuerda al recargar; un filtro sin chats dice que está vacío. |
+| 11 | **Configuración → Repositorio** | Cambiar la base de un hijo, **Detectar repos**, **Traer cambios de GitHub**; ensuciar la raíz del clon y repetir | El resultado aparece en la fila de cada repo (actualizado, sin cambios, rechazado); con la raíz rechazada (409) los hijos igual muestran su fila. El clon base no ofrece commit ni instalación. |
+| 12 | **Icono de uso** del header | Abrirlo en distintas pantallas y en el celular; cambiar de cuenta; si se puede, cortar la lectura a pedido | Se ve el % de 5 h con su tono en todas las pantallas; el panel muestra cada ventana con barra, hora de reinicio local y «actualizado hace X». Con la lectura caída muestra el último dato con el aviso de degradado, no un error. Sin datos, estado vacío. |
+
+**Piloto y cupo.** Si el piloto frena por `sin_cupo_de_uso`, el Timeline muestra la hora exacta de retomada (la del reinicio de la ventana más 1 minuto); sin hora conocida reintenta cada 15 minutos.
+
+**Cómo anotar el resultado.** Una línea por paso (`n. ok`, `n. falló: qué pasó`) con la fecha y el trabajo de prueba usado, en el cierre del sprint o en el issue que corresponda. Lo que falle se abre como deuda o tarea; no se corrige a ciegas.
 
 ## Problemas frecuentes
 

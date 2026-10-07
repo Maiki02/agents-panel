@@ -128,6 +128,17 @@ export class WorktreeStateRepository {
     return row ? toState(row) : undefined;
   }
 
+  /** Chats whose work is in one of `states`, oldest first. */
+  chatIdsIn(states: readonly WorktreeStateId[]): number[] {
+    if (states.length === 0) return [];
+    const marks = states.map(() => '?').join(', ');
+    return (
+      this.db
+        .prepare(`SELECT chat_id FROM worktree_state WHERE state IN (${marks}) ORDER BY chat_id`)
+        .all(...states) as { chat_id: number }[]
+    ).map((row) => row.chat_id);
+  }
+
   timeline(chatId: number): WorktreeTransition[] {
     return (
       this.db

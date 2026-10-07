@@ -54,7 +54,12 @@ const POLL_MS = 3000;
             <div class="meta">
               @if (repo(project); as r) {
                 @if (r.url) {
-                  <a [href]="r.url" target="_blank" rel="noopener noreferrer" class="break-all">
+                  <a
+                    [href]="r.url"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="break-all text-muted hover:text-text"
+                  >
                     {{ r.text }}
                   </a>
                 } @else {
@@ -121,6 +126,8 @@ const POLL_MS = 3000;
     } @empty {
       @if (loaded()) {
         <p class="hint">Todavía no hay proyectos. Agregá el primero con «Nuevo proyecto».</p>
+      } @else {
+        <p class="hint" role="status">Cargando…</p>
       }
     }
     @if (adding()) {
@@ -132,8 +139,10 @@ export class ProjectsPage {
   private readonly service = inject(ProjectsService);
   private readonly capacity = inject(CapacityService);
 
-  protected readonly projects = signal<Project[]>([]);
-  protected readonly loaded = signal(false);
+  /** Starts with the last list the service knows, so coming back paints at once. */
+  private readonly known = this.service.cachedList();
+  protected readonly projects = signal<Project[]>(this.known ?? []);
+  protected readonly loaded = signal(this.known !== undefined);
   protected readonly adding = signal(false);
   protected readonly error = signal<string | null>(null);
   /** Suggested setup per ready project without one (from GET /:id). */

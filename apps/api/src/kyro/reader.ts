@@ -199,13 +199,18 @@ export class KyroReader {
   }
 
   /** Task context of a scope: the same data `kyro-task-context` uses, as typed fields. */
-  async contextPackTask(cwd: string, scope: string): Promise<KyroReadResult<KyroTaskContext>> {
+  async contextPackTask(
+    cwd: string,
+    scope: string,
+    /** Kyro's next task; null in the close or fix step, where `--task` alone fails ("No next task"). */
+    taskId: string | null = null,
+  ): Promise<KyroReadResult<KyroTaskContext>> {
     try {
       const pack = await this.json(cwd, [
         'context-pack',
         '--kyro-scope',
         scope,
-        '--task',
+        ...(taskId === null ? [] : ['--task', taskId]),
         '--verbosity',
         'detailed',
         '--json',
@@ -252,6 +257,28 @@ export class KyroReader {
   }
 
   /** Closes a work as completed (`work close`), against the revision the panel just read. */
+  /** Takes a task of a work out of `blocked` (the user resumed the pilot: they solved it). */
+  async unblockWorkTask(
+    cwd: string,
+    work: string,
+    task: string,
+    revision: number,
+  ): Promise<KyroActionResult> {
+    return this.action(cwd, [
+      'work',
+      'unblock',
+      '--work',
+      work,
+      '--task',
+      task,
+      '--expect-revision',
+      String(revision),
+      '--by',
+      'user',
+      '--json',
+    ]);
+  }
+
   async closeWork(
     cwd: string,
     work: string,

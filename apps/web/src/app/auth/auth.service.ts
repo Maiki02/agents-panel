@@ -1,6 +1,7 @@
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
+import { clearAllSwrCaches } from '../shared/swr-cache';
 
 export interface SessionInfo {
   user: { id: number; username: string };
@@ -62,6 +63,7 @@ export class AuthService {
   async submitCode(code: string): Promise<void> {
     try {
       const session = await firstValueFrom(this.http.post<SessionInfo>('/api/auth/totp', { code }));
+      clearAllSwrCaches();
       this.state.set(session);
       this.loaded = Promise.resolve();
     } catch (error) {
@@ -71,6 +73,7 @@ export class AuthService {
 
   /** The server said the session is gone: forget it locally without calling the API. */
   expire(): void {
+    clearAllSwrCaches();
     this.state.set(null);
     this.loaded = Promise.resolve();
   }
@@ -79,6 +82,7 @@ export class AuthService {
     try {
       await firstValueFrom(this.http.post('/api/auth/logout', {}));
     } finally {
+      clearAllSwrCaches();
       this.state.set(null);
       this.loaded = Promise.resolve();
     }
@@ -86,6 +90,7 @@ export class AuthService {
 
   /** Called when any API answer says the session is gone. */
   markLoggedOut(): void {
+    clearAllSwrCaches();
     this.state.set(null);
     this.loaded = Promise.resolve();
   }

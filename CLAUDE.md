@@ -31,6 +31,8 @@ El objetivo: poder rehacer la VM desde cero siguiendo solo el runbook.
 
 **Excepción: actualizar Kyro desde el panel.** Cada corrida del botón Actualizar de Versiones corre `scripts/vm/08-kyro-update.sh` (ya documentado en el paso 14 de `docs/vm-setup.md`) y queda registrada en la tabla `maintenance_runs` de la base del panel (versión anterior, versión nueva, resultado y salida recortada): esas corridas **no** suman línea a la bitácora. La bitácora sí registra la creación del script, sus cambios de procedimiento y las corridas hechas a mano.
 
+Lo mismo vale para **desplegar el panel desde la web**: cada corrida del botón Desplegar de Versiones corre `scripts/vm/12-panel-deploy.sh` (paso 18 de `docs/vm-setup.md`), reinicia el servicio y queda en `maintenance_runs` con `kind = 'panel-deploy'`; no suma línea a la bitácora.
+
 ## Regla de costos
 
 **Cualquier cambio en la VM o en la cuenta de Oracle que pueda modificar lo que se paga se avisa al usuario antes de hacerlo**, con el costo estimado y la alternativa gratis si existe. Sin su OK explícito, no se hace.
@@ -77,6 +79,15 @@ Los proyectos se dan de alta desde la web (**Proyectos → Nuevo proyecto**, con
 
 - Un proyecto sin Kyro (sin `.agents/kyro/` en el repo) solo admite chats de tipo **Pedido directo**; para usar Work o Scope se inicializa desde la web (**Configuración → Repositorio → Inicializar Kyro**), que deja la rama `chore/kyro-init` para revisar, pushear y mergear a la rama base.
 - Borrar un proyecto desde la web nunca pierde trabajo: se rechaza si hay algo sin commitear o sin pushear (detalle en `docs/plan.md`).
+
+## Operaciones sobre un trabajo
+
+Valen para cualquier cambio futuro en el panel (detalle en `docs/plan.md`, «Servicio de acciones y paridad manual»):
+
+- Toda acción sobre un trabajo (git, Crear PR, descartar, borrar, pasos del agente) pasa por el servicio único `WorktreeOps` con **actor** (`user`, `pilot`, `agent`); el Timeline lo registra. Cada acción nueva del piloto suma su fila en `PARITY_CATALOG` y su botón en la web; un test falla si falta.
+- Las rutas de operaciones piden sesión y CSRF y responden **409** si el agente del trabajo corre, hay mantenimiento de Kyro o el piloto está en `active`, `queued` o `waiting_quota` (para operar a mano se pausa el piloto); un trabajo `archivado` es de solo lectura.
+- Ninguna operación fuerza un push, hace rebase, pushea una rama que no sea la del trabajo, commitea o instala en el clon base del proyecto (solo se actualiza con `pull --ff-only`), ni lee o toca archivos ignorados (los `.env`).
+- El uso de los proveedores se mide por `account_id` (ver abajo); la API y la web usan el mismo `usageTone`.
 
 ## Cuentas de Claude
 

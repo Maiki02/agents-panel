@@ -28,6 +28,8 @@ import {
 import { POLICY_VERSION } from './policy.js';
 import { APPROVED_VERDICTS, readQaVerdict } from './qa-report.js';
 import {
+  afterAnalyze,
+  stepRole,
   buildInitPrompt,
   buildMergeDevPrompt,
   buildMergePrompt,
@@ -36,15 +38,21 @@ import {
   type CapabilityReader,
   type PromptStep,
 } from './prompts.js';
+import { WorktreeOps, type PilotActions } from '../worktrees/ops.js';
 import { realGit, type MergeGit, type PilotGit } from './git-ops.js';
 import { realGh, type PilotGh } from './github-cli.js';
 import { runMergePhase, type MergePhaseOutcome } from './merge-phase.js';
 import type { SecretFinding } from './secrets.js';
 import type { AutopilotRunRepository } from './runs-repo.js';
+import type { UsageRepository } from '../usage/repo.js';
 
 /** Everything the pilot reads from the Kyro CLI. */
 export interface PilotKyro extends KyroStateReader, CapabilityReader {
-  contextPackTask(cwd: string, scope: string): Promise<KyroReadResult<KyroTaskContext>>;
+  contextPackTask(
+    cwd: string,
+    scope: string,
+    taskId?: string | null,
+  ): Promise<KyroReadResult<KyroTaskContext>>;
   workContextPack(cwd: string, work: string): Promise<KyroReadResult<KyroTaskContext>>;
   analyze(cwd: string, scope: string): Promise<KyroReadResult<AnalyzeFinding[]>>;
   /** Title, objective and closed sprints of a scope, for its PR; without it the PR is plain. */
@@ -55,6 +63,13 @@ export interface PilotKyro extends KyroStateReader, CapabilityReader {
     acceptOpenDebt?: { reason: string },
   ): Promise<KyroActionResult>;
   closeWork(cwd: string, work: string, revision: number, reason: string): Promise<KyroActionResult>;
+  /** Unblocks a task of a work when the user resumes the pilot; without it the work stays blocked. */
+  unblockWorkTask?(
+    cwd: string,
+    work: string,
+    task: string,
+    revision: number,
+  ): Promise<KyroActionResult>;
 }
 
 export const QUOTA_RETRY_MS = 15 * 60 * 1000;
@@ -73,6 +88,8 @@ export interface AutopilotDeps {
   git?: PilotGit & MergeGit;
   /** `gh` for the PRs of the merge phase; the real one by default. */
   gh?: PilotGh;
+  /** The action service (D26) that the pilot's push, commit of Kyro and PR go through, as actor `pilot`. */
+  actions?: PilotActions;
   /** Base branch and validate command of the chat's project (R14, the push and merge checks). */
   projectOf?: (chat: Chat) => { baseBranch: string; validateCommand: string | null } | undefined;
   /** Secrets scan of a worktree; the real one by default, replaced by tests. */
@@ -83,6 +100,8 @@ export interface AutopilotDeps {
   sessions?: AgentSessionRepository;
   /** Timed steps of the panel (analyze, push, merge phase); untimed when absent. */
   steps?: PanelStepRepository;
+  /** Last usage windows per account; the fallback for the reset time of a rejected window. */
+  usage?: Pick<UsageRepository, 'listByAccount'>;
   maxSessionsPerSprint?: number;
   now?: () => number;
   /** Runs `fn` after `ms`; injectable so tests do not wait 15 minutes. */
@@ -111,8 +130,6 @@ interface AfterClose {
   fromSeq: number;
 }
 
-const BLOCKING_SEVERITIES = new Set(['CRITICAL', 'HIGH']);
-
 const text = (value: unknown): string => (typeof value === 'string' ? value : '');
 
 /** Tool calls of the assistant events: `{ name, input }` of each tool_use block. */
@@ -136,10 +153,16 @@ function toolUses(events: ChatEvent[]): { name: string; input: Record<string, un
   return uses;
 }
 
-/** True when the session loaded the skill (an `assistant` tool_use of Skill with that name). */
+/**
+ * True when the session loaded the skill: the Skill tool with that name, or a Read of its
+ * `skills/<skill>/SKILL.md`, which is how the pilot's prompts tell the agent to use a skill.
+ */
 export function usedSkill(events: ChatEvent[], skill: string): boolean {
+  const skillFile = `/skills/${skill}/SKILL.md`;
   return toolUses(events).some(
-    (use) => use.name === 'Skill' && text(use.input['skill']).includes(skill),
+    (use) =>
+      (use.name === 'Skill' && text(use.input['skill']).includes(skill)) ||
+      (use.name === 'Read' && text(use.input['file_path']).endsWith(skillFile)),
   );
 }
 
@@ -159,6 +182,29 @@ export function hitUsageLimit(events: ChatEvent[]): boolean {
   });
 }
 
+/** Margin after the window resets before the pilot retries, so the limit is really lifted. */
+export const QUOTA_RESET_MARGIN_MS = 60 * 1000;
+
+/**
+ * Epoch ms at which the rejected window of the session resets: the latest `resetsAt` (epoch
+ * seconds) of its rejected `rate_limit_event`s, or null when none carried one.
+ */
+export function rejectedResetsAt(events: ChatEvent[]): number | null {
+  let latest: number | null = null;
+  for (const event of events) {
+    if (event.type !== 'rate_limit_event') continue;
+    const payload = event.payload as Record<string, unknown> | null;
+    const info = payload?.['rate_limit_info'] as
+      { status?: unknown; resetsAt?: unknown } | undefined;
+    if (info?.status !== 'rejected') continue;
+    const seconds = info.resetsAt;
+    if (typeof seconds !== 'number' || !Number.isFinite(seconds)) continue;
+    const ms = Math.round(seconds * 1000);
+    if (latest === null || ms > latest) latest = ms;
+  }
+  return latest;
+}
+
 /**
  * The pilot: takes a scope or work with the autopilot on to the end of its Kyro route, one new SDK
  * session per step. Every choice comes from Kyro's signals (decideNextStep); the agent's text is
@@ -166,13 +212,26 @@ export function hitUsageLimit(events: ChatEvent[]): boolean {
  */
 export class Autopilot {
   private readonly loops = new Map<number, Promise<void>>();
+  private readonly actions: PilotActions;
   /** Steps interrupted by a restart, to reopen in their SDK session on the next pass of the loop. */
   private readonly pendingResume = new Map<number, PendingResume>();
+  /**
+   * Chats whose pilot the user just resumed or switched on: that is the signal they solved what
+   * stopped it, so a task Kyro holds as blocked is unblocked once, at the next decision.
+   */
+  private readonly resumedByUser = new Set<number>();
   private readonly max: number;
   private readonly now: () => number;
   private readonly schedule: (fn: () => void, ms: number) => void;
 
   constructor(private readonly deps: AutopilotDeps) {
+    this.actions =
+      deps.actions ??
+      WorktreeOps.forPilot({
+        chats: deps.chats,
+        ...(deps.git ? { git: deps.git } : {}),
+        ...(deps.gh ? { gh: deps.gh } : {}),
+      });
     this.max = deps.maxSessionsPerSprint ?? DEFAULT_MAX_SESSIONS_PER_SPRINT;
     this.now = deps.now ?? Date.now;
     this.schedule =
@@ -180,6 +239,12 @@ export class Autopilot {
       ((fn, ms) => {
         setTimeout(fn, ms).unref();
       });
+  }
+
+  /** The user resumed or switched on the pilot: like kick, and a blocked task gets unblocked once. */
+  resumeByUser(chatId: number): void {
+    this.resumedByUser.add(chatId);
+    this.kick(chatId);
   }
 
   /** Starts (or continues) the loop of a chat in the background. */
@@ -219,6 +284,8 @@ export class Autopilot {
     let last: LastSession | null = null;
     let afterClose: AfterClose | null = null;
     let busy = 0;
+    /** Why the task was blocked before the user resumed it; goes into the next prompt once. */
+    let unblockedNote: string | null = null;
     for (;;) {
       let run = runs.get(chatId);
       const chat = chats.findById(chatId);
@@ -319,17 +386,30 @@ export class Autopilot {
       }
 
       const decision = decideNextStep(state, run, last, { maxSessionsPerSprint: this.max });
+      const userResumed = this.resumedByUser.delete(chatId);
+      if (
+        userResumed &&
+        decision.kind === 'stop' &&
+        decision.blockedReason === 'tarea_bloqueada' &&
+        state.kind === 'work' &&
+        state.nextTaskId !== null
+      ) {
+        const note = await this.unblock(chat, state);
+        if (note === null) return;
+        unblockedNote = note;
+        continue;
+      }
       if (decision.kind === 'complete') {
         if (!(await this.complete(chat, state))) return;
         last = { result: 'idle', answeredQuestion: false };
         continue;
       }
       if (decision.kind === 'finished') {
-        runs.finish(chatId);
-        this.deps.tracker.pilotMark(chat, {
-          state: 'terminado',
-          reason: 'El piloto terminó el trabajo',
-        });
+        // The agent closed it by itself: nobody committed, pushed or opened the PR yet, so the
+        // merge phase still runs (it is what ends in `pr_lista` and the notification). A run
+        // already in the merge phase returned above.
+        runs.setPhase(chatId, 'merge');
+        await this.mergePhase(chat, state);
         return;
       }
       if (decision.kind === 'stop') {
@@ -351,9 +431,9 @@ export class Autopilot {
           });
           return;
         }
-        const blocking = analysis.state.filter((f) => BLOCKING_SEVERITIES.has(f.severity));
-        step = blocking.length > 0 ? 'fix' : 'close';
-        findings = blocking.map((f) => `${f.severity} ${f.id} (${f.category}): ${f.detail}`);
+        const next = afterAnalyze(analysis.state);
+        step = next.step;
+        findings = next.findings;
       } else if (decision.kind === 'session') {
         step = decision.step;
       } else {
@@ -369,8 +449,13 @@ export class Autopilot {
         });
         return;
       }
-      const role = step === 'plan' ? 'thinker' : 'executor';
-      const prompt = buildStepPrompt(step, { task: task.state, findings });
+      const role = stepRole(step);
+      const prompt = buildStepPrompt(step, {
+        task: task.state,
+        findings,
+        ...(unblockedNote !== null ? { unblocked: unblockedNote } : {}),
+      });
+      unblockedNote = null;
       const sprintN = state.kind === 'scope' ? state.sprint.current : null;
       const fromSeq = chats.lastSeq(chatId);
       const answeredBefore = questions.listByChat(chatId, 'answered').length;
@@ -472,10 +557,10 @@ export class Autopilot {
   /** `git push -u origin <branch>` of the chat's branch; a failure stops with `git` and the output. */
   private async push(chat: Chat): Promise<boolean> {
     try {
-      await this.stepFor(chat.id)('push', () =>
-        (this.deps.git ?? realGit).push(chat.worktreePath, chat.branch),
-      );
-      this.deps.chats.appendEvent(chat.id, 'git_push', { branch: chat.branch, remote: 'origin' });
+      await this.stepFor(chat.id)('push', async () => {
+        const outcome = await this.actions.pushBranch(chat.id, 'pilot');
+        if (outcome.result !== 'ok') throw new Error(outcome.output);
+      });
       return true;
     } catch (error) {
       this.stop(chat, {
@@ -549,6 +634,15 @@ export class Autopilot {
         },
         record: (type, payload) => {
           chats.appendEvent(chat.id, type, payload);
+        },
+        push: async () => {
+          const outcome = await this.actions.pushBranch(chat.id, 'pilot');
+          if (outcome.result !== 'ok') throw new Error(outcome.output);
+        },
+        openPr: async (draft) => {
+          const outcome = await this.actions.openPr(chat.id, draft, 'pilot');
+          if (outcome.result !== 'ok') throw new Error(outcome.output);
+          return outcome.output;
         },
         session: (step, prompt) => this.mergeSession(chat, step, prompt),
         conflictPrompt: (conflicts) =>
@@ -656,7 +750,8 @@ export class Autopilot {
         ? `chore(kyro): completar scope ${state.scope}`
         : `chore(kyro): cerrar work ${state.work}`;
     try {
-      await (this.deps.git ?? realGit).commitKyro(chat.worktreePath, message);
+      const outcome = await this.actions.commitKyro(chat.id, message, 'pilot');
+      if (outcome.result !== 'ok') throw new Error(outcome.output);
       return await this.push(chat);
     } catch (error) {
       this.stop(chat, {
@@ -709,7 +804,7 @@ export class Autopilot {
     const ended = chats.findById(chat.id);
     const events = chats.allEventsAfter(chat.id, fromSeq);
     if (hitUsageLimit(events)) {
-      this.waitForQuota(chat);
+      this.waitForQuota(chat, events);
       return 'exit';
     }
     if (ended?.status === 'cancelled') {
@@ -855,12 +950,43 @@ export class Autopilot {
     return Math.max(0, (started.at(-2)?.seq ?? 1) - 1);
   }
 
+  /**
+   * Takes the blocked task of a work out of `blocked` because the user resumed the pilot. Returns
+   * the old blocker for the next prompt, or null when Kyro refused (the pilot stopped).
+   */
+  private async unblock(chat: Chat, state: KyroWorkState): Promise<string | null> {
+    const task = state.nextTaskId ?? '';
+    const reason = state.blockedReason ?? 'sin motivo';
+    const done = this.deps.kyro.unblockWorkTask
+      ? await this.deps.kyro.unblockWorkTask(chat.worktreePath, state.work, task, state.revision)
+      : {
+          ok: false as const,
+          error: { kind: 'cli_failed' as const, message: 'unblock no disponible' },
+        };
+    if (!done.ok) {
+      this.stop(chat, {
+        state: 'bloqueado',
+        blockedReason: 'kyro_bloqueado',
+        detail: `No se pudo desbloquear ${task}: ${done.error.message}`,
+      });
+      return null;
+    }
+    this.deps.tracker.pilotMark(chat, {
+      state: 'escribiendo_codigo',
+      reason: `Reanudado por el usuario: el piloto desbloqueó ${task} en Kyro`,
+      detail: reason,
+      data: { unblocked: task },
+      record: true,
+    });
+    return `Task ${task} was blocked with: "${reason}". The user resumed the pilot, which means they solved it, and the panel unblocked the task in Kyro. Retry it now. If it still cannot be done, say exactly what is missing before blocking it again.`;
+  }
+
   private taskContext(
     chat: Chat,
     state: KyroScopeState | KyroWorkState,
   ): Promise<KyroReadResult<KyroTaskContext>> {
     return state.kind === 'scope'
-      ? this.deps.kyro.contextPackTask(chat.worktreePath, state.scope)
+      ? this.deps.kyro.contextPackTask(chat.worktreePath, state.scope, state.nextTaskId)
       : this.deps.kyro.workContextPack(chat.worktreePath, state.work);
   }
 
@@ -875,6 +1001,8 @@ export class Autopilot {
     },
   ): undefined {
     const reason = stop.detail ?? stop.blockedReason ?? stop.state;
+    // A resume is consumed by the first decision; a stop before it must not unblock anything later.
+    this.resumedByUser.delete(chat.id);
     this.deps.tracker.pilotMark(chat, {
       state: stop.state,
       reason: `El piloto frenó: ${reason}`,
@@ -902,12 +1030,36 @@ export class Autopilot {
     return undefined;
   }
 
-  private waitForQuota(chat: Chat): undefined {
-    const retryAt = this.now() + QUOTA_RETRY_MS;
+  /**
+   * Reset time (epoch ms) of the rejected window: from the session's own rate-limit event, else the
+   * rejected window saved for the account of the run's last session (never another account's).
+   */
+  private resetsAtOf(chat: Chat, events: ChatEvent[]): number | null {
+    const fromEvent = rejectedResetsAt(events);
+    if (fromEvent !== null) return fromEvent;
+    const { usage, sessions } = this.deps;
+    const accountId = sessions?.listByChat(chat.id).at(-1)?.accountId ?? null;
+    if (!usage || accountId === null) return null;
+    let latest: number | null = null;
+    for (const w of usage.listByAccount(accountId)) {
+      if (w.status !== 'rejected' || w.resetsAt === null) continue;
+      if (latest === null || w.resetsAt > latest) latest = w.resetsAt;
+    }
+    return latest;
+  }
+
+  private waitForQuota(chat: Chat, events: ChatEvent[]): undefined {
+    const now = this.now();
+    const resetsAt = this.resetsAtOf(chat, events);
+    const exact = resetsAt !== null && resetsAt > now;
+    const wait = exact ? resetsAt + QUOTA_RESET_MARGIN_MS - now : QUOTA_RETRY_MS;
+    const retryAt = now + wait;
     this.deps.runs.waitForQuota(chat.id, retryAt);
     this.deps.tracker.pilotMark(chat, {
       state: 'sin_cupo_de_uso',
-      reason: 'Se alcanzó el límite de uso: reintenta cada 15 minutos',
+      reason: exact
+        ? `Se alcanzó el límite de uso: retoma a las ${new Date(retryAt).toISOString()} (UTC, cuando se renueva el cupo)`
+        : 'Se alcanzó el límite de uso: reintenta cada 15 minutos',
       data: { retryAt },
     });
     this.schedule(() => {
@@ -917,7 +1069,7 @@ export class Autopilot {
         return; // Paused or switched off while waiting.
       }
       this.kick(chat.id);
-    }, QUOTA_RETRY_MS);
+    }, wait);
     return undefined;
   }
 

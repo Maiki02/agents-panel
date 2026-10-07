@@ -123,7 +123,7 @@ describe('CLI', () => {
 });
 
 describe('no web route manages users', () => {
-  it('registers no route that creates or edits users (only auth steps, chat actions (incl. answering a question, the autopilot switch and the plan decision of an idea), project actions (incl. models and permissions), push subscriptions, the disk recalculation, Claude accounts, .env files, the Kyro init branch and the Kyro update mutate)', async () => {
+  it('registers no route that creates or edits users (only auth steps, chat actions (incl. answering a question, the autopilot switch and the plan decision of an idea), project actions (incl. models and permissions), push subscriptions, the disk recalculation, Claude accounts, .env files, the Kyro init branch, the Kyro update and the panel deploy mutate)', async () => {
     const made = makeApp();
     app = made.app;
     await app.ready();
@@ -142,9 +142,18 @@ describe('no web route manages users', () => {
       '/api/chats',
       '/api/chats/:id/autopilot',
       '/api/chats/:id/cancel',
+      '/api/chats/:id/git/commit',
+      '/api/chats/:id/git/discard',
+      '/api/chats/:id/git/pr',
+      '/api/chats/:id/git/pull-base',
+      '/api/chats/:id/git/pull-branch',
+      '/api/chats/:id/git/push',
       '/api/chats/:id/idea',
       '/api/chats/:id/messages',
       '/api/chats/:id/questions/:qid/answer',
+      '/api/chats/:id/setup',
+      '/api/chats/:id/steps',
+      '/api/chats/:id/work/delete',
       '/api/projects',
       '/api/projects/:id',
       '/api/projects/:id',
@@ -155,12 +164,15 @@ describe('no web route manages users', () => {
       '/api/projects/:id/models',
       '/api/projects/:id/permissions',
       '/api/projects/:id/pull',
+      '/api/projects/:id/repos/:repoId',
+      '/api/projects/:id/repos/detect',
       '/api/projects/:id/retry',
       '/api/push/subscriptions',
       '/api/push/subscriptions/:id',
       '/api/push/subscriptions/:id',
       '/api/push/subscriptions/:id/test',
       '/api/versions/kyro/update',
+      '/api/versions/panel/deploy',
     ]);
     for (const route of app.registeredRoutes) {
       expect(route.url).not.toMatch(/user|register|signup|password/i);

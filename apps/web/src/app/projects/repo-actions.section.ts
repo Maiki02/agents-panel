@@ -7,35 +7,22 @@ import {
   output,
   signal,
 } from '@angular/core';
-import type { KyroBranchResult, Project, PullResult } from '@agents-panel/shared';
+import type { KyroBranchResult, Project } from '@agents-panel/shared';
 import { apiErrorMessage, isInvalidTotp } from '../chats/chats.service';
 import { TotpModal } from '../shared/totp-modal';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
-import { kyroBranchSummary, kyroInitView, pullSummary } from './repo-actions';
+import { kyroBranchSummary, kyroInitView } from './repo-actions';
+import { ProjectRepos } from './project-repos.section';
 import { ProjectsService } from './projects.service';
 
 /** Configuración > Repositorio: bring GitHub into the base clone and add Kyro on its own branch. */
 @Component({
   selector: 'app-repo-actions',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [Badge, Button, TotpModal],
+  imports: [Badge, Button, ProjectRepos, TotpModal],
   template: `
-    <h3>Clon base</h3>
-    <p class="hint">
-      Los worktrees nuevos salen de la rama {{ project().baseBranch }} del clon de la VM. Traé lo
-      último de GitHub antes de empezar un trabajo. Solo avanza (fast-forward): si hay cambios
-      locales o el clon se desvió, no toca nada.
-    </p>
-    <button appButton type="button" [disabled]="pulling() || !ready()" (click)="pull()">
-      {{ pulling() ? 'Trayendo…' : 'Traer cambios de GitHub' }}
-    </button>
-    @if (pullResult(); as result) {
-      <p class="hint" role="status">{{ summary(result) }}</p>
-    }
-    @if (pullError(); as message) {
-      <p class="error" role="alert">{{ message }}</p>
-    }
+    <app-project-repos [project]="project()" (refresh)="refresh.emit()" />
 
     <div class="flex flex-wrap items-center gap-2 pt-4">
       <h3 class="m-0">Kyro</h3>
@@ -84,7 +71,9 @@ import { ProjectsService } from './projects.service';
           </button>
         }
         @if (kyro().state === 'pending' && prLink(); as link) {
-          <a [href]="link" target="_blank" rel="noopener noreferrer">Abrir la PR en GitHub</a>
+          <a class="link" [href]="link" target="_blank" rel="noopener noreferrer"
+            >Abrir la PR en GitHub</a
+          >
         }
         @if (kyro().state === 'pending') {
           <button appButton variant="secondary" type="button" (click)="refresh.emit()">
@@ -126,10 +115,6 @@ export class RepoActionsSection {
   /** The page reads the project again (after a pull or "ya mergeé"): Kyro may have arrived. */
   readonly refresh = output();
 
-  protected readonly pulling = signal(false);
-  protected readonly pullResult = signal<PullResult | null>(null);
-  protected readonly pullError = signal<string | null>(null);
-
   protected readonly initAsking = signal(false);
   protected readonly initBusy = signal(false);
   /** Shown inside the open code modal (a wrong code leaves it open for a retry). */
@@ -142,14 +127,6 @@ export class RepoActionsSection {
   private readonly pushedLink = signal<string | null>(null);
   protected readonly kyro = computed(() => kyroInitView(this.project(), this.pushedNow()));
   protected readonly prLink = computed(() => this.pushedLink() ?? this.kyro().prUrl);
-
-  protected ready(): boolean {
-    return this.project().status === 'ready';
-  }
-
-  protected summary(result: PullResult): string {
-    return pullSummary(result);
-  }
 
   protected branchText(result: KyroBranchResult): string {
     return kyroBranchSummary(result, this.project().baseBranch);
@@ -166,20 +143,6 @@ export class RepoActionsSection {
       this.pushError.set(apiErrorMessage(cause));
     } finally {
       this.pushing.set(false);
-    }
-  }
-
-  protected async pull(): Promise<void> {
-    this.pulling.set(true);
-    this.pullResult.set(null);
-    this.pullError.set(null);
-    try {
-      this.pullResult.set(await this.service.pull(this.project().id));
-      this.refresh.emit();
-    } catch (cause) {
-      this.pullError.set(apiErrorMessage(cause));
-    } finally {
-      this.pulling.set(false);
     }
   }
 

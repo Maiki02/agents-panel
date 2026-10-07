@@ -13,9 +13,8 @@ body {
   line-height: 1.5;
   font-feature-settings: 'cv11', 'ss01';
 }
+/* The shell (app-root) is 100dvh tall; main takes the full width and scrolls on its own. */
 main {
-  max-width: 80rem;
-  margin: 0 auto;
   padding: 1rem;
 }
 h1,

@@ -1,12 +1,25 @@
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import type { AgentManager } from '../agent/manager.js';
-import type { PullResult } from '@agents-panel/shared';
-import { pullFastForward } from './git.js';
+import type { PullBaseResult, RepoPullResult } from '@agents-panel/shared';
+import { PullRejectedError, pullFastForward } from './git.js';
 import { ProjectConflictError, ProjectNotFoundError, type ProjectRepository } from './repo.js';
+import type { ProjectRepoRepository } from './repos-repo.js';
 
 export interface PullServiceDeps {
   projects: Pick<ProjectRepository, 'findById'>;
   manager: Pick<AgentManager, 'inMaintenance'>;
+  /** Repos of each project; without it (or without rows) only the root is updated. */
+  projectRepos?: Pick<ProjectRepoRepository, 'listByProject'>;
   pull?: typeof pullFastForward;
+}
+
+/** Results per repo that go with the error of a failed root pull (the others were still updated). */
+const reposOfFailure = new WeakMap<Error, RepoPullResult[]>();
+
+/** The per repo results behind a root failure, so the web can still show each repo's row. */
+export function repoResultsOf(error: unknown): RepoPullResult[] | undefined {
+  return error instanceof Error ? reposOfFailure.get(error) : undefined;
 }
 
 /** Updates a project's base clone from GitHub so new worktrees start from what is already pushed. */
@@ -18,7 +31,13 @@ export class PullService {
     this.pull = deps.pull ?? pullFastForward;
   }
 
-  async pullBase(projectId: number): Promise<PullResult> {
+  /**
+   * Fast-forwards every repo of the project (root first) from its own base. A repo that cannot be
+   * updated (local changes, divergence, missing folder) gets an `error` and never stops the rest.
+   * The response keeps the root's result at the top level (what the web already reads) plus
+   * `repos`; when the root itself fails its error is thrown after the other repos were updated.
+   */
+  async pullBase(projectId: number): Promise<PullBaseResult> {
     const project = this.deps.projects.findById(projectId);
     if (!project) throw new ProjectNotFoundError(`Project not found: ${String(projectId)}`);
     if (project.status !== 'ready') {
@@ -33,7 +52,36 @@ export class PullService {
     }
     this.running.add(project.id);
     try {
-      return await this.pull(project.repoPath, project.baseBranch);
+      const stored = this.deps.projectRepos?.listByProject(project.id) ?? [];
+      const targets = stored.some((repo) => repo.path === '.')
+        ? stored
+        : [{ path: '.', baseBranch: project.baseBranch }, ...stored];
+      const repos: RepoPullResult[] = [];
+      let rootError: Error | undefined;
+      for (const target of targets) {
+        const folder = target.path === '.' ? project.repoPath : join(project.repoPath, target.path);
+        try {
+          if (!existsSync(folder)) throw new PullRejectedError(`Falta la carpeta ${target.path}`);
+          const result = await this.pull(folder, target.baseBranch);
+          repos.push({ path: target.path, baseBranch: target.baseBranch, result, error: null });
+        } catch (error) {
+          if (target.path === '.')
+            rootError = error instanceof Error ? error : new Error(String(error));
+          repos.push({
+            path: target.path,
+            baseBranch: target.baseBranch,
+            result: null,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+      if (rootError !== undefined) {
+        reposOfFailure.set(rootError, repos);
+        throw rootError;
+      }
+      const root = repos.find((repo) => repo.path === '.')?.result;
+      if (!root) throw new ProjectConflictError('El proyecto no tiene repo raíz');
+      return { ...root, repos };
     } finally {
       this.running.delete(project.id);
     }

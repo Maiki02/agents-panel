@@ -1,13 +1,26 @@
 import { HttpErrorResponse } from '@angular/common/http';
-import type { DeleteBlocker, KyroBranchResult, Project, PullResult } from '@agents-panel/shared';
+import type {
+  DeleteBlocker,
+  KyroBranchResult,
+  Project,
+  PullBaseResult,
+  PullResult,
+} from '@agents-panel/shared';
 
-/** One line saying what a pull did. */
-export function pullSummary(result: PullResult): string {
+/** One line saying what a pull did; repos that were rejected are named after the root's line. */
+export function pullSummary(result: PullResult & Partial<Pick<PullBaseResult, 'repos'>>): string {
   const ahead =
     result.ahead > 0 ? ` Hay ${String(result.ahead)} commit(s) locales que GitHub no tiene.` : '';
-  if (result.status === 'up_to_date') return `Ya está al día con GitHub.${ahead}`;
-  const plural = result.commits === 1 ? 'commit' : 'commits';
-  return `Se trajeron ${String(result.commits)} ${plural} de GitHub.`;
+  let text: string;
+  if (result.status === 'up_to_date') {
+    text = `Ya está al día con GitHub.${ahead}`;
+  } else {
+    const plural = result.commits === 1 ? 'commit' : 'commits';
+    text = `Se trajeron ${String(result.commits)} ${plural} de GitHub.`;
+  }
+  const rejected = (result.repos ?? []).filter((repo) => repo.error !== null);
+  const notes = rejected.map((repo) => ` ${repo.path}: ${repo.error ?? ''}.`);
+  return text + notes.join('');
 }
 
 /** What to do with the branch the Kyro init leaves behind. */

@@ -428,3 +428,56 @@ describe('rm with a validated path (debt-5)', () => {
     expect(checkBash('rm /etc/x', wt, extras({ commands: ['rm'] })).behavior).toBe('deny');
   });
 });
+
+describe('quotes in Bash commands', () => {
+  it('does not take a quoted | or ; for a pipe or a separator', () => {
+    expect(verdict('git grep -n -E "steps\\.|runStep|withStep" -- apps/api/src')).toBe('allow');
+    expect(verdict("git log --format='%h|%s' -5")).toBe('allow');
+    expect(verdict('git commit -m "fix: a; b && c"')).toBe('allow');
+    expect(verdict('git grep -n "a|b" | head -5')).toBe('allow');
+  });
+
+  it('does not take a quoted < or > for a redirection', () => {
+    expect(
+      verdict('git commit -q -m "feat: x" -m "Co-Authored-By: Claude <noreply@anthropic.com>"'),
+    ).toBe('allow');
+    expect(verdict("git log --grep='a > b'")).toBe('allow');
+  });
+
+  it('still sees the real pipes, separators and redirections next to quotes', () => {
+    expect(verdict('git log "a|b" | sh')).toBe('deny');
+    expect(verdict('git log "x"; sudo ls')).toBe('deny');
+    expect(verdict('git log "x" > out.txt')).toBe('deny');
+    expect(verdict("git log 'x' && ssh host")).toBe('deny');
+  });
+
+  it('follows backslash escapes like bash, so a quote cannot be faked', () => {
+    // \" outside quotes is a literal quote: the pipe after it is real.
+    expect(verdict('git log \\" | sh \\"')).toBe('deny');
+    // Inside double quotes \" does not close them.
+    expect(verdict('git log "a\\" | sh \\""')).toBe('allow');
+    expect(verdict('git log "a\\\\" | sh')).toBe('deny');
+    // A backslash-escaped | outside quotes is literal for bash (it may be denied, never a hidden pipe).
+    expect(verdict("git log 'a' | sh 'b'")).toBe('deny');
+  });
+
+  it('refuses an unclosed quote and ANSI-C quoting', () => {
+    expect(verdict('git log "a | sh')).toBe('deny');
+    expect(verdict("git log 'a | sh")).toBe('deny');
+    expect(verdict("git log $'a\\' ' | sh ''''")).toBe('deny');
+  });
+
+  it('still refuses a command substitution inside double quotes', () => {
+    expect(verdict('git commit -m "$(sudo id)"')).toBe('deny');
+    expect(verdict('git commit -m "`id`"')).toBe('deny');
+  });
+});
+
+describe('disk and memory readers in the base', () => {
+  it('allows du, df and free in every project, without extras', () => {
+    expect(verdict('du -sx --block-size=1 /home/ubuntu/wt')).toBe('allow');
+    expect(verdict('df -B1 /')).toBe('allow');
+    expect(verdict('free -b')).toBe('allow');
+    expect(verdict('du -sh . | sort -h')).toBe('allow');
+  });
+});

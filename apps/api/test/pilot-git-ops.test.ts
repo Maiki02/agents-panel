@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { pushArgs, realGit } from '../src/pilot/git-ops.js';
-import { makeGitRepo } from './helpers.js';
+import { makeGitRepo, makeRepoWithRemote } from './helpers.js';
 
 const git = (repo: string, ...args: string[]) =>
   execFileSync('git', ['-C', repo, '-c', 'user.name=t', '-c', 'user.email=t@t', ...args], {
@@ -109,5 +109,85 @@ describe('realGit push', () => {
   it('fails with git output when the worktree has no remote', async () => {
     const repo = makeGitRepo();
     await expect(realGit.push(repo, 'main')).rejects.toThrow(/git push falló/);
+  });
+});
+
+describe('realGit repo operations', () => {
+  it('status reports branch, files and ahead/behind, null without a remote branch', async () => {
+    const { repo, pushFromOther } = makeRepoWithRemote();
+    writeFileSync(join(repo, 'new.txt'), 'n');
+    writeFileSync(join(repo, 'a.txt'), 'changed');
+    let st = await realGit.status(repo);
+    expect(st.branch).toBe('feature/x');
+    expect(st.ahead).toBeNull();
+    expect(st.behind).toBeNull();
+    expect(st.files).toEqual(
+      expect.arrayContaining([
+        { status: ' M', path: 'a.txt' },
+        { status: '??', path: 'new.txt' },
+      ]),
+    );
+    await realGit.push(repo, 'feature/x');
+    pushFromOther('b.txt', 'b');
+    git(repo, 'fetch', '-q', 'origin');
+    git(repo, 'commit', '-q', '--allow-empty', '-m', 'chore: local');
+    st = await realGit.status(repo);
+    expect(st.ahead).toBe(1);
+    expect(st.behind).toBe(1);
+  });
+
+  it('commitFiles commits only the chosen file and leaves the other pending', async () => {
+    const { repo } = makeRepoWithRemote();
+    writeFileSync(join(repo, 'one.txt'), '1');
+    writeFileSync(join(repo, 'two.txt'), '2');
+    await realGit.commitFiles(repo, ['one.txt'], 'feat: one');
+    expect(git(repo, 'show', '--name-only', '--format=%s', 'HEAD').trim().split('\n')).toEqual([
+      'feat: one',
+      '',
+      'one.txt',
+    ]);
+    expect(git(repo, 'status', '--porcelain').trim()).toBe('?? two.txt');
+  });
+
+  it('commitFiles rejects empty, absolute, .., outside and ignored paths without committing', async () => {
+    const { repo } = makeRepoWithRemote();
+    writeFileSync(join(repo, '.gitignore'), '.env\n');
+    git(repo, 'add', '.gitignore');
+    git(repo, 'commit', '-q', '-m', 'chore: ignore');
+    writeFileSync(join(repo, '.env'), 'S=1');
+    writeFileSync(join(repo, 'ok.txt'), 'ok');
+    const head = await realGit.head(repo);
+    await expect(realGit.commitFiles(repo, [], 'm')).rejects.toThrow();
+    await expect(realGit.commitFiles(repo, ['../x'], 'm')).rejects.toThrow(/\.\./);
+    await expect(realGit.commitFiles(repo, ['sub/../../x'], 'm')).rejects.toThrow();
+    await expect(realGit.commitFiles(repo, [join(repo, 'ok.txt')], 'm')).rejects.toThrow(
+      /absoluta/,
+    );
+    await expect(realGit.commitFiles(repo, ['ok.txt', '.env'], 'm')).rejects.toThrow(/ignorado/);
+    expect(await realGit.head(repo)).toBe(head);
+    expect(git(repo, 'diff', '--cached', '--name-only').trim()).toBe('');
+  });
+
+  it('pullBranch brings a pushed commit and rejects option-like or spaced names', async () => {
+    const { repo, pushFromOther } = makeRepoWithRemote();
+    await realGit.push(repo, 'feature/x');
+    pushFromOther('b.txt', 'b');
+    await realGit.pullBranch(repo, 'feature/x');
+    expect(git(repo, 'ls-files').split('\n')).toContain('b.txt');
+    await expect(realGit.pullBranch(repo, '--upload-pack=x')).rejects.toThrow(/no válido/);
+    await expect(realGit.pullBranch(repo, 'a b')).rejects.toThrow(/no válido/);
+  });
+
+  it('abortMerge closes a conflicted merge and changedFiles lists differences', async () => {
+    const { repo, pushFromOther } = makeRepoWithRemote();
+    await realGit.push(repo, 'feature/x');
+    pushFromOther('a.txt', 'remote');
+    writeFileSync(join(repo, 'a.txt'), 'local');
+    git(repo, 'commit', '-q', '-am', 'feat: local a');
+    await expect(realGit.pullBranch(repo, 'feature/x')).rejects.toThrow(/git pull falló/);
+    expect(await realGit.mergeInProgress(repo)).toBe(true);
+    await realGit.abortMerge(repo);
+    expect(await realGit.mergeInProgress(repo)).toBe(false);
+    expect(await realGit.changedFiles(repo, 'main', 'feature/x')).toEqual(['a.txt']);
   });
 });

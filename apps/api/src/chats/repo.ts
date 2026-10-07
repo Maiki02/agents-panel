@@ -256,6 +256,36 @@ export class ChatRepository {
     }
   }
 
+  /** The `limit` events right before `beforeSeq`, in ascending seq order. */
+  eventsBefore(chatId: number, beforeSeq: number, limit: number): ChatEvent[] {
+    return (
+      this.db
+        .prepare(
+          `SELECT * FROM (
+             SELECT * FROM chat_events WHERE chat_id = ? AND seq < ? ORDER BY seq DESC LIMIT ?
+           ) ORDER BY seq`,
+        )
+        .all(chatId, beforeSeq, limit) as unknown as EventRow[]
+    ).map(toEvent);
+  }
+
+  /** Seq of the oldest question_asked with no question_answered or question_cancelled after it. */
+  oldestOpenQuestionSeq(chatId: number): number | null {
+    const row = this.db
+      .prepare(
+        `SELECT MIN(a.seq) AS seq FROM chat_events a
+         WHERE a.chat_id = ? AND a.type = 'question_asked'
+           AND NOT EXISTS (
+             SELECT 1 FROM chat_events b
+             WHERE b.chat_id = a.chat_id AND b.seq > a.seq
+               AND b.type IN ('question_answered', 'question_cancelled')
+               AND json_extract(b.payload, '$.questionId') = json_extract(a.payload, '$.questionId')
+           )`,
+      )
+      .get(chatId) as { seq: number | null };
+    return row.seq;
+  }
+
   eventsAfter(chatId: number, afterSeq = 0, limit = 1000): ChatEvent[] {
     return (
       this.db

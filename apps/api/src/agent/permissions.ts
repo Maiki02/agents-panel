@@ -3,8 +3,20 @@ import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { PermissionDecision } from './runner.js';
 
-/** Binaries the agent may run through Bash. Everything else is denied. */
-export const ALLOWED_BASH_COMMANDS = ['git', 'gh', 'npm', 'go', 'kyro'] as const;
+/**
+ * Binaries the agent may run through Bash. Everything else is denied. du, df and free only read
+ * disk and memory usage (works that measure the VM need them in every project).
+ */
+export const ALLOWED_BASH_COMMANDS = [
+  'git',
+  'gh',
+  'npm',
+  'go',
+  'kyro',
+  'du',
+  'df',
+  'free',
+] as const;
 
 /**
  * Commands no project can enable: anything that can change what Oracle charges (oci, tailscale,
@@ -423,20 +435,82 @@ function checkBaseArgs(first: string, stage: string): PermissionDecision {
   return { behavior: 'allow' };
 }
 
+/**
+ * The command with every quoted or backslash-escaped character replaced by `_` (same length), so
+ * separators, pipes and redirections are only looked for where bash would see them. The quote
+ * marks themselves stay. Null when a quote is left open. ANSI-C quoting (`$'…'`, where `\'` does not
+ * close) is refused before this runs, so these rules are bash's for every accepted command.
+ */
+export function maskQuoted(command: string): string | null {
+  let out = '';
+  let quote: '"' | "'" | null = null;
+  for (let i = 0; i < command.length; i++) {
+    const c = command.charAt(i);
+    if (quote === "'") {
+      // Nothing escapes inside single quotes.
+      out += c === "'" ? c : '_';
+      if (c === "'") quote = null;
+      continue;
+    }
+    if (c === '\\' && i + 1 < command.length) {
+      // Outside quotes and inside double quotes, a backslash makes the next character literal.
+      out += '\\_';
+      i++;
+      continue;
+    }
+    if (quote === '"') {
+      out += c === '"' ? c : '_';
+      if (c === '"') quote = null;
+      continue;
+    }
+    if (c === "'" || c === '"') quote = c;
+    out += c;
+  }
+  return quote === null ? out : null;
+}
+
+/** Pieces of `text` between the matches of `separator` in `masked` (same length as `text`). */
+function splitMasked(
+  text: string,
+  masked: string,
+  separator: RegExp,
+): { text: string; masked: string }[] {
+  const parts: { text: string; masked: string }[] = [];
+  let start = 0;
+  for (const match of masked.matchAll(new RegExp(separator.source, 'g'))) {
+    parts.push({ text: text.slice(start, match.index), masked: masked.slice(start, match.index) });
+    start = match.index + match[0].length;
+  }
+  parts.push({ text: text.slice(start), masked: masked.slice(start) });
+  return parts;
+}
+
 export function checkBash(
   command: string,
   cwd?: string,
   extras: BashExtras = NO_BASH_EXTRAS,
 ): PermissionDecision {
+  // Substitutions run inside double quotes too: they are looked for in the raw text.
   if (/\$\(|`|<\(|>\(/.test(command)) return deny('Command substitution is not allowed');
-  const withoutSafeRedirects = command.replace(/\d?>\s*&\d|\d?>\s*\/dev\/null/g, '');
-  if (/[<>]/.test(withoutSafeRedirects)) return deny('Redirection is not allowed');
+  if (command.includes("$'")) return deny("ANSI-C quoting ($'…') is not allowed");
+  const quoted = maskQuoted(command);
+  if (quoted === null) return deny('Unclosed quote');
+  // Safe redirections are blanked in both texts, at the same positions.
+  let text = command;
+  let masked = quoted;
+  for (const match of quoted.matchAll(/\d?>\s*&\d|\d?>\s*\/dev\/null/g)) {
+    const blank = ' '.repeat(match[0].length);
+    const at = match.index;
+    text = text.slice(0, at) + blank + text.slice(at + blank.length);
+    masked = masked.slice(0, at) + blank + masked.slice(at + blank.length);
+  }
+  if (/[<>]/.test(masked)) return deny('Redirection is not allowed');
 
   // After a `cd` the relative paths mean something else than for the check, so rm cannot follow one.
   let sawCd = false;
   // A lone & (background job) also starts a new command, so it is a separator too.
-  for (const chain of withoutSafeRedirects.split(/&&|\|\||;|\n|&/)) {
-    const stages = chain.split('|').map((stage) => stage.trim());
+  for (const chain of splitMasked(text, masked, /&&|\|\||;|\n|&/)) {
+    const stages = splitMasked(chain.text, chain.masked, /\|/).map((stage) => stage.text.trim());
     for (const [index, stage] of stages.entries()) {
       if (stage === '') continue;
       const [first = ''] = stage.split(/\s+/);

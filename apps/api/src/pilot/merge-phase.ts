@@ -38,6 +38,8 @@ export interface MergePhaseDeps {
   validateTimeoutMs?: number;
   /** Times the steps of the phase that run no AI. */
   step?: StepRunner;
+  push?: MergeDeps['push'];
+  openPr?: MergeDeps['openPr'];
 }
 
 export type MergePhaseOutcome =
@@ -86,6 +88,8 @@ export async function runMergePhase(
       ...(deps.scan ? { scan: deps.scan } : {}),
       ...(deps.step ? { step: deps.step } : {}),
       ...(deps.validate ? { validate: deps.validate } : {}),
+      ...(deps.push ? { push: deps.push } : {}),
+      ...(deps.openPr ? { openPr: deps.openPr } : {}),
       ...(deps.validateTimeoutMs !== undefined
         ? { validateTimeoutMs: deps.validateTimeoutMs }
         : {}),

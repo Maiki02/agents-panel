@@ -5,6 +5,7 @@ import type {
   AutopilotStep,
 } from '@agents-panel/shared';
 import type { Db } from '../db/index.js';
+import { completedTask } from './decide.js';
 
 interface RunRow {
   chat_id: number;
@@ -218,8 +219,11 @@ export class AutopilotRunRepository {
   ): AutopilotRun {
     const run = this.require(chatId);
     // A planning step opens the count of the next sprint.
+    // The cap counts sessions in a row that closed no task: an execution that did restarts it.
     const newSprint =
-      input.step === 'plan' || (input.sprintN !== null && input.sprintN !== run.sprintN);
+      input.step === 'plan' ||
+      (input.sprintN !== null && input.sprintN !== run.sprintN) ||
+      completedTask(run.step, run.lastFingerprint, input.fingerprint);
     this.db
       .prepare(
         `UPDATE autopilot_runs SET step = ?, sprint_n = ?, sessions_in_sprint = ?, last_fingerprint = ?,

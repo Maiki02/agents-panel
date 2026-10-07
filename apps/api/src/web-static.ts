@@ -1,7 +1,8 @@
-import { existsSync, statSync } from 'node:fs';
-import { join, relative, resolve, sep } from 'node:path';
+import { createReadStream, existsSync, statSync } from 'node:fs';
+import { extname, join, relative, resolve, sep } from 'node:path';
+import { createBrotliCompress, createGzip } from 'node:zlib';
 import fastifyStatic from '@fastify/static';
-import type { FastifyInstance, FastifyRequest } from 'fastify';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 
 /** Files the Angular build names with a content hash (main-ABC123.js, chunk-ABC123.js, styles). */
 const HASHED_FILE = /-[A-Za-z0-9_]{8,}\.(?:js|css|woff2?|png|jpe?g|svg|webp|ico)$/;
@@ -21,6 +22,47 @@ function isFile(path: string): boolean {
   } catch {
     return false;
   }
+}
+
+const COMPRESS_MIN_BYTES = 1024;
+/** Text types of the web build worth compressing (images and fonts are already packed). */
+const COMPRESSIBLE_FILES: Record<string, string> = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.mjs': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.svg': 'image/svg+xml',
+  '.json': 'application/json; charset=utf-8',
+  '.webmanifest': 'application/manifest+json',
+  '.map': 'application/json; charset=utf-8',
+  '.txt': 'text/plain; charset=utf-8',
+};
+
+/**
+ * Sends a text file of the web build as br or gzip when the client accepts it. The not-found
+ * handler is not a route, so @fastify/compress never sees it: this does the same by hand for the
+ * web files. Returns undefined when the file is not eligible (the caller sends it as is).
+ */
+function sendCompressed(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  path: string,
+): FastifyReply | undefined {
+  const type = COMPRESSIBLE_FILES[extname(path).toLowerCase()];
+  const accept = request.headers['accept-encoding'] ?? '';
+  const encoding = /\bbr\b/u.test(accept) ? 'br' : /\bgzip\b/u.test(accept) ? 'gzip' : null;
+  if (type === undefined || encoding === null) return undefined;
+  try {
+    if (statSync(path).size < COMPRESS_MIN_BYTES) return undefined;
+  } catch {
+    return undefined;
+  }
+  const packer = encoding === 'br' ? createBrotliCompress() : createGzip();
+  return reply
+    .type(type)
+    .header('content-encoding', encoding)
+    .header('vary', 'Accept-Encoding')
+    .send(createReadStream(path).pipe(packer));
 }
 
 /** True when the folder holds a build (an index.html); otherwise the API serves no web at all. */
@@ -56,12 +98,11 @@ export function registerWebStatic(app: FastifyInstance, webDir: string | null): 
     const asset = inside && decoded !== '/' && isFile(candidate);
     const file = asset ? relative(root, candidate) : 'index.html';
     const hashed = asset && HASHED_FILE.test(file);
-    return reply
-      .header(
-        'cache-control',
-        hashed ? `public, max-age=${String(ONE_YEAR_SECONDS)}, immutable` : 'no-cache',
-      )
-      .sendFile(file);
+    void reply.header(
+      'cache-control',
+      hashed ? `public, max-age=${String(ONE_YEAR_SECONDS)}, immutable` : 'no-cache',
+    );
+    return sendCompressed(request, reply, join(root, file)) ?? reply.sendFile(file);
   });
   return true;
 }

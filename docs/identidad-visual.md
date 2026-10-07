@@ -32,14 +32,24 @@ Claro por defecto, oscuro si el sistema lo pide (`prefers-color-scheme: dark`). 
 ## Reglas
 
 - Nada de hex, `rgb()` ni `px` sueltos para colores o tipografía fuera de `tokens.css`. Se controla con un grep (ver la tarea de verificación del sprint).
-- Los links usan `--ui-link`, nunca el azul por defecto del navegador.
+- **Los textos van en blanco o en grises** (`text-text`, `text-muted`), nunca en el color primario. El primario (`accent`) queda para cosas puntuales: el fondo del botón primario, el foco, la marca de la opción activa del menú, el paso actual del stepper y bordes (pestaña activa, chat elegido, insignia `accent`).
+- Los links usan `--ui-link`, que apunta al color del texto (`--ui-text`) en los dos temas. Un link suelto dentro de una frase lleva la clase `.link` (subrayado gris que se aclara al pasar el mouse); los links que son ítems de menú o tarjetas no se subrayan.
 - Un componente nuevo se arma con las clases de Tailwind que salen de los tokens o con las variables `--ui-*`; si falta un valor, se agrega al token y se documenta acá.
 - Los componentes compartidos viven en `apps/web/src/app/ui/` y se usan en toda la web:
   - `Modal` (`<app-modal heading="…" (closed)="…">`): único contenedor de diálogos, con cruz, Esc, click en el fondo y foco atrapado. El pedido de código TOTP es `TotpModal` (`app/shared/`), construido sobre él.
   - `Tabs` (`<app-tabs [tabs] [active] (selected)>`): solo la tira de pestañas; la página decide qué mostrar según la activa (que puede ir en la URL).
   - `Button` (`<button appButton variant="primary|secondary|danger|icon">`): botón nativo con la identidad.
-  - `Badge` (`<app-badge tone="neutral|accent|ok|warn|danger">`): insignia de estado.
-  - `Icon` (`<app-icon name="refresh|close|plus" [spin]>`): SVG en línea que sigue el color del texto. Para sumar un icono se agrega su trazo a `ICON_PATHS`.
+  - `Badge` (`<app-badge tone="neutral|accent|ok|warn|danger">`): insignia de estado. En `accent` el primario va solo en el borde; el texto queda en el color del texto.
+  - `Icon` (`<app-icon name="menu" [spin]>`): íconos de **Google Material Symbols** (Outlined, peso 400) del paquete `@material-symbols/svg-400`. El build carga los `.svg` como texto (`loader` en `angular.json`) y el componente dibuja su trazo con `fill: currentColor`, así que sigue el color del texto; solo entran al bundle los que se importan. Para sumar uno: importar `@material-symbols/svg-400/outlined/<nombre>.svg` en `ui/icon.ts` y agregarlo a `ICON_SVGS`. No se usa la fuente de íconos (pesa 4 MB) ni el CDN de Google.
+  - `Drawer` (`<app-drawer [open] heading="…" (closed)>`): panel lateral que entra desde la izquierda con una transición de desplazamiento (sin animación si el sistema pide menos movimiento), sobre un fondo que lo cierra con un clic; también cierran Esc y la cruz. Atrapa el foco abierto y es `inert` cerrado. Un bloque con el atributo `drawerFooter` queda fijo al pie.
+
+## Estructura de la app (shell)
+
+- **Pantalla completa:** `app-root` mide `100dvh` y es una columna: encabezado de 56 px y `main` con el resto del alto y todo el ancho (sin ancho máximo, margen de 16 px). `main` tiene su propio scroll; el documento no scrollea.
+- **Encabezado:** botón hamburguesa (ícono `menu`) a la izquierda, título centrado y, en pantallas anchas (`lg`), el selector de cuenta de Claude a la derecha. El título es el nombre del proyecto dentro de un proyecto; afuera, el nombre de la sección (Proyectos, Versiones, Cuentas, Notificaciones).
+- **Menú (sidebar):** un `Drawer` con las secciones Proyectos (`folder`), Versiones (`update`), Cuentas (`account_circle`) y Notificaciones (`notifications`). La opción activa lleva fondo elevado, texto en blanco, semibold, `aria-current` y una barra del primario a la izquierda; las demás van en gris. Proyectos queda activa también dentro de un proyecto. Al pie: el selector de cuenta (en pantallas angostas), el usuario y Salir. Cualquier navegación lo cierra.
+- **Proyecto:** sin flecha para volver (eso está en el menú). Debajo del encabezado, pestañas **Chats / Configuración** (con el `Tabs` compartido, que navega por ruta) y el estado del proyecto a la derecha; la sección elegida llena el resto del alto.
+- **Chat:** columna del alto disponible. Arriba la cabecera (título, estado, stepper, piloto, pestañas, avisos y tarjetas) con alto máximo de `40dvh` y scroll propio si crece; en el medio las novedades (o la Timeline) con `overflow-y: auto`; abajo la caja de escribir, siempre visible. Las novedades siguen al final solo si el usuario ya estaba ahí (a menos de 80 px): si subió a leer, un evento nuevo no lo mueve. Abrir un chat, volver a la pestaña Chat o mandar un mensaje vuelve a seguir el final.
 
 ## Criterios de pantallas
 
@@ -80,7 +90,7 @@ Las etiquetas son descriptivas y en español: «Esperando tu respuesta», «Prob
 - **Pestañas Chat y Timeline** con el `Tabs` compartido; el pedido directo no las tiene.
 - **Barra del piloto** (`AutopilotBar`): una tarjeta con el estado de la **corrida** (no del trabajo: el estado del trabajo sigue siendo el único badge de la cabecera) y los botones Encender, Reanudar, Pausar y Apagar. Lo que no aplica va deshabilitado y con su motivo escrito debajo (en el celular no hay tooltip). Apagar es `danger` y pide confirmación en un `Modal`.
 - **Timeline** (`Timeline`): una tarjeta por transición, de la más nueva a la más vieja: de → a (el destino como `Badge` con el tono de quién actúa), actor, rol y modelo, motivo, deuda y decisiones. La lista vacía dice qué esperar.
-- **Notificaciones:** página propia (link del header) porque los dispositivos son del usuario y no de un proyecto. El manifest y el `theme-color` del `index.html` llevan el azul de la marca como valor literal porque ahí no se pueden usar variables CSS: si cambia `--palette-brand-600`, actualizarlos a mano.
+- **Notificaciones:** página propia (opción del menú) porque los dispositivos son del usuario y no de un proyecto. El manifest y el `theme-color` del `index.html` llevan el azul de la marca como valor literal porque ahí no se pueden usar variables CSS: si cambia `--palette-brand-600`, actualizarlos a mano.
 
 ### Listas y vacíos
 
@@ -92,5 +102,6 @@ Las etiquetas son descriptivas y en español: «Esperando tu respuesta», «Prob
 ### Celular
 
 - Se diseña primero para el ancho de un teléfono: margen lateral de 16 px y sin scroll horizontal.
-- La sidebar pasa a un panel desplegable con su botón en el header.
+- El menú de la app es siempre el `Drawer` del botón hamburguesa.
+- **Chats de un proyecto:** desde `md` (48rem) la lista de chats va a la izquierda con scroll propio y el chat al lado. Más angosto, el chat ocupa todo el ancho con la caja de escribir fija abajo, y un botón **Chats** arriba del chat abre la lista en un `Drawer`, que se cierra al elegir un chat o Nuevo chat. Se monta una sola lista según el ancho.
 - Los objetivos táctiles miden al menos 40 px de alto, incluidos los botones de icono.

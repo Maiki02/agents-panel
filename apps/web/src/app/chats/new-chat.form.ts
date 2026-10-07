@@ -48,7 +48,7 @@ export function slugProblem(slug: string): string | null {
       @if (!project().hasKyro) {
         <p class="hint" role="status">
           Este proyecto no tiene Kyro: solo admite pedidos directos.
-          <a [routerLink]="kyroInitPath()">Inicializar Kyro</a>
+          <a class="link" [routerLink]="kyroInitPath()">Inicializar Kyro</a>
         </p>
       }
 

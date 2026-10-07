@@ -15,6 +15,7 @@ import {
 } from '../chats/questions-repo.js';
 import type { ChatRepository } from '../chats/repo.js';
 import type { AgentSessionRepository } from '../chats/sessions-repo.js';
+import { observationFromRateLimitEvent, type UsageRepository } from '../usage/repo.js';
 import type { TurnInfo, TurnObserver } from '../worktrees/state-tracker.js';
 import { NO_BASH_EXTRAS, decide, type BashExtras } from './permissions.js';
 import { ASK_USER_QUESTION, type AgentRunner, type PermissionDecision } from './runner.js';
@@ -102,6 +103,8 @@ export class AgentManager {
     private readonly bashExtras?: (projectId: number) => BashExtras,
     /** Claude account active when a turn starts; absent runs every turn with the default one. */
     private readonly accountOf?: () => RunAccount,
+    /** Where each rate_limit_event is kept, per account; absent saves nothing. */
+    private readonly usage?: UsageRepository,
   ) {}
 
   get runningCount(): number {
@@ -189,7 +192,12 @@ export class AgentManager {
     const done = this.consume(
       chat,
       text,
-      { ...turnInfo, sessionRowId, configDir: account?.configDir ?? null },
+      {
+        ...turnInfo,
+        sessionRowId,
+        configDir: account?.configDir ?? null,
+        accountId: account?.id ?? null,
+      },
       controller,
       options.freshSession === true,
     ).finally(() => {
@@ -291,7 +299,11 @@ export class AgentManager {
   private async consume(
     chat: Chat,
     prompt: string,
-    turn: TurnInfo & { sessionRowId: number | null; configDir: string | null },
+    turn: TurnInfo & {
+      sessionRowId: number | null;
+      configDir: string | null;
+      accountId: number | null;
+    },
     controller: AbortController,
     freshSession: boolean,
   ): Promise<void> {
@@ -333,6 +345,7 @@ export class AgentManager {
           }
         }
         this.record(chatId, event.type, event.payload);
+        if (event.type === 'rate_limit_event') this.saveUsage(turn.accountId, event.payload);
         const reported = event.type === 'system:init' ? initModel(event.payload) : undefined;
         if (reported !== undefined && reported !== turn.model) {
           this.record(chatId, 'model_mismatch', { requested: turn.model, reported });
@@ -380,6 +393,17 @@ export class AgentManager {
         behavior: 'deny',
         message: 'The turn ended before the question was answered',
       });
+    }
+  }
+
+  /** Keeps the window of a rate_limit_event for the turn's account; a failure never breaks the turn. */
+  private saveUsage(accountId: number | null, payload: unknown): void {
+    if (!this.usage || accountId === null) return;
+    try {
+      const observation = observationFromRateLimitEvent(payload);
+      if (observation) this.usage.upsert(accountId, observation);
+    } catch {
+      // Usage is a passive reading: losing one observation is better than losing the turn.
     }
   }
 

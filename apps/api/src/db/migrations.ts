@@ -514,6 +514,44 @@ export const migrations: readonly Migration[] = [
   },
   {
     version: 20,
+    name: 'project_repos',
+    // Repos of a project: the root ('.', the project's base) plus the child repos found in the
+    // base clone. The path is relative and only ever comes from detection, never from the user.
+    sql: `
+      CREATE TABLE project_repos (
+        id INTEGER PRIMARY KEY,
+        project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        path TEXT NOT NULL,
+        base_branch TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        UNIQUE (project_id, path)
+      );
+      INSERT INTO project_repos (project_id, path, base_branch, created_at, updated_at)
+        SELECT id, '.', base_branch, created_at, created_at FROM projects;
+    `,
+  },
+  {
+    version: 21,
+    name: 'provider_usage',
+    // Last observation of each usage window per account (D24, measured by account_id).
+    sql: `
+      CREATE TABLE provider_usage (
+        id INTEGER PRIMARY KEY,
+        account_id INTEGER NOT NULL REFERENCES claude_accounts(id) ON DELETE CASCADE,
+        provider TEXT NOT NULL CHECK (provider IN ('claude')),
+        window TEXT NOT NULL,
+        utilization REAL CHECK (utilization IS NULL OR (utilization >= 0 AND utilization <= 100)),
+        status TEXT CHECK (status IS NULL OR status IN ('allowed', 'allowed_warning', 'rejected')),
+        resets_at INTEGER,
+        source TEXT NOT NULL CHECK (source IN ('event', 'query')),
+        observed_at INTEGER NOT NULL
+      );
+      CREATE UNIQUE INDEX provider_usage_window ON provider_usage (account_id, provider, window);
+    `,
+  },
+  {
+    version: 22,
     name: 'panel_steps',
     // Timed steps of the panel that run no AI (setup, analyze, push, merge phase steps).
     sql: `

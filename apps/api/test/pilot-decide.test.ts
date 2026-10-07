@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
+  completedTask,
   decideNextStep,
   fingerprint,
   progressed,
@@ -234,5 +235,34 @@ describe('needsScopeInit', () => {
     expect(needsScopeInit({ kind: 'no_target' }, { step: 'init', seedPath: 'a.md' })).toBe(false);
     expect(needsScopeInit({ kind: 'no_target' }, { step: null, seedPath: null })).toBe(false);
     expect(needsScopeInit({ kind: 'cli_failed' }, { step: null, seedPath: 'a.md' })).toBe(false);
+  });
+});
+
+describe('the cap counts sessions that closed no task', () => {
+  const kyro = scope('execute_task');
+  const now = fingerprint(kyro);
+  const before = { ...now, tasksDone: Number(now['tasksDone']) - 1 };
+
+  it('completedTask is true only for an execution that raised tasksDone', () => {
+    expect(completedTask('execute', before, now)).toBe(true);
+    expect(completedTask('execute', now, now)).toBe(false);
+    expect(completedTask('fix', before, now)).toBe(false);
+    expect(completedTask('close', before, now)).toBe(false);
+    expect(completedTask('execute', null, now)).toBe(false);
+    expect(completedTask(null, before, now)).toBe(false);
+  });
+
+  it('keeps going past the cap when the last execution closed a task', () => {
+    const run = { sessionsInSprint: 6, step: 'execute' as const, lastFingerprint: before };
+    expect(decide(kyro, run, ended)).toMatchObject({ kind: 'session' });
+  });
+
+  it('still stops at the cap after fixes, or an execution that closed nothing', () => {
+    expect(
+      decide(kyro, { sessionsInSprint: 6, step: 'fix' as const, lastFingerprint: before }, ended),
+    ).toMatchObject({ kind: 'stop', blockedReason: 'tope_de_sesiones' });
+    expect(
+      decide(kyro, { sessionsInSprint: 6, step: 'execute' as const, lastFingerprint: null }, null),
+    ).toMatchObject({ kind: 'stop', blockedReason: 'tope_de_sesiones' });
   });
 });

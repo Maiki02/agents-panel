@@ -1,7 +1,8 @@
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import type { KyroReadResult } from '../kyro/reader.js';
-import type { KyroTaskContext } from '../kyro/state.js';
+import type { ModelRole } from '@agents-panel/shared';
+import type { AnalyzeFinding, KyroTaskContext } from '../kyro/state.js';
 import type { PilotDecision } from './decide.js';
 import { buildPolicy, type PolicyStep } from './policy.js';
 
@@ -57,6 +58,8 @@ export interface StepPromptContext {
   findings?: readonly string[];
   /** Where the skills live; the user's home by default. */
   home?: string;
+  /** The blocked task the user resumed: why it was blocked and what to do now. */
+  unblocked?: string;
 }
 
 function skillPath(home: string, skill: string): string {
@@ -128,6 +131,7 @@ export function buildStepPrompt(step: PromptStep, ctx: StepPromptContext): strin
     'Conventions:',
     ...list(task.conventions),
   );
+  if (ctx.unblocked !== undefined) lines.push('', `Resumed by the user: ${ctx.unblocked}`);
   if (step === 'fix') {
     lines.push('', 'Analyze findings to fix:', ...list(ctx.findings ?? []));
   }
@@ -186,7 +190,7 @@ export function buildMergeDevPrompt(input: {
 }): string {
   return [
     `Merge ${input.name} into ${input.base} with the merge-dev skill of this project.`,
-    `Read ${join(input.worktree, '.claude', 'skills', 'merge-dev', 'SKILL.md')} first and follow it exactly for ${input.name}.`,
+    `Read ${join(input.worktree, MERGE_DEV_SKILL)} first and follow it exactly for ${input.name}.`,
     '',
     `Base branch: ${input.base}`,
     'Stop once the branch is pushed and the pull requests are open; the panel looks for them afterwards.',
@@ -194,6 +198,31 @@ export function buildMergeDevPrompt(input: {
     buildPolicy('merge_dev'),
   ].join('\n');
 }
+
+/** Role of the session of a step: the plan thinks, everything else executes. */
+export function stepRole(step: PromptStep): ModelRole {
+  return step === 'plan' ? 'thinker' : 'executor';
+}
+
+const BLOCKING_SEVERITIES = new Set(['CRITICAL', 'HIGH']);
+
+/**
+ * What follows `kyro analyze` (the check_quality decision): a fix with the blocking findings, or
+ * the closing when there are none. The pilot and the manual QA step both use it.
+ */
+export function afterAnalyze(findings: readonly AnalyzeFinding[]): {
+  step: 'fix' | 'close';
+  findings: string[];
+} {
+  const blocking = findings.filter((f) => BLOCKING_SEVERITIES.has(f.severity));
+  return {
+    step: blocking.length > 0 ? 'fix' : 'close',
+    findings: blocking.map((f) => `${f.severity} ${f.id} (${f.category}): ${f.detail}`),
+  };
+}
+
+/** Where a project that ships its own merge-dev skill keeps it, relative to the worktree. */
+export const MERGE_DEV_SKILL = join('.claude', 'skills', 'merge-dev', 'SKILL.md');
 
 /** The part of KyroReader the capability check needs; tests inject a fake. */
 export interface CapabilityReader {

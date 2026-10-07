@@ -4,6 +4,7 @@ import {
   Component,
   DestroyRef,
   ElementRef,
+  afterRenderEffect,
   effect,
   computed,
   inject,
@@ -20,7 +21,16 @@ import type {
 } from '@agents-panel/shared';
 import { ChatStreamService, type StreamHandle } from './chat-stream.service';
 import { ChatsService, apiErrorMessage } from './chats.service';
-import { endsTurn, pendingQuestionIds, toViewItems, type ViewItem } from './event-view';
+import { endsTurn, pendingQuestionIds } from './event-view';
+import { isNearBottom, isNearTop } from './scroll-logic';
+import {
+  nextFirstSeq,
+  olderThan,
+  rowsFromEvents,
+  scrollTopAfterPrepend,
+  shouldLoadOlder,
+  type FeedRow,
+} from './feed-window-logic';
 import { QuestionCard } from './question-card';
 import { DebtApprovalCard } from './debt-approval.card';
 import { IdeaApprovalCard } from './idea-approval.card';
@@ -29,6 +39,7 @@ import {
   debtFromTimeline,
   movesState,
   prLinks,
+  showPrCard,
   type DebtView,
 } from './approval-logic';
 import { chatBadge } from './status';
@@ -36,6 +47,7 @@ import { workStateBadge } from './work-state';
 import { AutopilotBar } from './autopilot-bar';
 import { PhaseStepper } from './phase-stepper';
 import { Timeline } from './timeline';
+import { GitTab } from './git/git-tab';
 import { Tabs, type TabItem } from '../ui/tabs';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
@@ -50,79 +62,122 @@ import { Badge } from '../ui/badge';
     AutopilotBar,
     PhaseStepper,
     Timeline,
+    GitTab,
     QuestionCard,
     IdeaApprovalCard,
     DebtApprovalCard,
   ],
+  host: { class: 'flex min-h-0 flex-1 flex-col' },
   template: `
-    @if (chat(); as c) {
-      <header class="chat-head">
-        <h1>{{ c.title }}</h1>
-        <app-badge [tone]="badge().tone">{{ badge().label }}</app-badge>
-        @if (c.status === 'running') {
-          <button appButton variant="danger" type="button" (click)="cancel()">Cancelar</button>
+    <div class="chat-top">
+      @if (chat(); as c) {
+        <header class="chat-head">
+          <h1>{{ c.title }}</h1>
+          <app-badge [tone]="badge().tone">{{ badge().label }}</app-badge>
+          @if (c.status === 'running') {
+            <button appButton variant="danger" type="button" (click)="cancel()">Cancelar</button>
+          }
+        </header>
+        <p class="hint">{{ c.projectName }} · {{ c.branch }}</p>
+        @if (c.kind !== 'direct') {
+          <p class="hint" data-testid="chat-models">
+            Pensante: {{ c.models.thinker }} · Ejecutor: {{ c.models.executor }}
+          </p>
         }
-      </header>
-      <p class="hint">{{ c.projectName }} · {{ c.branch }}</p>
-      @if (c.kind !== 'direct') {
-        <p class="hint" data-testid="chat-models">
-          Pensante: {{ c.models.thinker }} · Ejecutor: {{ c.models.executor }}
-        </p>
-      }
-      @if (hasWork()) {
-        <app-phase-stepper [state]="workState()" />
-        <app-autopilot-bar
-          [chatId]="c.id"
-          [kind]="c.kind"
-          [workState]="c.workState ?? null"
-          (changed)="refreshWorkState()"
-        />
-        <app-tabs class="mt-3 block" [tabs]="tabs" [active]="tab()" (selected)="tab.set($event)" />
-      }
-      @if (c.status === 'interrupted') {
-        <p class="banner">
-          La sesión se interrumpió (el servidor se reinició). Mandá un mensaje para retomarla.
-        </p>
-      }
-      @if (!connected() && c.status === 'running') {
-        <p class="hint">Reconectando…</p>
-      }
-      @switch (card()) {
-        @case ('idea') {
-          <app-idea-approval-card [chatId]="c.id" (decided)="refreshAfterDecision()" />
-        }
-        @case ('debt') {
-          <app-debt-approval-card
+        @if (hasWork()) {
+          <app-phase-stepper [state]="workState()" />
+          <app-autopilot-bar
             [chatId]="c.id"
-            [debt]="debt()"
-            (accepted)="refreshAfterDecision()"
+            [kind]="c.kind"
+            [workState]="c.workState ?? null"
+            (changed)="refreshWorkState()"
           />
         }
-        @case ('pr') {
-          <section class="card approval" aria-label="Pull request">
-            <h2>La PR está lista para revisar</h2>
-            @for (url of prUrls(); track url) {
-              <p>
-                <a [href]="url" target="_blank" rel="noopener noreferrer">{{ url }}</a>
-              </p>
-            } @empty {
-              <p class="hint">Todavía no hay un link de la PR para mostrar.</p>
+        @if (tabs().length > 1) {
+          <app-tabs
+            class="mt-3 block"
+            [tabs]="tabs()"
+            [active]="tab()"
+            (selected)="tab.set($event)"
+          />
+        }
+        @if (c.status === 'interrupted') {
+          <p class="banner">
+            La sesión se interrumpió (el servidor se reinició). Mandá un mensaje para retomarla.
+          </p>
+        }
+        @if (!connected() && c.status === 'running') {
+          <p class="hint">Reconectando…</p>
+        }
+        @switch (card()) {
+          @case ('idea') {
+            <app-idea-approval-card [chatId]="c.id" (decided)="refreshAfterDecision()" />
+          }
+          @case ('debt') {
+            <app-debt-approval-card
+              [chatId]="c.id"
+              [debt]="debt()"
+              (accepted)="refreshAfterDecision()"
+            />
+          }
+          @case ('pr') {
+            @if (prCardVisible()) {
+              <section class="card approval" aria-label="Pull request">
+                <h2>La PR está lista para revisar</h2>
+                @for (url of prUrls(); track url) {
+                  <p>
+                    <a
+                      class="link break-all"
+                      [href]="url"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      >{{ url }}</a
+                    >
+                  </p>
+                } @empty {
+                  <p class="hint">Todavía no hay un link de la PR para mostrar.</p>
+                }
+              </section>
             }
-          </section>
+          }
         }
       }
-    }
-    @if (error(); as message) {
-      <p class="error" role="alert">{{ message }}</p>
-    }
+      @if (error(); as message) {
+        <p class="error" role="alert">{{ message }}</p>
+      }
+    </div>
 
     @if (tab() === 'timeline' && hasWork()) {
-      <section class="my-3" aria-label="Timeline">
+      <section class="chat-scroll" aria-label="Timeline">
         <app-timeline [transitions]="timeline()" />
       </section>
+    } @else if (tab() === 'git' && chat(); as g) {
+      <app-git-tab
+        [chatId]="g.id"
+        [chatStatus]="g.status"
+        [workState]="g.workState ?? null"
+        [kind]="g.kind"
+        (messageSent)="afterMessageSent()"
+        (stepStarted)="afterMessageSent()"
+        (workChanged)="refreshAfterDecision()"
+      />
     } @else {
-      <section class="feed" aria-live="polite">
-        @for (item of items(); track $index) {
+      <section
+        #feed
+        class="feed chat-scroll"
+        aria-label="Conversación"
+        aria-live="polite"
+        (scroll)="onFeedScroll()"
+      >
+        <p class="hint feed-edge min-h-6 text-center" data-testid="feed-edge">
+          @if (loadingOlder()) {
+            Cargando mensajes anteriores…
+          } @else if (!hasMore() && rows().length > 0) {
+            Inicio de la conversación
+          }
+        </p>
+        @for (row of rows(); track row.key) {
+          @let item = row.item;
           @switch (item.kind) {
             @case ('user') {
               <div class="msg user">{{ item.text }}</div>
@@ -186,25 +241,33 @@ import { Badge } from '../ui/badge';
             }
           }
         }
-        <div #bottom></div>
       </section>
     }
 
     @if (chat(); as c) {
-      @if (tab() === 'chat' || !hasWork()) {
+      @if (tab() === 'chat' || tabs().length < 2) {
         <form class="composer" (submit)="send($event)">
-          <label for="message">Mensaje</label>
+          <label for="message" class="sr-only">Mensaje</label>
+          @if (c.workState === 'archivado') {
+            <p class="hint">El trabajo está archivado: es de solo lectura.</p>
+          }
           <textarea
             id="message"
             rows="3"
-            [disabled]="c.status === 'running'"
+            placeholder="Escribí un mensaje"
+            [disabled]="c.status === 'running' || c.workState === 'archivado'"
             [value]="draft()"
             (input)="draft.set(text($event))"
           ></textarea>
           <button
             appButton
             type="submit"
-            [disabled]="c.status === 'running' || draft().trim() === '' || sending()"
+            [disabled]="
+              c.status === 'running' ||
+              c.workState === 'archivado' ||
+              draft().trim() === '' ||
+              sending()
+            "
           >
             Enviar
           </button>
@@ -216,7 +279,13 @@ import { Badge } from '../ui/badge';
 export class ChatPage {
   private readonly service = inject(ChatsService);
   private readonly stream = inject(ChatStreamService);
-  private readonly bottom = viewChild<ElementRef<HTMLElement>>('bottom');
+  private readonly feed = viewChild<ElementRef<HTMLElement>>('feed');
+  /**
+   * Whether the feed follows new events: true while the user is at (or near) the end, false
+   * once they scroll up to read. Opening a chat, going back to the Chat tab or sending a
+   * message turns it back on.
+   */
+  private follow = true;
 
   /** Route param `:chatId` (bound by withComponentInputBinding); switching chats reuses the page. */
   readonly chatId = input.required<string>();
@@ -226,7 +295,14 @@ export class ChatPage {
   private handle: StreamHandle | undefined;
 
   protected readonly chat = signal<Chat | null>(null);
-  protected readonly items = signal<ViewItem[]>([]);
+  protected readonly rows = signal<FeedRow[]>([]);
+  private readonly items = computed(() => this.rows().map((row) => row.item));
+  /** Earlier messages: the cursor for the next window, whether any is left, and the one in flight. */
+  private firstSeq: number | null = null;
+  protected readonly hasMore = signal(false);
+  protected readonly loadingOlder = signal(false);
+  /** Feed height before older rows went in, so the render keeps what the user was reading in place. */
+  private prependAnchor: number | null = null;
   protected readonly error = signal<string | null>(null);
   protected readonly connected = signal(true);
   protected readonly draft = signal('');
@@ -245,6 +321,9 @@ export class ChatPage {
     const chat = this.chat();
     return chat ? approvalCard(chat.kind, chat.workState) : null;
   });
+  protected readonly prCardVisible = computed(() =>
+    showPrCard(this.chat()?.workState, this.prUrls()),
+  );
   /** The one badge: the fine state of a scope, work or idea; the session status otherwise. */
   protected readonly badge = computed(() => {
     const chat = this.chat();
@@ -256,10 +335,16 @@ export class ChatPage {
     const kind = this.chat()?.kind;
     return kind !== undefined && kind !== 'direct';
   });
-  protected readonly tabs: readonly TabItem[] = [
-    { id: 'chat', label: 'Chat' },
-    { id: 'timeline', label: 'Timeline' },
-  ];
+  /** Chat always; Timeline for a scope, work or idea; Git for every chat that has a worktree. */
+  protected readonly tabs = computed<readonly TabItem[]>(() => {
+    const chat = this.chat();
+    if (!chat) return [{ id: 'chat', label: 'Chat' }];
+    return [
+      { id: 'chat', label: 'Chat' },
+      ...(this.hasWork() ? [{ id: 'timeline', label: 'Timeline' }] : []),
+      ...(chat.worktreePath ? [{ id: 'git', label: 'Git' }] : []),
+    ];
+  });
   protected readonly tab = signal('chat');
   protected readonly workState = signal<WorktreeState | null>(null);
   protected readonly timeline = signal<WorktreeTransition[]>([]);
@@ -268,13 +353,72 @@ export class ChatPage {
     inject(DestroyRef).onDestroy(() => {
       this.handle?.close();
     });
+    // After the DOM has the new events: keep the feed at its end, moving only the feed box.
+    afterRenderEffect(() => {
+      this.rows();
+      const feed = this.feed()?.nativeElement;
+      if (!feed) return;
+      if (this.prependAnchor !== null) {
+        feed.scrollTop = scrollTopAfterPrepend(
+          feed.scrollTop,
+          this.prependAnchor,
+          feed.scrollHeight,
+        );
+        this.prependAnchor = null;
+      } else if (this.follow) {
+        feed.scrollTop = feed.scrollHeight;
+      }
+      // A feed that does not overflow cannot be scrolled up: fill it with earlier messages.
+      if (feed.scrollHeight <= feed.clientHeight) void this.loadOlder();
+    });
     effect(() => {
-      this.items();
-      this.bottom()?.nativeElement.scrollIntoView({ block: 'end' });
+      if (this.tab() === 'chat') this.follow = true;
     });
     effect(() => {
       void this.restart(Number(this.chatId()));
     });
+  }
+
+  protected onFeedScroll(): void {
+    const feed = this.feed()?.nativeElement;
+    if (!feed) return;
+    this.follow = isNearBottom(feed);
+    if (isNearTop(feed)) void this.loadOlder();
+  }
+
+  /** Asks for the window before the first shown event; one at a time, dropped if the chat changed. */
+  private async loadOlder(): Promise<void> {
+    const feed = this.feed()?.nativeElement;
+    const firstSeq = this.firstSeq;
+    if (
+      !feed ||
+      firstSeq === null ||
+      !shouldLoadOlder({
+        nearTop: isNearTop(feed),
+        loading: this.loadingOlder(),
+        hasMore: this.hasMore(),
+        firstSeq,
+      })
+    ) {
+      return;
+    }
+    const generation = this.generation;
+    this.loadingOlder.set(true);
+    try {
+      const window = await this.service.eventsWindow(this.current, firstSeq);
+      if (generation !== this.generation) return;
+      const older = olderThan(window.events, this.firstSeq);
+      this.hasMore.set(window.hasMore && older.length > 0);
+      if (older.length > 0) {
+        this.firstSeq = nextFirstSeq(this.firstSeq, older);
+        this.prependAnchor = this.feed()?.nativeElement.scrollHeight ?? null;
+        this.rows.update((current) => [...rowsFromEvents(older), ...current]);
+      }
+    } catch (cause) {
+      if (generation === this.generation) this.error.set(apiErrorMessage(cause));
+    } finally {
+      if (generation === this.generation) this.loadingOlder.set(false);
+    }
   }
 
   protected text(event: Event): string {
@@ -288,8 +432,13 @@ export class ChatPage {
     const generation = ++this.generation;
     this.current = id;
     this.lastSeq = 0;
+    this.firstSeq = null;
+    this.prependAnchor = null;
+    this.hasMore.set(false);
+    this.loadingOlder.set(false);
+    this.follow = true;
     this.chat.set(null);
-    this.items.set([]);
+    this.rows.set([]);
     this.error.set(null);
     this.connected.set(true);
     this.draft.set('');
@@ -305,12 +454,16 @@ export class ChatPage {
       return;
     }
     try {
-      const chat = await this.service.get(id);
-      const events = await this.service.events(id);
+      const [chat, window] = await Promise.all([
+        this.service.get(id),
+        this.service.eventsWindow(id),
+      ]);
       if (generation !== this.generation) return;
       this.chat.set(chat);
-      this.ingest(events);
-      void this.refreshWorkState();
+      this.firstSeq = window.firstSeq;
+      this.hasMore.set(window.hasMore);
+      this.ingest(window.events);
+      void this.refreshWorkState(chat);
     } catch (cause) {
       if (generation === this.generation) this.error.set(apiErrorMessage(cause));
       return;
@@ -330,7 +483,7 @@ export class ChatPage {
     const fresh = events.filter((event) => event.seq > this.lastSeq);
     if (fresh.length === 0) return;
     this.lastSeq = Math.max(this.lastSeq, ...fresh.map((event) => event.seq));
-    this.items.update((current) => [...current, ...fresh.flatMap(toViewItems)]);
+    this.rows.update((current) => [...current, ...rowsFromEvents(fresh)]);
     if (fresh.some((event) => event.type === 'user_prompt')) this.setStatus('running');
     if (fresh.some(endsTurn)) void this.refreshStatus();
     if (fresh.some((event) => movesState(event.type))) void this.refreshWorkState();
@@ -341,10 +494,10 @@ export class ChatPage {
   }
 
   /** The pilot or the agent moved the work: read its state and what the cards show. */
-  protected async refreshWorkState(): Promise<void> {
+  protected async refreshWorkState(known?: Chat): Promise<void> {
     const id = this.current;
     try {
-      const fresh = await this.service.get(id);
+      const fresh = known ?? (await this.service.get(id));
       if (id !== this.current) return;
       this.chat.update((c) =>
         c ? { ...c, workState: fresh.workState ?? null, kind: fresh.kind } : c,
@@ -361,12 +514,18 @@ export class ChatPage {
       const card = approvalCard(fresh.kind, fresh.workState);
       if (card === 'debt') this.debt.set(debtFromTimeline(this.timeline()));
       if (card === 'pr') {
-        const info = await this.service.autopilot(id);
-        this.prUrls.set(prLinks(info.run?.prUrls ?? []));
+        const { urls } = await this.service.prs(id);
+        if (id === this.current) this.prUrls.set(prLinks(urls));
       }
     } catch {
       // The state is a view: the next event reads it again.
     }
+  }
+
+  /** A conflict was handed to the agent from the Git tab: show its turn in the chat. */
+  protected afterMessageSent(): void {
+    this.setStatus('running');
+    this.tab.set('chat');
   }
 
   /** A decision about the plan or the debt went through: the work changed state and may be a new kind. */
@@ -395,6 +554,7 @@ export class ChatPage {
     if (text === '' || this.sending()) return;
     this.sending.set(true);
     this.error.set(null);
+    this.follow = true;
     try {
       await this.service.send(this.current, text);
       this.draft.set('');
