@@ -531,6 +531,25 @@ export const migrations: readonly Migration[] = [
         SELECT id, '.', base_branch, created_at, created_at FROM projects;
     `,
   },
+  {
+    version: 21,
+    name: 'provider_usage',
+    // Last observation of each usage window per account (D24, measured by account_id).
+    sql: `
+      CREATE TABLE provider_usage (
+        id INTEGER PRIMARY KEY,
+        account_id INTEGER NOT NULL REFERENCES claude_accounts(id) ON DELETE CASCADE,
+        provider TEXT NOT NULL CHECK (provider IN ('claude')),
+        window TEXT NOT NULL,
+        utilization REAL CHECK (utilization IS NULL OR (utilization >= 0 AND utilization <= 100)),
+        status TEXT CHECK (status IS NULL OR status IN ('allowed', 'allowed_warning', 'rejected')),
+        resets_at INTEGER,
+        source TEXT NOT NULL CHECK (source IN ('event', 'query')),
+        observed_at INTEGER NOT NULL
+      );
+      CREATE UNIQUE INDEX provider_usage_window ON provider_usage (account_id, provider, window);
+    `,
+  },
 ];
 
 /** Applies pending migrations in order, each in its own transaction. Safe to run repeatedly. */

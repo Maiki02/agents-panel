@@ -3,11 +3,12 @@ import { Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/rou
 import { AccountSelector } from './accounts/account-selector';
 import { AuthService } from './auth/auth.service';
 import { Button } from './ui/button';
+import { UsageIndicator } from './usage/usage-indicator';
 
 @Component({
   selector: 'app-root',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterOutlet, RouterLink, RouterLinkActive, Button, AccountSelector],
+  imports: [RouterOutlet, RouterLink, RouterLinkActive, Button, AccountSelector, UsageIndicator],
   template: `
     <header class="flex items-center gap-3 border-b border-border bg-surface px-4 py-2.5">
       <a routerLink="/" class="font-semibold text-text hover:no-underline">Panel de agentes</a>
@@ -47,6 +48,7 @@ import { Button } from './ui/button';
       @if (auth.username(); as name) {
         <span class="flex-1"></span>
         <app-account-selector />
+        <app-usage-indicator />
         <span class="text-sm text-muted">{{ name }}</span>
         <button appButton variant="secondary" type="button" (click)="logout()">Salir</button>
       }

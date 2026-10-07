@@ -2,6 +2,7 @@ import {
   ChangeDetectionStrategy,
   Component,
   DestroyRef,
+  computed,
   effect,
   inject,
   input,
@@ -13,6 +14,15 @@ import type { Chat } from '@agents-panel/shared';
 import { filter } from 'rxjs';
 import { Badge } from '../ui/badge';
 import { Icon } from '../ui/icon';
+import {
+  CHAT_FILTERS,
+  emptyFilterText,
+  filterChats,
+  filterCounts,
+  loadChatFilter,
+  saveChatFilter,
+  type ChatFilterId,
+} from './chat-filter-logic';
 import { ChatsService, apiErrorMessage } from './chats.service';
 import { chatSubtitle, hasRunning, sidebarBadge } from './status';
 
@@ -40,8 +50,25 @@ const POLL_MS = 4000;
     @if (error(); as message) {
       <p class="error" role="alert">{{ message }}</p>
     }
+    <div class="mb-2 flex flex-wrap gap-1" role="group" aria-label="Filtrar chats">
+      @for (option of filters; track option.id) {
+        <button
+          type="button"
+          class="rounded-pill border px-2 py-0.5 text-xs font-medium transition-colors"
+          [class]="
+            filter() === option.id
+              ? 'border-accent bg-surface-raised text-text'
+              : 'border-border text-muted hover:bg-surface-raised hover:text-text'
+          "
+          [attr.aria-pressed]="filter() === option.id"
+          (click)="choose(option.id)"
+        >
+          {{ option.label }} {{ counts()[option.id] }}
+        </button>
+      }
+    </div>
     <ul class="m-0 flex list-none flex-col gap-1 p-0">
-      @for (chat of chats(); track chat.id) {
+      @for (chat of visible(); track chat.id) {
         <li>
           <a
             [routerLink]="['/projects', projectId(), 'chats', chat.id]"
@@ -59,7 +86,7 @@ const POLL_MS = 4000;
         </li>
       } @empty {
         @if (loaded()) {
-          <li class="hint px-1">Todavía no hay chats en este proyecto.</li>
+          <li class="hint px-1">{{ emptyText() }}</li>
         }
       }
     </ul>
@@ -74,6 +101,14 @@ export class ChatSidebar {
   protected readonly loaded = signal(false);
   protected readonly error = signal<string | null>(null);
   private timer: ReturnType<typeof setInterval> | undefined;
+
+  protected readonly filters = CHAT_FILTERS;
+  protected readonly filter = signal<ChatFilterId>(
+    loadChatFilter(typeof localStorage === 'undefined' ? undefined : localStorage),
+  );
+  protected readonly visible = computed(() => filterChats(this.chats(), this.filter()));
+  protected readonly counts = computed(() => filterCounts(this.chats()));
+  protected readonly emptyText = computed(() => emptyFilterText(this.filter()));
 
   protected readonly badge = sidebarBadge;
   protected readonly subtitle = chatSubtitle;
@@ -93,6 +128,11 @@ export class ChatSidebar {
     inject(DestroyRef).onDestroy(() => {
       this.stopPolling();
     });
+  }
+
+  protected choose(filter: ChatFilterId): void {
+    this.filter.set(filter);
+    saveChatFilter(typeof localStorage === 'undefined' ? undefined : localStorage, filter);
   }
 
   private async reload(projectId: number): Promise<void> {

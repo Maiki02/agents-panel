@@ -388,7 +388,7 @@ Si se desarrolla el frontend en la PC, alcanza con el túnel del puerto 3000 y l
 
 ## Probar las operaciones git de un trabajo (API)
 
-Recorrido del sprint 1 de `operaciones-worktree`; la pestaña Git de la web llega en el sprint 3. **Usá un trabajo de prueba** (un Work descartable sobre un repo de prueba con un remoto que no sea el real), nunca `ventas` ni este repo. Con el túnel abierto (sección 4) se maneja con `curl` y una cookie de sesión: `POST /api/auth/login` y el segundo factor dejan la cookie en un archivo, y el token CSRF sale de `GET /api/auth/me`. Las `POST` piden la cookie, el token en el header `X-CSRF-Token` y el header `Origin` igual a `PANEL_ORIGIN`. Ni el token ni la cookie se pegan en docs ni en la bitácora.
+Recorrido del sprint 1 de `operaciones-worktree` (la misma pestaña Git está en la web: ver «Recorrido manual de la web» más abajo). **Usá un trabajo de prueba** (un Work descartable sobre un repo de prueba con un remoto que no sea el real), nunca `ventas` ni este repo. Con el túnel abierto (sección 4) se maneja con `curl` y una cookie de sesión: `POST /api/auth/login` y el segundo factor dejan la cookie en un archivo, y el token CSRF sale de `GET /api/auth/me`. Las `POST` piden la cookie, el token en el header `X-CSRF-Token` y el header `Origin` igual a `PANEL_ORIGIN`. Ni el token ni la cookie se pegan en docs ni en la bitácora.
 
 | Ruta | Para qué | Cuerpo |
 |---|---|---|
@@ -437,6 +437,31 @@ curl -s -b "$COOKIES" -H "X-CSRF-Token: $CSRF" -H "Origin: $ORIGIN" -H "Content-
 - Después de borrar, el trabajo queda `archivado`: cualquier `POST` sobre ese chat da 409 («solo lectura») y el Timeline muestra `limpiando` y `archivado` con actor `user`.
 - Con un secreto en los cambios, Crear PR no pushea ni abre nada y el resultado nombra los archivos (no su contenido).
 - El Timeline (`GET /api/chats/:id/timeline`) muestra el actor de cada entrada: `user` para estas llamadas y `pilot` para lo que haga el piloto.
+
+## Recorrido manual de la web: pestaña Git, filtros, Repositorio y uso
+
+Sprint `web-operaciones-y-uso`. Es el recorrido que hace una persona en el navegador antes de cerrar el scope. Entrá por el túnel (sección 5) o por la URL de Funnel. **Las pruebas destructivas (commit, push, descartar, borrar) van sobre un trabajo descartable**; el único repo real que se toca es este (`agents-panel`) y solo para el paso 7. Ningún valor secreto se anota: ni cookies, ni tokens, ni el contenido de un `.env`.
+
+**Preparación.** En `ventas` (raíz en `main`; `fe-ventas` y `be-ventas` en `dev`) creá un Work descartable. En **Configuración → Repositorio → Detectar repos** tienen que aparecer la raíz y los dos hijos, cada uno con su base.
+
+| # | Dónde | Qué hacer | Qué mirar |
+|---|---|---|---|
+| 1 | Chat del Work → pestaña **Git** | Abrirla con cambios en la raíz y en un hijo | Una tarjeta por repo con rama, base, archivos cambiados y adelante/atrás. Un chat sin worktree no tiene la pestaña. |
+| 2 | **Ver cambios** | Mirar «Sin commitear» y «Contra la base»; en un archivo largo, **Ver más** | El parche por archivo, recortado, y el completo con «Ver más». Un `.env` ignorado no aparece. |
+| 3 | **Commit** | Elegir solo algunos archivos, escribir un mensaje sin formato (`arreglo`) y después uno bueno (`docs(demo): prueba`) | El aviso de Conventional Commits no bloquea; el commit lleva solo los archivos elegidos. |
+| 4 | **Traer base** y **Traer mi rama** | Hacer que haya un cambio nuevo en la base del hijo (en `dev`) y traerla; después provocar un conflicto | Resultado por repo con la salida recortada. Un conflicto se aborta, lista los archivos y ofrece **Pedírselo al agente** (manda el mensaje al chat). Si cambió un lockfile, se informa la reinstalación. |
+| 5 | **Push**, **Reinstalar dependencias** | Pushear la rama del trabajo; reinstalar | Resultado por repo. Nunca `--force`: con el remoto adelantado el push se rechaza con la salida de git. |
+| 6 | **Descartar** | Elegir un archivo y confirmar | La confirmación nombra cada archivo; un archivo ignorado devuelve el error de la API en el diálogo. |
+| 7 | **Crear PR** (real, en `agents-panel`) | Desde la web, en un Work chico de este repo (un ajuste de doc): abrir **Crear PR**, editar título y cuerpo, crearla | La PR sale hacia `main`, el link aparece por repo, repetir la acción actualiza la misma (`existing`). Cerrarla a mano si fue solo prueba. En un proyecto con `merge-dev` propia el botón principal es **Correr merge-dev**. |
+| 8 | **Pasos del agente** | Con el piloto pausado: Planificar, Ejecutar, QA, Corregir, Cerrar, Completar | Solo aparecen los que aplican al tipo de chat (QA solo en un scope). Con el agente corriendo o el piloto `active`, `queued` o `waiting_quota`, los botones están deshabilitados con el motivo. |
+| 9 | **Borrar trabajo** | Con un commit sin pushear en el Work descartable | La vista previa avisa del commit sin pushear; con la casilla se borran también las ramas remotas; después el chat queda `archivado`, en solo lectura. |
+| 10 | Sidebar de **Chats** | Probar **Activos**, **Te toca**, **Terminados** y **Todos** | Cada filtro muestra su cantidad; el elegido se recuerda al recargar; un filtro sin chats dice que está vacío. |
+| 11 | **Configuración → Repositorio** | Cambiar la base de un hijo, **Detectar repos**, **Traer cambios de GitHub**; ensuciar la raíz del clon y repetir | El resultado aparece en la fila de cada repo (actualizado, sin cambios, rechazado); con la raíz rechazada (409) los hijos igual muestran su fila. El clon base no ofrece commit ni instalación. |
+| 12 | **Icono de uso** del header | Abrirlo en distintas pantallas y en el celular; cambiar de cuenta; si se puede, cortar la lectura a pedido | Se ve el % de 5 h con su tono en todas las pantallas; el panel muestra cada ventana con barra, hora de reinicio local y «actualizado hace X». Con la lectura caída muestra el último dato con el aviso de degradado, no un error. Sin datos, estado vacío. |
+
+**Piloto y cupo.** Si el piloto frena por `sin_cupo_de_uso`, el Timeline muestra la hora exacta de retomada (la del reinicio de la ventana más 1 minuto); sin hora conocida reintenta cada 15 minutos.
+
+**Cómo anotar el resultado.** Una línea por paso (`n. ok`, `n. falló: qué pasó`) con la fecha y el trabajo de prueba usado, en el cierre del sprint o en el issue que corresponda. Lo que falle se abre como deuda o tarea; no se corrige a ciegas.
 
 ## Problemas frecuentes
 

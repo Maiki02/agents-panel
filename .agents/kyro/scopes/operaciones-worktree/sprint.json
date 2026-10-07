@@ -187,6 +187,76 @@
         "given": "un scope con el piloto en pausa",
         "when": "el usuario pide Planificar sprint",
         "then": "el agente arranca con el mismo prompt que armaría el piloto y el Timeline registra actor user; con el piloto en active responde 409"
+      },
+      {
+        "id": "S18",
+        "requirement": "R6",
+        "given": "una sesión de la cuenta A que emite un rate_limit_event de la ventana five_hour con utilization y resetsAt",
+        "when": "el manager procesa el evento",
+        "then": "provider_usage guarda la última observación de esa ventana para la cuenta A con source event, y los datos de la cuenta B no cambian"
+      },
+      {
+        "id": "S19",
+        "requirement": "R6",
+        "given": "la cuenta activa con un dato pasivo guardado",
+        "when": "se pide GET /api/usage y la lectura del SDK funciona, o falla",
+        "then": "si funciona devuelve las ventanas de 5 h, semanal y por modelo con source query y las cachea 60 s; si falla devuelve el dato pasivo con degraded true y su antigüedad, sin 500"
+      },
+      {
+        "id": "S20",
+        "requirement": "R6",
+        "given": "ventanas con 69 %, 70 %, 90 % y una con status rejected",
+        "when": "se calcula el tono",
+        "then": "son ok, warn, danger y danger, y el icono del header muestra el % de 5 h con ese tono en todas las pantallas"
+      },
+      {
+        "id": "S21",
+        "requirement": "R6",
+        "given": "un run del piloto cuya sesión recibe un rate_limit_event rejected con resetsAt futuro",
+        "when": "el piloto pasa a sin_cupo_de_uso",
+        "then": "programa la retomada en resetsAt más un margen; sin resetsAt conocido reintenta a los 15 min"
+      },
+      {
+        "id": "S22",
+        "requirement": "R7",
+        "given": "chats en distintos estados de trabajo y consultas en distintos estados de sesión",
+        "when": "el usuario elige Activos, Te toca, Terminados o Todos en la sidebar",
+        "then": "ve solo los chats de ese filtro según quién tiene que actuar, con la cantidad de cada filtro"
+      },
+      {
+        "id": "S23",
+        "requirement": "R7",
+        "given": "un trabajo de ventas con la raíz y dos repos hijos",
+        "when": "el usuario abre la pestaña Git",
+        "then": "ve una tarjeta por repo con rama, base, cambios y adelante/atrás, y puede commitear, traer base, traer su rama, pushear y reinstalar con el resultado por repo"
+      },
+      {
+        "id": "S24",
+        "requirement": "R7",
+        "given": "el catálogo de paridad manual",
+        "when": "se renderiza la pestaña Git de un trabajo",
+        "then": "cada acción con ruta o paso manual tiene su botón, y con el agente corriendo o el piloto ocupado todos se ven deshabilitados con el motivo"
+      },
+      {
+        "id": "S25",
+        "requirement": "R7",
+        "given": "un trabajo con commits fuera de la base",
+        "when": "el usuario abre Crear PR, revisa los cambios y confirma",
+        "then": "ve título y cuerpo prellenados y editables, y al confirmar el link de la PR de cada repo; en un proyecto con merge-dev el botón principal es Correr merge-dev"
+      },
+      {
+        "id": "S26",
+        "requirement": "R7",
+        "given": "un proyecto con la raíz en main y un repo hijo en dev, con cambios locales en el hijo",
+        "when": "el usuario abre Configuración → Repositorio y pide el pull",
+        "then": "ve cada repo con su base editable y el resultado del pull en su fila: la raíz actualizada y el hijo rechazado por cambios locales"
+      },
+      {
+        "id": "S27",
+        "requirement": "R9",
+        "given": "el scope con las decisiones D18 a D28 implementadas",
+        "when": "se revisan docs/plan.md, docs/estados.md, docs/panel-desarrollo.md y CLAUDE.md",
+        "then": "cada decisión, la tabla de repos, las operaciones manuales y el indicador de uso quedan descritos sin secretos"
       }
     ],
     "nonGoals": [
@@ -393,6 +463,102 @@
         "Agregar un escenario de relleno para R6, R7 y R9",
         "Postergar el cierre"
       ]
+    },
+    {
+      "id": "ADR-0013",
+      "title": "Filtros de la sidebar por quién tiene que actuar",
+      "status": "accepted",
+      "date": "2026-10-06",
+      "context": "D18 pide filtros Activos, Te toca, Terminados y Todos sin definir el mapeo; WORKTREE_STATE_INFO ya da who por estado y las consultas no tienen workState",
+      "decision": "Trabajos por WORKTREE_STATE_INFO[state].who: working o waiting Activos, user o error Te toca, ok Terminados. Consultas por Chat.status: running Activos, error o interrupted Te toca, idle o cancelled Terminados. Funcion pura en la web con spec que recorre todos los estados",
+      "consequences": [
+        "Un estado nuevo cae solo en su filtro por su who",
+        "Un error cuenta como Te toca porque necesita al usuario"
+      ],
+      "alternatives": [
+        "Lista fija de estados por filtro",
+        "Error como filtro aparte"
+      ]
+    },
+    {
+      "id": "ADR-0014",
+      "title": "Pull por repo en Repositorio: un solo boton con resultado por fila",
+      "status": "accepted",
+      "date": "2026-10-06",
+      "context": "R7 pide el Pull por repo en Configuracion Repositorio y ADR-0005 dejo un unico POST pull que actualiza la raiz y todos los hijos con resultado por repo",
+      "decision": "La web usa el POST pull existente y muestra el resultado de cada repo en su fila; no se agrega endpoint por repo en este sprint",
+      "consequences": [
+        "Sin rutas nuevas en la API para el clon base",
+        "No se puede actualizar un solo hijo aislado"
+      ],
+      "alternatives": [
+        "Endpoint nuevo por repo",
+        "Boton por fila que llama al pull de todos"
+      ]
+    },
+    {
+      "id": "ADR-0015",
+      "title": "Plan del sprint 3: uso degradado, recorrido manual y PR real",
+      "status": "accepted",
+      "date": "2026-10-06",
+      "context": "La lectura de uso del SDK es experimental y no hubo spike en el scope 1; el gate de WS16 pide recorrido manual en ventas y la recomendacion del sprint 2 pide verificar una PR real en agents-panel, cosas que el piloto no puede hacer con un navegador",
+      "decision": "T1.2 lee el uso con una sesion corta sin prompt inyectable, cache 60 s, una lectura en vuelo por cuenta y degradado al dato pasivo sin 500. T3.1 deja la guia del recorrido manual y la PR real en docs/panel-desarrollo.md y verifica build y tests; el recorrido con navegador lo hace el usuario antes de cerrar el scope. Recomendaciones del sprint 2: escenarios S18 a S26 para R6 y R7 incorporados; S27 para R9 creado y cubierto en el sprint 4; PR real convertida en la guia de T3.1",
+      "consequences": [
+        "Si la llamada del SDK cambia, el icono sigue con el dato pasivo",
+        "La evidencia del sprint 3 no incluye el recorrido con navegador"
+      ],
+      "alternatives": [
+        "Spike previo de la llamada de uso",
+        "Que el piloto abra una PR real durante el sprint"
+      ]
+    },
+    {
+      "id": "ADR-0016",
+      "title": "Retomada de sin_cupo_de_uso a resetsAt más 60 s",
+      "status": "accepted",
+      "date": "2026-10-06",
+      "context": "T1.3: el piloto reintentaba cada 15 min; el rate_limit_event rechazado trae resetsAt (segundos epoch).",
+      "decision": "retryAt = max resetsAt de los eventos rejected de la sesión (o, sin él, de las ventanas rejected de provider_usage de la cuenta de la última sesión del run) más 60 s; sin resetsAt futuro se mantiene QUOTA_RETRY_MS. Con varias ventanas rechazadas se espera la más tardía.",
+      "consequences": [
+        "Retoma a la hora exacta sin reintentos inútiles",
+        "Nunca usa el resetsAt de otra cuenta"
+      ],
+      "alternatives": [
+        "Mantener 15 min fijos",
+        "Usar la ventana más temprana (reintentaría con otra ventana aún rechazada)"
+      ]
+    },
+    {
+      "id": "ADR-0017",
+      "title": "El pull del clon base devuelve las filas por repo también cuando la raíz falla",
+      "status": "accepted",
+      "date": "2026-10-07",
+      "context": "T2.5: la criteria pide ver el resultado de cada repo aun cuando la raíz falla con 409/502; la API lanzaba solo el error de la raíz y se perdían las filas de los hijos ya actualizados.",
+      "decision": "PullService asocia los resultados por repo al error de la raíz (WeakMap, repoResultsOf) y pull-routes los envía como repos en el cuerpo de 409 y 502, sin cambiar status ni error.",
+      "consequences": [
+        "La web muestra cada fila (rechazada o actualizada) con la raíz rechazada",
+        "Compatible hacia atrás: el cuerpo conserva error"
+      ],
+      "alternatives": [
+        "Responder 200 con la raíz rechazada en repos (cambia el contrato de ADR-0005)",
+        "Que la web vuelva a pedir el estado de cada repo por separado"
+      ]
+    },
+    {
+      "id": "ADR-0018",
+      "title": "QA del sprint 3 aprobada con notas; S27 queda para el sprint 4",
+      "status": "accepted",
+      "date": "2026-10-07",
+      "context": "kyro analyze reporta 1 MEDIUM (S27 de R9 sin tarea) y el recorrido manual en ventas no entra en la evidencia (ADR-0015)",
+      "decision": "No es bloqueante: S27 se cubre en el sprint 4 (documentación); se cierra el sprint 3 con APPROVED WITH NOTES y sin deuda nueva",
+      "consequences": [
+        "S27 sigue como MEDIUM hasta el sprint 4",
+        "El recorrido manual queda para el usuario antes de cerrar el scope"
+      ],
+      "alternatives": [
+        "Agregar una tarea de relleno para S27",
+        "Postergar el cierre"
+      ]
     }
   ],
   "roadmap": {
@@ -415,7 +581,7 @@
         "n": 3,
         "slug": "web-operaciones-y-uso",
         "title": "Uso de proveedores y web de operaciones (WS13 + WS16)",
-        "state": "planned"
+        "state": "closed"
       },
       {
         "n": 4,
@@ -452,13 +618,23 @@
         "Verificar Crear PR real en agents-panel en el recorrido manual del sprint 3"
       ],
       "checkpointSha256": "598eea9152d043d7ac594483d4076c095b0dc5376bd7a80dc07f0c07c106f959"
+    },
+    {
+      "n": 3,
+      "slug": "web-operaciones-y-uso",
+      "outcome": "shipped",
+      "closedAt": "2026-10-07",
+      "archive": "archive/sprint-003-web-operaciones-y-uso.md",
+      "snapshot": "archive/sprint-003-web-operaciones-y-uso.json",
+      "checkpoint": "archive/sprint-003-web-operaciones-y-uso.checkpoint.json",
+      "checkpointSha256": "d21a5367d8b02680e1a3d7493255c29f819204804b064ff1ab244b4303124df9"
     }
   ],
   "previousSprint": {
-    "n": 2,
-    "slug": "paridad-manual-y-pr",
+    "n": 3,
+    "slug": "web-operaciones-y-uso",
     "outcome": "shipped",
-    "summary": "Que el piloto y la API usen un único servicio de acciones con actor, que cada acción del catálogo D26 que hace el piloto tenga su ruta manual (incluidos los pasos del agente), y que la API ofrezca Crear PR, Correr merge-dev, ver cambios, descartar y borrar trabajo, seguros frente al agente y al piloto."
+    "summary": "Que el uso de la cuenta activa se vea desde un icono del header en todas las pantallas (con lectura a pedido, dato pasivo y degradado), que el piloto retome sin_cupo_de_uso a la hora de resetsAt, y que la web ofrezca los filtros de la sidebar, la pestaña Git con todas las operaciones por repo y los pasos del agente, y la lista de repos en Configuración → Repositorio."
   },
   "activeSprint": null,
   "debt": [],
@@ -466,8 +642,8 @@
     "nextAction": "plan_sprint",
     "nextTaskId": null,
     "blockers": [],
-    "note": "Sprint 2 cerrado con QA APPROVED WITH NOTES. Siguiente: sprint 3, vincular escenarios a R6, R7 y R9 y verificar la PR real.",
-    "lastUpdated": "2026-10-06"
+    "note": "Sprint 3 (web-operaciones-y-uso) closed as shipped. Scope remains open for planning.",
+    "lastUpdated": "2026-10-07"
   },
   "author": {
     "name": "Maiki02",

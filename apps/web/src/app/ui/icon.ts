@@ -1,12 +1,13 @@
 import { ChangeDetectionStrategy, Component, input } from '@angular/core';
 
-export type IconName = 'refresh' | 'close' | 'plus';
+export type IconName = 'refresh' | 'close' | 'plus' | 'gauge';
 
 /** 24x24 stroke paths (Lucide-style); the stroke follows `currentColor`. */
 export const ICON_PATHS: Record<IconName, string> = {
   refresh: 'M21 12a9 9 0 1 1-3-6.7M21 4v5h-5',
   close: 'M18 6 6 18M6 6l12 12',
   plus: 'M12 5v14M5 12h14',
+  gauge: 'M12 14l4-4M3.3 17a10 10 0 1 1 17.4 0',
 };
 
 @Component({

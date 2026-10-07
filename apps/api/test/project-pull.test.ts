@@ -315,6 +315,26 @@ describe('pull and repos routes with a child repo on another base', () => {
     expect(git(childClone, 'ls-files')).not.toContain('child.txt');
   });
 
+  it('answers 409 when the root is rejected but still carries the row of every repo', async () => {
+    const { detect, pull, call, project, pushChild, clone, childClone } = await setupWorkspace();
+    const child = second((await detect()).json<RepoRow[]>());
+    await call('PATCH', `/api/projects/${String(project.id)}/repos/${String(child.id)}`, {
+      baseBranch: 'dev',
+    });
+    pushChild('child.txt');
+    writeFileSync(join(clone, 'README.md'), 'edited\n');
+    const res = await pull();
+    expect(res.statusCode).toBe(409);
+    const body = res.json<{
+      error: string;
+      repos: { path: string; result: unknown; error: string | null }[];
+    }>();
+    expect(body.error).toContain('cambios locales');
+    expect(body.repos.find((r) => r.path === '.')?.error).toContain('cambios locales');
+    expect(body.repos.find((r) => r.path === 'be')?.error).toBeNull();
+    expect(git(childClone, 'ls-files')).toContain('child.txt');
+  });
+
   it('answers 401 without session and 403 without CSRF on the new routes, running nothing', async () => {
     const { project, detect, db, headers, app: server } = await setupWorkspace();
     const base = `/api/projects/${String(project.id)}`;

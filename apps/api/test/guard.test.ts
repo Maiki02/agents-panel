@@ -87,6 +87,17 @@ describe('deny-by-default guard', () => {
     expect(routes.every((r) => !r.public)).toBe(true);
   });
 
+  it('registers GET /api/usage behind the session and without a mutating verb', async () => {
+    app = makeApp().app;
+    await app.ready();
+    const usage = app.registeredRoutes.filter((r) => r.url === '/api/usage');
+    expect(usage.map((r) => r.method)).toContain('GET');
+    expect(usage.every((r) => !r.public && ['GET', 'HEAD'].includes(r.method))).toBe(true);
+    expect((await app.inject({ url: '/api/usage', headers: { origin: ORIGIN } })).statusCode).toBe(
+      401,
+    );
+  });
+
   it('registers the chat question routes and keeps them non-public', async () => {
     app = makeApp().app;
     await app.ready();

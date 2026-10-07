@@ -16,6 +16,10 @@ import { KyroVersions } from './maintenance/versions.js';
 import type { AgentRunner } from './agent/runner.js';
 import { SdkRunner } from './agent/sdk-runner.js';
 import { AgentSessionRepository } from './chats/sessions-repo.js';
+import { UsageRepository } from './usage/repo.js';
+import { registerUsageRoutes } from './usage/routes.js';
+import { UsageService } from './usage/service.js';
+import { readUsageWithSdk, type UsageReader } from './usage/sdk-usage.js';
 import { registerAutopilotRoutes } from './pilot/routes.js';
 import { PushNotifier } from './push/notifier.js';
 import { registerPushRoutes } from './push/routes.js';
@@ -123,6 +127,8 @@ export interface AppDeps {
   kyroRunner?: CommandRunner;
   /** Home where the Claude accounts live (~/.claude, ~/.claude.json); tests use a temporary one. */
   accountsHome?: string;
+  /** Reads the plan usage with a short SDK session; tests inject fixtures instead of a process. */
+  usageReader?: UsageReader;
 }
 
 export function buildApp(deps: AppDeps, options: FastifyServerOptions = {}): FastifyInstance {
@@ -186,6 +192,7 @@ export function buildApp(deps: AppDeps, options: FastifyServerOptions = {}): Fas
   const tracker = new WorktreeStateTracker(worktreeState, kyroReader, ideaScanner, questions);
   const agentSessions = new AgentSessionRepository(deps.db, now);
   const accounts = new AccountService(new AccountRepository(deps.db, now), deps.accountsHome);
+  const usageRepo = new UsageRepository(deps.db, now);
   const manager =
     deps.manager ??
     new AgentManager(
@@ -198,6 +205,7 @@ export function buildApp(deps: AppDeps, options: FastifyServerOptions = {}): Fas
       tracker,
       (projectId) => projects.getBashExtras(projectId),
       () => accounts.activeForRun(),
+      usageRepo,
     );
   // Nothing survives a restart: sessions that were running when the server stopped are interrupted
   // and the questions they were waiting on are cancelled (the resumed agent asks again).
@@ -251,6 +259,7 @@ export function buildApp(deps: AppDeps, options: FastifyServerOptions = {}): Fas
     tracker,
     questions,
     sessions: agentSessions,
+    usage: usageRepo,
     ...(deps.pilotGit ? { git: deps.pilotGit } : {}),
     projectOf: (chat) => projects.findById(chat.projectId),
     validateTimeoutMs: deps.config.pilotValidateTimeoutMs,
@@ -413,6 +422,10 @@ export function buildApp(deps: AppDeps, options: FastifyServerOptions = {}): Fas
   });
   registerPushRoutes(app, { push, subscriptions: pushSubscriptions });
   registerAccountRoutes(app, accounts);
+  registerUsageRoutes(app, {
+    usage: new UsageService(usageRepo, deps.usageReader ?? readUsageWithSdk, now),
+    activeAccount: () => accounts.activeForRun(),
+  });
   registerStreamRoute(app, {
     chats,
     bus,

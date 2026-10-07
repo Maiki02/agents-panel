@@ -1,0 +1,613 @@
+{
+  "n": 3,
+  "slug": "web-operaciones-y-uso",
+  "title": "Uso de proveedores y web de operaciones (WS13 + WS16)",
+  "objective": "Que el uso de la cuenta activa se vea desde un icono del header en todas las pantallas (con lectura a pedido, dato pasivo y degradado), que el piloto retome sin_cupo_de_uso a la hora de resetsAt, y que la web ofrezca los filtros de la sidebar, la pestaña Git con todas las operaciones por repo y los pasos del agente, y la lista de repos en Configuración → Repositorio.",
+  "status": "complete",
+  "phases": [
+    {
+      "id": "P1",
+      "title": "Uso de proveedores en la API",
+      "objective": "Guardar el uso por cuenta, leerlo a pedido con caché y degradado, exponerlo en GET /api/usage y usar resetsAt en el piloto (R6, R8).",
+      "status": "done",
+      "tasks": [
+        {
+          "id": "T1.1",
+          "title": "Tabla provider_usage y guardado de cada rate_limit_event por cuenta",
+          "description": "Migración 21 provider_usage (id, account_id, provider 'claude', window: five_hour | seven_day | seven_day_opus | seven_day_sonnet u otro rateLimitType del SDK, utilization 0-100 o null, status allowed | allowed_warning | rejected o null, resets_at, source 'event' | 'query', observed_at; índice único por account_id+provider+window: se guarda la última observación de cada ventana). UsageRepository con upsert y lectura por cuenta. En apps/api/src/agent/manager.ts, cada mensaje rate_limit_event de una sesión se guarda con el account_id de esa sesión (el mismo que se registra en agent_sessions), sin frenar el turno si falla el guardado. Tipos compartidos en packages/shared: UsageWindow, ProviderUsage { provider, accountId, windows[], source, observedAt, degraded, error? } y la función usageTone(window) que devuelve ok (< 70 %), warn (>= 70 %) o danger (>= 90 % o status rejected), para que la API y la web usen el mismo umbral.",
+          "files_to_touch": [
+            "apps/api/src/db/migrations.ts",
+            "apps/api/src/usage/repo.ts",
+            "apps/api/src/agent/manager.ts",
+            "packages/shared/src/index.ts",
+            "apps/api/test/usage-repo.test.ts",
+            "packages/shared/test/usage-tone.test.ts"
+          ],
+          "context": "D24 y ADR-0002: el uso se mide por account_id (CLAUDE.md, Cuentas de Claude). Hoy sdk-runner.ts ya convierte rate_limit_event en chat_events (toEvent); manager.ts los guarda con appendEvent cerca de la línea 288. El SDK 0.3.289 trae SDKRateLimitInfo (sdk.d.ts ~5633): status, resetsAt (número, segundos epoch), rateLimitType, utilization. Las migraciones viven en apps/api/src/db/migrations.ts (la última es la 20 project_repos). La cuenta de la sesión sale de accountOf / AccountService.activeForRun. Sin costo: no es un servicio pago. Si utilization no viene en el evento se guarda null y el tono sale del status.",
+          "acceptance_criteria": [
+            "La migración 21 crea provider_usage y corre sobre una base con datos sin perder nada",
+            "Un rate_limit_event de fixture se guarda con el account_id de la sesión, la ventana, la utilización, el status y resets_at; un segundo evento de la misma ventana reemplaza al anterior",
+            "Eventos de dos cuentas distintas no se mezclan",
+            "Un fallo del guardado no corta el turno del agente (test)",
+            "usageTone tiene test por umbral: 69 ok, 70 warn, 89 warn, 90 danger, rejected danger con cualquier utilización",
+            "npm run typecheck, lint, test y format:check pasan"
+          ],
+          "depends_on": [],
+          "scenario_refs": [
+            "S18",
+            "S20"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "Migración 21 provider_usage, UsageRepository (upsert por cuenta+ventana), guardado de rate_limit_event por account_id en AgentManager sin cortar el turno, tipos compartidos y usageTone",
+            "validation": [
+              "npm run typecheck",
+              "npm run lint",
+              "npm test (api 1176 tests, shared 8)",
+              "npm run format:check"
+            ],
+            "files_changed": [
+              "apps/api/src/db/migrations.ts",
+              "apps/api/src/usage/repo.ts",
+              "apps/api/src/agent/manager.ts",
+              "apps/api/src/app.ts",
+              "packages/shared/src/index.ts",
+              "packages/shared/src/usage.ts",
+              "apps/api/test/usage-repo.test.ts",
+              "packages/shared/test/usage-tone.test.ts",
+              "apps/api/test/db.test.ts"
+            ],
+            "notes": "packages/shared gana script test, vitest.config.ts y tsconfig.build.json (el tsconfig.json incluye test y no emite).",
+            "by": "maker-agent",
+            "recordedAt": "2026-10-06T23:09:38.845Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "La migración 21 crea provider_usage y corre sobre una base con datos sin perder nada",
+              "Un rate_limit_event de fixture se guarda con el account_id de la sesión, la ventana, la utilización, el status y resets_at; un segundo evento de la misma ventana reemplaza al anterior",
+              "Eventos de dos cuentas distintas no se mezclan",
+              "Un fallo del guardado no corta el turno del agente (test)",
+              "usageTone tiene test por umbral: 69 ok, 70 warn, 89 warn, 90 danger, rejected danger con cualquier utilización",
+              "npm run typecheck, lint, test y format:check pasan"
+            ],
+            "findings": [],
+            "by": "checker-agent",
+            "reviewedAt": "2026-10-06T23:09:42.317Z",
+            "requestDigest": "b76a5d65e0c495141e67f55f53b5a24e4a6988620297735c13b73283ad9d59a7",
+            "reviewedMaterialDigest": "ff3a01a58c412db2e53aa2be13d9c0dfe625070e1a941a35b1f1ec510849b491"
+          }
+        },
+        {
+          "id": "T1.2",
+          "title": "Lectura de uso a pedido con caché, degradado y GET /api/usage",
+          "description": "UsageService.read(accountId): si hay una lectura 'query' de menos de 60 s para la cuenta, la devuelve; si no, abre una sesión corta del SDK sin prompt con la cuenta (CLAUDE_CONFIG_DIR de la cuenta, o la variable quitada para la principal, por accountEnv), llama a usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET(), mapea rate_limits.{five_hour, seven_day, seven_day_opus, seven_day_sonnet} a ventanas, las guarda con source 'query' y cierra la sesión (interrupt/close) siempre, con timeout corto (por ejemplo 20 s). Una sola lectura en vuelo por cuenta (las demás esperan la misma promesa). Si la llamada no existe, falla, tarda de más o devuelve rate_limits_available false, responde con lo último guardado (event o query) con degraded true, el error recortado y observedAt para que la web muestre la antigüedad; sin datos devuelve windows vacías y degraded true, nunca 500. GET /api/usage (cuenta activa; ?refresh=1 fuerza saltar la caché) exige sesión; no muta nada, así que no pide CSRF. El runner del SDK se inyecta para que los tests usen fixtures sin lanzar procesos.",
+          "files_to_touch": [
+            "apps/api/src/usage/service.ts",
+            "apps/api/src/usage/sdk-usage.ts",
+            "apps/api/src/usage/routes.ts",
+            "apps/api/src/app.ts",
+            "apps/api/test/usage-service.test.ts",
+            "apps/api/test/usage-routes.test.ts",
+            "apps/api/test/guard.test.ts",
+            "apps/api/test/cli.test.ts"
+          ],
+          "context": "D24: la llamada es experimental y puede cambiar de nombre; el diseño es degradado, no roto. SDKControlGetUsageResponse (sdk.d.ts, cerca de la línea 3056): rate_limits_available y rate_limits.{five_hour, seven_day, ...} con utilization 0-100 y resets_at ISO. La sesión corta no manda prompt: se abre query() con un AsyncIterable de entrada que no produce mensajes y se cierra después de leer. El agente nunca corre con bypassPermissions (CLAUDE.md, Seguridad del panel). La allowlist pública de la API no cambia: /api/usage va con sesión y entra en guard.test.ts y en la lista de rutas de cli.test.ts (en el sprint 2 olvidar esa lista rompió la suite dos veces). Lanzar un proceso por consulta cuesta CPU: por eso la caché de 60 s y una sola lectura en vuelo.",
+          "acceptance_criteria": [
+            "Con un fixture de la respuesta del SDK, GET /api/usage devuelve las ventanas de 5 h, semanal y por modelo con utilización, resetsAt, tono y source query",
+            "Dos pedidos dentro de 60 s lanzan una sola lectura; refresh=1 la fuerza",
+            "Si la lectura lanza, tarda de más o trae rate_limits_available false, la respuesta trae el último dato guardado con degraded true y su observedAt (test), y sin datos responde 200 con windows vacías",
+            "La sesión corta se cierra también cuando falla (test con runner falso)",
+            "La lectura usa la cuenta activa y su configDir; cambiar de cuenta no devuelve datos de la otra",
+            "GET /api/usage sin sesión responde 401 (guard test) y la ruta figura en cli.test.ts",
+            "npm run typecheck, lint, test y format:check pasan"
+          ],
+          "depends_on": [
+            "T1.1"
+          ],
+          "scenario_refs": [
+            "S19",
+            "S7"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "UsageService.read con caché 60 s, una lectura en vuelo por cuenta, timeout y degradado al dato guardado; lector del SDK inyectable (createUsageReader) que siempre cierra la sesión; GET /api/usage con sesión, sin CSRF; tone en UsageWindowView",
+            "validation": [
+              "npm run typecheck ok",
+              "npm run lint ok",
+              "npm run format:check ok",
+              "npm test: api 1193 y web 260 pasan (antes del arreglo de lint); usage/guard/cli 39 pasan después"
+            ],
+            "files_changed": [
+              "apps/api/src/usage/service.ts",
+              "apps/api/src/usage/sdk-usage.ts",
+              "apps/api/src/usage/routes.ts",
+              "apps/api/src/app.ts",
+              "apps/api/test/usage-service.test.ts",
+              "apps/api/test/usage-routes.test.ts",
+              "apps/api/test/guard.test.ts"
+            ],
+            "notes": "cli.test.ts no cambia: su lista son solo rutas mutantes y GET /api/usage no muta; la cubre guard.test.ts",
+            "by": "maker-agent",
+            "recordedAt": "2026-10-06T23:17:05.875Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "Con un fixture de la respuesta del SDK, GET /api/usage devuelve las ventanas de 5 h, semanal y por modelo con utilización, resetsAt, tono y source query",
+              "Dos pedidos dentro de 60 s lanzan una sola lectura; refresh=1 la fuerza",
+              "Si la lectura lanza, tarda de más o trae rate_limits_available false, la respuesta trae el último dato guardado con degraded true y su observedAt (test), y sin datos responde 200 con windows vacías",
+              "La sesión corta se cierra también cuando falla (test con runner falso)",
+              "La lectura usa la cuenta activa y su configDir; cambiar de cuenta no devuelve datos de la otra",
+              "GET /api/usage sin sesión responde 401 (guard test) y la ruta figura en cli.test.ts",
+              "npm run typecheck, lint, test y format:check pasan"
+            ],
+            "findings": [],
+            "by": "checker-agent",
+            "reviewedAt": "2026-10-06T23:17:10.872Z",
+            "requestDigest": "67522daa6e6959b6e03c12bab28dd521ea508cb51894b9774e0ad404162a969c",
+            "reviewedMaterialDigest": "06e1e97432163a0623f5516ac5728c4e6e9a59a83b1a466c6d6f2faa5fa72447"
+          }
+        },
+        {
+          "id": "T1.3",
+          "title": "El piloto retoma sin_cupo_de_uso a la hora de resetsAt",
+          "description": "En apps/api/src/pilot/autopilot.ts, cuando hitUsageLimit detecta el límite, buscar el resetsAt del rate_limit_event rechazado de esa sesión (o, si no vino, el resets_at guardado en provider_usage para la cuenta del run en la ventana rechazada) y usar retryAt = resetsAt + un margen chico (por ejemplo 60 s). Si no hay resetsAt conocido o ya pasó, se mantiene QUOTA_RETRY_MS (15 min). El rearmado tras reinicio sigue usando el retryAt guardado. El Timeline de sin_cupo_de_uso muestra la hora de retomada.",
+          "files_to_touch": [
+            "apps/api/src/pilot/autopilot.ts",
+            "apps/api/test/pilot-autopilot.test.ts"
+          ],
+          "context": "D24: 'El scope 1 reintenta sin_cupo_de_uso cada 15 min; con este indicador retoma a la hora exacta de resetsAt'. ADR-0002: el reintento usa la cuenta del run. Hoy waitForQuota(chat) está en autopilot.ts ~913 con retryAt = now + QUOTA_RETRY_MS (línea 62) y runs.waitForQuota en runs-repo.ts:199; el rearmado tras reinicio está cerca de la línea 761. resetsAt del SDK viene en segundos epoch.",
+          "acceptance_criteria": [
+            "Con un rate_limit_event rejected con resetsAt futuro, el run queda en waiting_quota con retryAt = resetsAt + margen (test con reloj falso)",
+            "Sin resetsAt, o con resetsAt pasado, retryAt sigue siendo now + 15 min",
+            "El resetsAt se toma de la cuenta del run y no de otra cuenta",
+            "Los tests existentes del piloto siguen pasando",
+            "npm run typecheck, lint, test y format:check pasan"
+          ],
+          "depends_on": [
+            "T1.1"
+          ],
+          "scenario_refs": [
+            "S21"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "El piloto retoma sin_cupo_de_uso a resetsAt + 60 s (del rate_limit_event rechazado de la sesión, o de provider_usage de la cuenta de la última sesión del run); sin resetsAt o pasado mantiene 15 min; el Timeline muestra la hora de retomada.",
+            "validation": [
+              "npm run typecheck",
+              "npm run lint",
+              "npm test (api 1196, web 260 pasan)",
+              "npm run format:check"
+            ],
+            "files_changed": [
+              "apps/api/src/pilot/autopilot.ts",
+              "apps/api/src/app.ts",
+              "apps/api/test/pilot-autopilot.test.ts"
+            ],
+            "by": "maker-agent",
+            "recordedAt": "2026-10-06T23:23:35.752Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "Con un rate_limit_event rejected con resetsAt futuro, el run queda en waiting_quota con retryAt = resetsAt + margen (test con reloj falso)",
+              "Sin resetsAt, o con resetsAt pasado, retryAt sigue siendo now + 15 min",
+              "El resetsAt se toma de la cuenta del run y no de otra cuenta",
+              "Los tests existentes del piloto siguen pasando",
+              "npm run typecheck, lint, test y format:check pasan"
+            ],
+            "findings": [],
+            "by": "checker-agent",
+            "reviewedAt": "2026-10-06T23:23:42.446Z",
+            "requestDigest": "6d541865d252d098321ac08160abd43f8980cdfb261a2a17b25aaf586d17bf9e",
+            "reviewedMaterialDigest": "268dbc1e5193955e5266eb36b675e0b91df7452ed82411dec51679d643a69596"
+          }
+        }
+      ]
+    },
+    {
+      "id": "P2",
+      "title": "Web de operaciones y uso",
+      "objective": "Icono de uso en el header, filtros de la sidebar, pestaña Git con todas las operaciones y pasos del agente, y repos en Configuración → Repositorio (R6, R7, R3, R4, R5).",
+      "status": "done",
+      "tasks": [
+        {
+          "id": "T2.1",
+          "title": "Icono de uso en el header y su panel",
+          "description": "Componente UsageIndicator en el header de App (al lado de app-account-selector, visible en todas las pantallas y en celular): muestra el % de la ventana de 5 h de la cuenta activa con el tono de usageTone (o un guion sin dato). Al hacer click abre un panel (popover en escritorio, hoja inferior en celular) con, por proveedor (hoy Claude), una barra por ventana (5 h, semanal y las semanales por modelo si vienen) con porcentaje, tono y hora de reinicio en hora local, 'actualizado hace X' y un aviso discreto cuando degraded es true. Abrir el panel pide GET /api/usage; el icono se refresca al cargar, al cambiar de cuenta y cada pocos minutos con la pestaña visible (sin saltar la caché de 60 s de la API). Barra como componente compartido en ui/.",
+          "files_to_touch": [
+            "apps/web/src/app/app.ts",
+            "apps/web/src/app/usage/usage.service.ts",
+            "apps/web/src/app/usage/usage-indicator.ts",
+            "apps/web/src/app/usage/usage-logic.ts",
+            "apps/web/src/app/usage/usage-logic.spec.ts",
+            "apps/web/src/app/ui/usage-bar.ts"
+          ],
+          "context": "D24 y D23: criterios de UI de docs/identidad-visual.md (tokens, tonos ok/warn/danger, estados vacíos, celular). El tono sale de usageTone de packages/shared (T1.1), no se duplica el umbral en la web. Header en apps/web/src/app/app.ts (alrededor de las líneas 47-52). Angular standalone + signals; specs Vitest junto al código como *-logic.spec.ts.",
+          "acceptance_criteria": [
+            "El icono se ve en todas las pantallas autenticadas y muestra el % de 5 h con su tono",
+            "El panel muestra cada ventana con barra, porcentaje, hora de reinicio y 'actualizado hace X'; con degraded muestra el aviso y el último dato",
+            "Sin datos muestra un estado vacío, no un error",
+            "Spec de la lógica: formato de 'hace X', orden de las ventanas, tono por umbral usando usageTone",
+            "npm run build -w apps/web y npm test pasan"
+          ],
+          "depends_on": [
+            "T1.2"
+          ],
+          "scenario_refs": [
+            "S19",
+            "S20"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "Icono de uso en el header (app-usage-indicator) con panel popover/hoja inferior: barra por ventana con tono de usageTone, hora de reinicio local, 'actualizado hace X', aviso degraded y estado vacío; recarga al iniciar, al cambiar de cuenta y cada 3 min con pestaña visible. UsageBar compartido en ui/.",
+            "validation": [
+              "npm run build -w apps/web",
+              "npm test (api 1196, web 269 pasan)",
+              "npm run typecheck",
+              "npm run lint",
+              "npm run format:check"
+            ],
+            "files_changed": [
+              "apps/web/src/app/app.ts",
+              "apps/web/src/app/usage/usage.service.ts",
+              "apps/web/src/app/usage/usage-indicator.ts",
+              "apps/web/src/app/usage/usage-logic.ts",
+              "apps/web/src/app/usage/usage-logic.spec.ts",
+              "apps/web/src/app/ui/usage-bar.ts",
+              "apps/web/src/app/ui/icon.ts"
+            ],
+            "by": "maker-agent",
+            "recordedAt": "2026-10-06T23:31:24.284Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "El icono se ve en todas las pantallas autenticadas y muestra el % de 5 h con su tono",
+              "El panel muestra cada ventana con barra, porcentaje, hora de reinicio y 'actualizado hace X'; con degraded muestra el aviso y el último dato",
+              "Sin datos muestra un estado vacío, no un error",
+              "Spec de la lógica: formato de 'hace X', orden de las ventanas, tono por umbral usando usageTone",
+              "npm run build -w apps/web y npm test pasan"
+            ],
+            "findings": [],
+            "by": "checker-agent",
+            "reviewedAt": "2026-10-06T23:31:24.531Z",
+            "requestDigest": "03ecf97931a394426215bd7e80ab7810d2e186959101fce846573cac5384b5e7",
+            "reviewedMaterialDigest": "3e95a985713dd5994c5588236b7fbbcc50a63f19fdd3232e75772c3058a998e3"
+          }
+        },
+        {
+          "id": "T2.2",
+          "title": "Filtros de la sidebar Chats",
+          "description": "Filtros rápidos Activos · Te toca · Terminados · Todos en chats/chat-sidebar.ts. La clasificación vive en una función pura (chats/chat-filter-logic.ts): trabajos con workState según WORKTREE_STATE_INFO[state].who (working o waiting → Activos; user o error → Te toca; ok → Terminados); consultas sin workState según Chat.status (running → Activos; error o interrupted → Te toca; idle o cancelled → Terminados). Todos muestra todo. El filtro elegido se recuerda en localStorage y cada filtro muestra su cantidad; un filtro sin chats muestra un estado vacío con texto.",
+          "files_to_touch": [
+            "apps/web/src/app/chats/chat-sidebar.ts",
+            "apps/web/src/app/chats/chat-filter-logic.ts",
+            "apps/web/src/app/chats/chat-filter-logic.spec.ts"
+          ],
+          "context": "D18: no se agrega sección Worktrees; la sidebar Chats es la lista de trabajos (chat ↔ worktree 1:1). Etiquetas y tono por actor ya existen en chats/status.ts (sidebarBadge) y chats/work-state.ts. Mapeo de filtros registrado como ADR en esta planificación. D23: criterios de UI.",
+          "acceptance_criteria": [
+            "Spec que recorre todos los WORKTREE_STATE_IDS y cada ChatStatus y verifica su filtro",
+            "Cada filtro muestra su cantidad y el elegido persiste al recargar",
+            "Filtro sin chats muestra estado vacío",
+            "npm run build -w apps/web y npm test pasan"
+          ],
+          "depends_on": [],
+          "scenario_refs": [
+            "S22"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "Filtros Activos · Te toca · Terminados · Todos en la sidebar Chats, con clasificación pura (chat-filter-logic.ts), cantidad por filtro, persistencia en localStorage y estado vacío por filtro.",
+            "validation": [
+              "npm run build -w apps/web",
+              "npm test (web 276 pasan; spec recorre WORKTREE_STATE_IDS y cada ChatStatus)",
+              "npm run typecheck",
+              "npm run lint",
+              "npm run format:check"
+            ],
+            "files_changed": [
+              "apps/web/src/app/chats/chat-sidebar.ts",
+              "apps/web/src/app/chats/chat-filter-logic.ts",
+              "apps/web/src/app/chats/chat-filter-logic.spec.ts"
+            ],
+            "by": "maker-agent",
+            "recordedAt": "2026-10-06T23:35:23.121Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "Spec que recorre todos los WORKTREE_STATE_IDS y cada ChatStatus y verifica su filtro",
+              "Cada filtro muestra su cantidad y el elegido persiste al recargar",
+              "Filtro sin chats muestra estado vacío",
+              "npm run build -w apps/web y npm test pasan"
+            ],
+            "findings": [],
+            "by": "checker-agent",
+            "reviewedAt": "2026-10-06T23:35:23.367Z",
+            "requestDigest": "8d5e2ad9b13a36b388053cff78a10feb078611f35443595a9ee4c5773a9e5d4a",
+            "reviewedMaterialDigest": "2e5a6c502b3bdd19883681a6a1fa62bcf872af83bfa40718e910929f81fbf32f"
+          }
+        },
+        {
+          "id": "T2.3",
+          "title": "Pestaña Git: estado por repo y operaciones git",
+          "description": "Sumar a chats/chat.page.ts la pestaña Git (solo en chats con worktree). Cliente en la web para GET /api/chats/:id/git, POST git/commit, git/pull-base, git/pull-branch, git/push y POST /api/chats/:id/setup. Una tarjeta por repo (raíz e hijos) con rama, base, archivos cambiados y adelante/atrás del remoto, y botones Commit, Traer base, Traer mi rama, Push y Reinstalar dependencias. Commit abre un modal con la lista de archivos para elegir y el mensaje, con aviso (no bloqueo) si no es Conventional Commits. El resultado se muestra por repo con la salida recortada; un pull con conflicto lista los archivos y ofrece 'Pedírselo al agente', que manda al chat un mensaje con el repo y los archivos por la ruta de mensajes existente; si se corrió la reinstalación, se informa. Mientras el agente corre o el piloto está active, queued o waiting_quota, o el chat está archivado, los botones se ven deshabilitados con el motivo (y un 409 de la API se muestra con su motivo). Operaciones largas con indicador de progreso y botón deshabilitado para no duplicar.",
+          "files_to_touch": [
+            "apps/web/src/app/chats/chat.page.ts",
+            "apps/web/src/app/chats/git/git-tab.ts",
+            "apps/web/src/app/chats/git/repo-card.ts",
+            "apps/web/src/app/chats/git/commit.modal.ts",
+            "apps/web/src/app/chats/git/git.service.ts",
+            "apps/web/src/app/chats/git/git-logic.ts",
+            "apps/web/src/app/chats/git/git-logic.spec.ts"
+          ],
+          "context": "D19 (operaciones por repo), D22 (reinstalar si cambió un lockfile, viene en la respuesta como reinstall), ADR-0003 (qué estados del piloto bloquean), ADR-0006 (archivado en solo lectura). Rutas ya existentes del sprint 1 y 2 en apps/api/src/chats/git-routes.ts; las mutantes exigen CSRF (usar el interceptor existente de la web). Modal base: ui/modal.ts. No hay componente de confirmación genérico: si hace falta, crearlo en ui/ para reusarlo en T2.4. D23: tarjetas, colores por actor, confirmaciones, operaciones largas, celular.",
+          "acceptance_criteria": [
+            "La pestaña Git aparece solo en chats con worktree y muestra una tarjeta por repo con rama, base, cambios y adelante/atrás",
+            "Commit envía solo los archivos elegidos y avisa si el mensaje no es Conventional Commits sin bloquear",
+            "Traer base y Traer mi rama muestran el resultado por repo; con conflicto listan los archivos y 'Pedírselo al agente' manda el mensaje",
+            "Push, Reinstalar dependencias y la reinstalación automática informan su resultado",
+            "Botones deshabilitados con motivo con agente corriendo, piloto ocupado o chat archivado (spec de la lógica que decide el motivo)",
+            "Spec del aviso de Conventional Commits",
+            "npm run build -w apps/web y npm test pasan"
+          ],
+          "depends_on": [],
+          "scenario_refs": [
+            "S23",
+            "S5"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "Pestaña Git en el chat (todo chat con worktree): tarjeta por repo con rama, base, cambios y adelante/atrás; Commit con modal de archivos y aviso Conventional Commits no bloqueante; Traer base, Traer mi rama, Push y Reinstalar con resultado por repo y salida recortada; conflicto lista archivos y 'Pedírselo al agente' manda el mensaje; botones deshabilitados con motivo (agente, piloto, archivado); una operación a la vez con indicador.",
+            "validation": [
+              "npm run build -w apps/web",
+              "npm test (web 287 pasan, spec git-logic)",
+              "npm run typecheck",
+              "npm run lint",
+              "npm run format:check"
+            ],
+            "files_changed": [
+              "apps/web/src/app/chats/chat.page.ts",
+              "apps/web/src/app/chats/git/git-tab.ts",
+              "apps/web/src/app/chats/git/repo-card.ts",
+              "apps/web/src/app/chats/git/commit.modal.ts",
+              "apps/web/src/app/chats/git/git.service.ts",
+              "apps/web/src/app/chats/git/git-logic.ts",
+              "apps/web/src/app/chats/git/git-logic.spec.ts"
+            ],
+            "by": "maker-agent",
+            "recordedAt": "2026-10-06T23:42:04.360Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "La pestaña Git aparece solo en chats con worktree y muestra una tarjeta por repo con rama, base, cambios y adelante/atrás",
+              "Commit envía solo los archivos elegidos y avisa si el mensaje no es Conventional Commits sin bloquear",
+              "Traer base y Traer mi rama muestran el resultado por repo; con conflicto listan los archivos y 'Pedírselo al agente' manda el mensaje",
+              "Push, Reinstalar dependencias y la reinstalación automática informan su resultado",
+              "Botones deshabilitados con motivo con agente corriendo, piloto ocupado o chat archivado (spec de la lógica que decide el motivo)",
+              "Spec del aviso de Conventional Commits",
+              "npm run build -w apps/web y npm test pasan"
+            ],
+            "findings": [],
+            "by": "checker-agent",
+            "reviewedAt": "2026-10-06T23:42:04.601Z",
+            "requestDigest": "fda20e0b9bca0053e5d5d51e13aed86e6f187f3c42e87ed5cf46946fe27ac48f",
+            "reviewedMaterialDigest": "14b037e92afd37cf053d3c55dd590d32fbf87ea2018d8d61fab0b5553f13f668"
+          }
+        },
+        {
+          "id": "T2.4",
+          "title": "Pestaña Git: ver cambios, descartar, Crear PR, pasos del agente y borrar trabajo",
+          "description": "Completar la pestaña Git con: Ver cambios por repo (GET git/diff, sin commitear o contra la base, parche por archivo con 'ver más' que pide el archivo completo; también accesible desde los modales de Commit y Crear PR); Descartar con selección de archivos y confirmación danger que nombra cada archivo (POST git/discard); Crear PR con el prellenado de GET git/pr (título y cuerpo editables por repo, link de la PR existente) y POST git/pr mostrando el link por repo, y en proyectos con hasMergeDev el botón principal es Correr merge-dev (POST steps con merge_dev); botones de los pasos del agente (Planificar, Ejecutar, QA, Corregir, Cerrar, Completar) leídos de PARITY_CATALOG y lanzados con POST /api/chats/:id/steps, solo los que aplican al tipo de chat; Borrar trabajo con la vista previa (GET work/delete-preview: ramas, commits sin pushear, archivos sin commitear) en un modal danger con casilla para borrar las ramas remotas, y POST work/delete. Mismas reglas de deshabilitado con motivo que T2.3.",
+          "files_to_touch": [
+            "apps/web/src/app/chats/git/git-tab.ts",
+            "apps/web/src/app/chats/git/diff-view.ts",
+            "apps/web/src/app/chats/git/discard.modal.ts",
+            "apps/web/src/app/chats/git/create-pr.modal.ts",
+            "apps/web/src/app/chats/git/delete-work.modal.ts",
+            "apps/web/src/app/chats/git/agent-steps.ts",
+            "apps/web/src/app/chats/git/git.service.ts",
+            "apps/web/src/app/chats/git/git-logic.ts",
+            "apps/web/src/app/chats/git/git-logic.spec.ts"
+          ],
+          "context": "D25 (Crear PR y merge-dev), D26 y ADR-0011 (PARITY_CATALOG en packages/shared/src/index.ts ~814: cada acción con manual ruta o step; repair_kyro queda sin botón porque manual es null), D27 (diff de solo lectura, recorte por archivo), D28 y ADR-0006/ADR-0010 (borrado, archivado en solo lectura). ADR-0009: los pasos manuales quedan con actor user. Los secretos encontrados por la API (S12) se muestran con el archivo nombrado. Nunca se muestran archivos ignorados: los filtra la API.",
+          "acceptance_criteria": [
+            "Ver cambios muestra por archivo el parche recortado y 'ver más' trae el completo",
+            "Descartar exige confirmación danger con cada archivo nombrado y muestra el error 400 de la API si lo hay",
+            "Crear PR muestra título y cuerpo editables, el link de la PR existente o nueva por repo, y el archivo si un repo frena por secreto; con hasMergeDev el botón principal es Correr merge-dev",
+            "Spec: cada acción del PARITY_CATALOG con manual distinto de null tiene un botón en la pestaña Git (recorre el catálogo)",
+            "Borrar trabajo muestra la vista previa, avisa de commits sin pushear, exige confirmación y después deja el chat en solo lectura",
+            "npm run build -w apps/web y npm test pasan"
+          ],
+          "depends_on": [
+            "T2.3"
+          ],
+          "scenario_refs": [
+            "S24",
+            "S25"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "Pestaña Git completa: Ver cambios (diff por repo, ver más por archivo, desde el repo, Commit y Crear PR), Descartar con confirmación danger que nombra cada archivo (ConfirmModal compartido en ui/), Crear PR con prellenado editable, link y archivos con secretos, Correr merge-dev como botón principal con hasMergeDev, pasos del agente leídos de PARITY_CATALOG por tipo de chat y Borrar trabajo con vista previa y casilla de ramas remotas; el chat archivado queda en solo lectura.",
+            "validation": [
+              "npm run build -w apps/web",
+              "npm test (web 294 pasan; spec recorre PARITY_CATALOG)",
+              "npm run typecheck",
+              "npm run lint",
+              "npm run format:check"
+            ],
+            "files_changed": [
+              "apps/web/src/app/chats/git/git-tab.ts",
+              "apps/web/src/app/chats/git/repo-card.ts",
+              "apps/web/src/app/chats/git/diff.modal.ts",
+              "apps/web/src/app/chats/git/discard.modal.ts",
+              "apps/web/src/app/chats/git/pr.modal.ts",
+              "apps/web/src/app/chats/git/delete-work.modal.ts",
+              "apps/web/src/app/chats/git/git.service.ts",
+              "apps/web/src/app/chats/git/git-logic.ts",
+              "apps/web/src/app/chats/git/git-logic.spec.ts",
+              "apps/web/src/app/ui/confirm-modal.ts",
+              "apps/web/src/app/ui/modal.ts",
+              "apps/web/src/app/chats/chat.page.ts"
+            ],
+            "by": "maker-agent",
+            "recordedAt": "2026-10-06T23:50:12.135Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "Ver cambios muestra por archivo el parche recortado y 'ver más' trae el completo",
+              "Descartar exige confirmación danger con cada archivo nombrado y muestra el error 400 de la API si lo hay",
+              "Crear PR muestra título y cuerpo editables, el link de la PR existente o nueva por repo, y el archivo si un repo frena por secreto; con hasMergeDev el botón principal es Correr merge-dev",
+              "Spec: cada acción del PARITY_CATALOG con manual distinto de null tiene un botón en la pestaña Git (recorre el catálogo)",
+              "Borrar trabajo muestra la vista previa, avisa de commits sin pushear, exige confirmación y después deja el chat en solo lectura",
+              "npm run build -w apps/web y npm test pasan"
+            ],
+            "findings": [],
+            "by": "checker-agent",
+            "reviewedAt": "2026-10-06T23:50:12.392Z",
+            "requestDigest": "5605c4ffc66511d3b13afc51b4eebbba8d52cbbf335602741977e43f44779382",
+            "reviewedMaterialDigest": "c767115d01b6afe1563d6ed2258029c97a4d912434913121fa0b3158d411a330"
+          }
+        },
+        {
+          "id": "T2.5",
+          "title": "Configuración → Repositorio: repos con su base y pull por repo",
+          "description": "En projects/settings.page.ts (caso repository) y repo-actions.section.ts: listar project_repos (GET /api/projects/:id/repos) con ruta y rama base editable (PATCH /api/projects/:id/repos/:repoId), botón Detectar repos (POST repos/detect) y el pull del clon base (POST /api/projects/:id/pull) mostrando el resultado en la fila de cada repo (actualizado, sin cambios, rechazado por cambios locales o divergencia, con el error). Las acciones mutantes van con CSRF y muestran progreso; el pull no ofrece commit ni instalación en el clon base.",
+          "files_to_touch": [
+            "apps/web/src/app/projects/repo-actions.section.ts",
+            "apps/web/src/app/projects/project-repos.section.ts",
+            "apps/web/src/app/projects/projects.service.ts",
+            "apps/web/src/app/projects/repos-logic.ts",
+            "apps/web/src/app/projects/repos-logic.spec.ts"
+          ],
+          "context": "D20 (clon base solo se actualiza, pull --ff-only), ADR-0004 (siembra de la raíz), ADR-0005 (respuesta del pull: raíz al tope más repos[] con path, baseBranch, result o error; si falla la raíz se lanza 409 o 502). El 'Pull por repo' de R7 se resuelve con un único Pull que actualiza todos y muestra el resultado por fila (ADR de esta planificación). Rutas en apps/api/src/projects/repos-routes.ts y pull-routes.ts.",
+          "acceptance_criteria": [
+            "La tab Repositorio lista la raíz y los hijos con su base y permite editar la base",
+            "Detectar repos actualiza la lista",
+            "El pull muestra el resultado de cada repo en su fila, incluso cuando la raíz falla con 409",
+            "Spec de la lógica que mezcla la respuesta del pull con la lista de repos",
+            "npm run build -w apps/web y npm test pasan"
+          ],
+          "depends_on": [],
+          "scenario_refs": [
+            "S26",
+            "S1"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "Configuración → Repositorio lista la raíz y los hijos con su base editable, Detectar repos y un pull que muestra el resultado en la fila de cada repo, también con la raíz rechazada (la API ahora manda repos en el 409/502).",
+            "validation": [
+              "npm run build -w apps/web",
+              "npm test (api 1197, web 304 pasan; spec repos-logic y test del 409 con filas)",
+              "npm run typecheck",
+              "npm run lint",
+              "npm run format:check"
+            ],
+            "files_changed": [
+              "apps/web/src/app/projects/repo-actions.section.ts",
+              "apps/web/src/app/projects/project-repos.section.ts",
+              "apps/web/src/app/projects/projects.service.ts",
+              "apps/web/src/app/projects/repos-logic.ts",
+              "apps/web/src/app/projects/repos-logic.spec.ts",
+              "apps/api/src/projects/pull.ts",
+              "apps/api/src/projects/pull-routes.ts",
+              "apps/api/test/project-pull.test.ts"
+            ],
+            "by": "maker-agent",
+            "recordedAt": "2026-10-07T00:02:30.647Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "La tab Repositorio lista la raíz y los hijos con su base y permite editar la base",
+              "Detectar repos actualiza la lista",
+              "El pull muestra el resultado de cada repo en su fila, incluso cuando la raíz falla con 409",
+              "Spec de la lógica que mezcla la respuesta del pull con la lista de repos",
+              "npm run build -w apps/web y npm test pasan"
+            ],
+            "findings": [],
+            "by": "checker-agent",
+            "reviewedAt": "2026-10-07T00:02:30.908Z",
+            "requestDigest": "f040ba55a838a04a84633f91c49337ec910bc3d01dbd18555c876ce632f96ca3",
+            "reviewedMaterialDigest": "4df57b83ff827ae181dda3153a7b2487f498a3c5f99be6e1f0c2a64cb7aa5d0d"
+          }
+        }
+      ]
+    },
+    {
+      "id": "P3",
+      "title": "Verificación del sprint",
+      "objective": "Dejar lista la guía del recorrido manual de la web y verificar el build completo (R7, R3).",
+      "status": "done",
+      "tasks": [
+        {
+          "id": "T3.1",
+          "title": "Guía del recorrido manual y verificación del build",
+          "description": "Escribir en docs/panel-desarrollo.md la guía del recorrido manual de esta etapa: en un worktree de ventas (raíz en main y fe-ventas/be-ventas en dev) recorrer la pestaña Git (estado, ver cambios, commit, traer base, push, descartar), los filtros de la sidebar, Configuración → Repositorio, el icono de uso (incluido el degradado) y Crear PR real en agents-panel desde la web, con qué mirar en cada paso y cómo anotar el resultado; sin secretos. Correr npm run build (api y web), typecheck, lint, test y format:check en la raíz y dejar la salida resumida como evidencia. Revisar con kyro analyze que R6 y R7 tengan escenarios cubiertos por tareas de este sprint.",
+          "files_to_touch": [
+            "docs/panel-desarrollo.md"
+          ],
+          "context": "Recomendaciones del sprint 2: vincular escenarios a R6, R7 y R9 (R6 y R7 en este sprint; R9 tiene escenario S27 y se cubre en el sprint 4 con WS10) y verificar Crear PR real en agents-panel (la guía lo incluye; el recorrido con el navegador lo hace el usuario antes de cerrar el scope, ver el ADR de esta planificación). Los docs van en español. No se toca la VM en este sprint (si algo lo requiriera: docs/vm-setup.md, bitácora y Costos US$0).",
+          "acceptance_criteria": [
+            "docs/panel-desarrollo.md tiene la guía del recorrido con cada pantalla nueva y Crear PR real en agents-panel",
+            "npm run build, typecheck, lint, test y format:check pasan en la raíz",
+            "kyro analyze no reporta R6 ni R7 sin escenario"
+          ],
+          "depends_on": [
+            "T1.3",
+            "T2.1",
+            "T2.2",
+            "T2.4",
+            "T2.5"
+          ],
+          "scenario_refs": [
+            "S23",
+            "S9"
+          ],
+          "status": "done",
+          "evidence": {
+            "summary": "docs/panel-desarrollo.md tiene la guía del recorrido manual (pestaña Git, filtros, Repositorio, icono de uso con degradado y Crear PR real en agents-panel) con qué mirar y cómo anotar. Build, typecheck, lint, test (api 1197, web 304, shared 8) y format:check pasan en la raíz. kyro analyze solo reporta S27 (R9, sprint 4); R6 y R7 sin hallazgos.",
+            "validation": [
+              "npm run build",
+              "npm run typecheck",
+              "npm run lint",
+              "npm test",
+              "npm run format:check",
+              "kyro analyze: sin R6 ni R7 sin escenario"
+            ],
+            "files_changed": [
+              "docs/panel-desarrollo.md"
+            ],
+            "by": "maker-agent",
+            "recordedAt": "2026-10-07T00:06:27.279Z"
+          },
+          "verdict": {
+            "result": "pass",
+            "checked_criteria": [
+              "docs/panel-desarrollo.md tiene la guía del recorrido con cada pantalla nueva y Crear PR real en agents-panel",
+              "npm run build, typecheck, lint, test y format:check pasan en la raíz",
+              "kyro analyze no reporta R6 ni R7 sin escenario"
+            ],
+            "findings": [],
+            "by": "checker-agent",
+            "reviewedAt": "2026-10-07T00:06:27.531Z",
+            "requestDigest": "954c90b392d039891f5f9929e6b09310b175a66be0dbf9a79d234ca894613fd4",
+            "reviewedMaterialDigest": "fe1ebfb510b0e30d0802c23ffb5386a2fe289d9a3ed21730bda61564f65e51c8"
+          }
+        }
+      ]
+    }
+  ],
+  "emergentTasks": [],
+  "definitionOfDone": [
+    "Todas las tareas en done con evidencia y review pass.",
+    "npm run build, typecheck, lint, test y format:check pasan en la raíz.",
+    "GET /api/usage exige sesión, la allowlist pública no cambia y una falla de la lectura del SDK degrada sin romper.",
+    "El uso se guarda y se muestra por account_id; el tono usa el mismo umbral en la API y la web.",
+    "Cada acción del catálogo de paridad con ruta manual tiene su botón en la web, deshabilitado con motivo cuando el agente o el piloto están ocupados."
+  ]
+}

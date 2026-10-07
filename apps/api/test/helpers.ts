@@ -36,6 +36,7 @@ export function makeApp(
       | 'pilotGh'
       | 'pushSender'
       | 'accountsHome'
+      | 'usageReader'
     >
   > = {},
 ): {
@@ -71,6 +72,7 @@ export function makeApp(
     ...(extra.pilotGh ? { pilotGh: extra.pilotGh } : {}),
     ...(extra.pushSender ? { pushSender: extra.pushSender } : {}),
     ...(extra.accountsHome ? { accountsHome: extra.accountsHome } : {}),
+    ...(extra.usageReader ? { usageReader: extra.usageReader } : {}),
   });
   return { app, db, worktreesDir, projectsDir };
 }

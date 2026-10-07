@@ -43,6 +43,7 @@ import { realGh, type PilotGh } from './github-cli.js';
 import { runMergePhase, type MergePhaseOutcome } from './merge-phase.js';
 import type { SecretFinding } from './secrets.js';
 import type { AutopilotRunRepository } from './runs-repo.js';
+import type { UsageRepository } from '../usage/repo.js';
 
 /** Everything the pilot reads from the Kyro CLI. */
 export interface PilotKyro extends KyroStateReader, CapabilityReader {
@@ -85,6 +86,8 @@ export interface AutopilotDeps {
   validateTimeoutMs?: number;
   /** Sessions of every chat; needed to resume an interrupted step after a restart. */
   sessions?: AgentSessionRepository;
+  /** Last usage windows per account; the fallback for the reset time of a rejected window. */
+  usage?: Pick<UsageRepository, 'listByAccount'>;
   maxSessionsPerSprint?: number;
   now?: () => number;
   /** Runs `fn` after `ms`; injectable so tests do not wait 15 minutes. */
@@ -157,6 +160,29 @@ export function hitUsageLimit(events: ChatEvent[]): boolean {
       /usage limit|limit reached|rate limit/i.test(text(payload['result']))
     );
   });
+}
+
+/** Margin after the window resets before the pilot retries, so the limit is really lifted. */
+export const QUOTA_RESET_MARGIN_MS = 60 * 1000;
+
+/**
+ * Epoch ms at which the rejected window of the session resets: the latest `resetsAt` (epoch
+ * seconds) of its rejected `rate_limit_event`s, or null when none carried one.
+ */
+export function rejectedResetsAt(events: ChatEvent[]): number | null {
+  let latest: number | null = null;
+  for (const event of events) {
+    if (event.type !== 'rate_limit_event') continue;
+    const payload = event.payload as Record<string, unknown> | null;
+    const info = payload?.['rate_limit_info'] as
+      { status?: unknown; resetsAt?: unknown } | undefined;
+    if (info?.status !== 'rejected') continue;
+    const seconds = info.resetsAt;
+    if (typeof seconds !== 'number' || !Number.isFinite(seconds)) continue;
+    const ms = Math.round(seconds * 1000);
+    if (latest === null || ms > latest) latest = ms;
+  }
+  return latest;
 }
 
 /**
@@ -717,7 +743,7 @@ export class Autopilot {
     const ended = chats.findById(chat.id);
     const events = chats.allEventsAfter(chat.id, fromSeq);
     if (hitUsageLimit(events)) {
-      this.waitForQuota(chat);
+      this.waitForQuota(chat, events);
       return 'exit';
     }
     if (ended?.status === 'cancelled') {
@@ -910,12 +936,36 @@ export class Autopilot {
     return undefined;
   }
 
-  private waitForQuota(chat: Chat): undefined {
-    const retryAt = this.now() + QUOTA_RETRY_MS;
+  /**
+   * Reset time (epoch ms) of the rejected window: from the session's own rate-limit event, else the
+   * rejected window saved for the account of the run's last session (never another account's).
+   */
+  private resetsAtOf(chat: Chat, events: ChatEvent[]): number | null {
+    const fromEvent = rejectedResetsAt(events);
+    if (fromEvent !== null) return fromEvent;
+    const { usage, sessions } = this.deps;
+    const accountId = sessions?.listByChat(chat.id).at(-1)?.accountId ?? null;
+    if (!usage || accountId === null) return null;
+    let latest: number | null = null;
+    for (const w of usage.listByAccount(accountId)) {
+      if (w.status !== 'rejected' || w.resetsAt === null) continue;
+      if (latest === null || w.resetsAt > latest) latest = w.resetsAt;
+    }
+    return latest;
+  }
+
+  private waitForQuota(chat: Chat, events: ChatEvent[]): undefined {
+    const now = this.now();
+    const resetsAt = this.resetsAtOf(chat, events);
+    const exact = resetsAt !== null && resetsAt > now;
+    const wait = exact ? resetsAt + QUOTA_RESET_MARGIN_MS - now : QUOTA_RETRY_MS;
+    const retryAt = now + wait;
     this.deps.runs.waitForQuota(chat.id, retryAt);
     this.deps.tracker.pilotMark(chat, {
       state: 'sin_cupo_de_uso',
-      reason: 'Se alcanzó el límite de uso: reintenta cada 15 minutos',
+      reason: exact
+        ? `Se alcanzó el límite de uso: retoma a las ${new Date(retryAt).toISOString()} (UTC, cuando se renueva el cupo)`
+        : 'Se alcanzó el límite de uso: reintenta cada 15 minutos',
       data: { retryAt },
     });
     this.schedule(() => {
@@ -925,7 +975,7 @@ export class Autopilot {
         return; // Paused or switched off while waiting.
       }
       this.kick(chat.id);
-    }, QUOTA_RETRY_MS);
+    }, wait);
     return undefined;
   }
 

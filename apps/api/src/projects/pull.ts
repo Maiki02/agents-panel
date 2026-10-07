@@ -14,6 +14,14 @@ export interface PullServiceDeps {
   pull?: typeof pullFastForward;
 }
 
+/** Results per repo that go with the error of a failed root pull (the others were still updated). */
+const reposOfFailure = new WeakMap<Error, RepoPullResult[]>();
+
+/** The per repo results behind a root failure, so the web can still show each repo's row. */
+export function repoResultsOf(error: unknown): RepoPullResult[] | undefined {
+  return error instanceof Error ? reposOfFailure.get(error) : undefined;
+}
+
 /** Updates a project's base clone from GitHub so new worktrees start from what is already pushed. */
 export class PullService {
   private readonly pull: typeof pullFastForward;
@@ -67,7 +75,10 @@ export class PullService {
           });
         }
       }
-      if (rootError !== undefined) throw rootError;
+      if (rootError !== undefined) {
+        reposOfFailure.set(rootError, repos);
+        throw rootError;
+      }
       const root = repos.find((repo) => repo.path === '.')?.result;
       if (!root) throw new ProjectConflictError('El proyecto no tiene repo raíz');
       return { ...root, repos };
