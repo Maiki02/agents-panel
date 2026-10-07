@@ -78,6 +78,15 @@ Los proyectos se dan de alta desde la web (**Proyectos → Nuevo proyecto**, con
 - Un proyecto sin Kyro (sin `.agents/kyro/` en el repo) solo admite chats de tipo **Pedido directo**; para usar Work o Scope se inicializa desde la web (**Configuración → Repositorio → Inicializar Kyro**), que deja la rama `chore/kyro-init` para revisar, pushear y mergear a la rama base.
 - Borrar un proyecto desde la web nunca pierde trabajo: se rechaza si hay algo sin commitear o sin pushear (detalle en `docs/plan.md`).
 
+## Operaciones sobre un trabajo
+
+Valen para cualquier cambio futuro en el panel (detalle en `docs/plan.md`, «Servicio de acciones y paridad manual»):
+
+- Toda acción sobre un trabajo (git, Crear PR, descartar, borrar, pasos del agente) pasa por el servicio único `WorktreeOps` con **actor** (`user`, `pilot`, `agent`); el Timeline lo registra. Cada acción nueva del piloto suma su fila en `PARITY_CATALOG` y su botón en la web; un test falla si falta.
+- Las rutas de operaciones piden sesión y CSRF y responden **409** si el agente del trabajo corre, hay mantenimiento de Kyro o el piloto está en `active`, `queued` o `waiting_quota` (para operar a mano se pausa el piloto); un trabajo `archivado` es de solo lectura.
+- Ninguna operación fuerza un push, hace rebase, pushea una rama que no sea la del trabajo, commitea o instala en el clon base del proyecto (solo se actualiza con `pull --ff-only`), ni lee o toca archivos ignorados (los `.env`).
+- El uso de los proveedores se mide por `account_id` (ver abajo); la API y la web usan el mismo `usageTone`.
+
 ## Cuentas de Claude
 
 - La VM tiene más de un login de Claude Code: `~/.claude` es la principal y la fuente de la verdad; las demás (`~/.claude2`, …) enlazan su config con `scripts/vm/11-claude-cuentas.sh` (paso 17 de `docs/vm-setup.md`). Nunca se enlazan ni se copian `.credentials.json` ni `.claude.json`.

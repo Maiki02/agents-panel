@@ -438,9 +438,26 @@ curl -s -b "$COOKIES" -H "X-CSRF-Token: $CSRF" -H "Origin: $ORIGIN" -H "Content-
 - Con un secreto en los cambios, Crear PR no pushea ni abre nada y el resultado nombra los archivos (no su contenido).
 - El Timeline (`GET /api/chats/:id/timeline`) muestra el actor de cada entrada: `user` para estas llamadas y `pilot` para lo que haga el piloto.
 
+### Probar el indicador de uso (`GET /api/usage`)
+
+Con el túnel abierto y la cookie de sesión en un archivo (sin CSRF: es un `GET` que no muta nada):
+
+```bash
+# Uso de la cuenta activa; con la caché de 60 s puede devolver lo último leído
+curl -s -b "$COOKIES" "http://localhost:3000/api/usage"
+
+# Saltar la caché y leer de nuevo (abre una sesión corta del SDK sin prompt)
+curl -s -b "$COOKIES" "http://localhost:3000/api/usage?refresh=1"
+```
+
+- La respuesta trae `accountId`, `windows` (una por ventana: `five_hour`, `seven_day` y las semanales por modelo si vienen, cada una con `utilization`, `resetsAt`, `observedAt` y `tone`), `source`, `observedAt` y `degraded`. Sin sesión da 401.
+- **Degradado:** si la lectura a pedido falla (la llamada del SDK es experimental), la respuesta sigue siendo 200 con lo último guardado, `degraded: true`, `error` recortado y `observedAt` para ver su antigüedad; sin ningún dato, `windows` vacío. Nunca un 500. Para verlo, probar con una cuenta sin sesión iniciada o con la VM sin red.
+- Cambiar la cuenta activa (Configuración) cambia lo que devuelve: cada cuenta tiene sus ventanas guardadas por separado.
+- El tono sale de `usageTone`: `ok` por debajo de 70 %, `warn` desde 70 %, `danger` desde 90 % o ventana rechazada.
+
 ## Recorrido manual de la web: pestaña Git, filtros, Repositorio y uso
 
-Sprint `web-operaciones-y-uso`. Es el recorrido que hace una persona en el navegador antes de cerrar el scope. Entrá por el túnel (sección 5) o por la URL de Funnel. **Las pruebas destructivas (commit, push, descartar, borrar) van sobre un trabajo descartable**; el único repo real que se toca es este (`agents-panel`) y solo para el paso 7. Ningún valor secreto se anota: ni cookies, ni tokens, ni el contenido de un `.env`.
+Sprint `web-operaciones-y-uso`. Es el recorrido que hace **el usuario** en el navegador antes de completar el scope `operaciones-worktree`: el piloto no tiene navegador, así que **ni este recorrido en `ventas` ni la PR real en `agents-panel` (paso 7) los hace el agente** ni entran en la evidencia de los sprints; quedan para el usuario y se anotan como dice más abajo. Entrá por el túnel (sección 5) o por la URL de Funnel. **Las pruebas destructivas (commit, push, descartar, borrar) van sobre un trabajo descartable**; el único repo real que se toca es este (`agents-panel`) y solo para el paso 7. Ningún valor secreto se anota: ni cookies, ni tokens, ni el contenido de un `.env`.
 
 **Preparación.** En `ventas` (raíz en `main`; `fe-ventas` y `be-ventas` en `dev`) creá un Work descartable. En **Configuración → Repositorio → Detectar repos** tienen que aparecer la raíz y los dos hijos, cada uno con su base.
 

@@ -559,6 +559,22 @@
         "Agregar una tarea de relleno para S27",
         "Postergar el cierre"
       ]
+    },
+    {
+      "id": "ADR-0019",
+      "title": "Plan del sprint 4: solo documentación, matriz D18-D28 en la evidencia",
+      "status": "accepted",
+      "date": "2026-10-07",
+      "context": "El sprint 4 (WS10) cierra el scope; el sprint 3 no dejó recomendaciones ni deuda; los docs ya cubren el servicio de acciones, las rutas del sprint 2 y project_repos, pero faltan el indicador de uso (D24), la web de operaciones (D18, D20, D23), el resumen de los sprints 2 y 3, reglas en CLAUDE.md y estados.md dice que sin_cupo_de_uso reintenta cada 15 min",
+      "decision": "Cuatro tareas: T1.1 docs/plan.md, T1.2 docs/estados.md, T1.3 CLAUDE.md y docs/panel-desarrollo.md, T2.1 matriz D18-D28 y R1-R9 en la evidencia (no en un doc nuevo) más build, tests y kyro analyze. Todas cubren S27; no se agregan escenarios. docs/vm-setup.md no cambia porque el scope no tocó la VM. El recorrido manual en ventas y la PR real siguen siendo del usuario antes de completar el scope (ADR-0015, ADR-0018)",
+      "consequences": [
+        "El sprint no cambia código; si un doc contradice el código y no se puede corregir en el doc, queda como deuda",
+        "El scope queda listo para completarse tras el recorrido manual del usuario"
+      ],
+      "alternatives": [
+        "Un doc nuevo con la matriz de decisiones",
+        "Sumar un escenario por doc además de S27"
+      ]
     }
   ],
   "roadmap": {
@@ -587,7 +603,7 @@
         "n": 4,
         "slug": "docs-y-cierre",
         "title": "Documentación y cierre (WS10)",
-        "state": "planned"
+        "state": "closed"
       }
     ]
   },
@@ -628,21 +644,31 @@
       "snapshot": "archive/sprint-003-web-operaciones-y-uso.json",
       "checkpoint": "archive/sprint-003-web-operaciones-y-uso.checkpoint.json",
       "checkpointSha256": "d21a5367d8b02680e1a3d7493255c29f819204804b064ff1ab244b4303124df9"
+    },
+    {
+      "n": 4,
+      "slug": "docs-y-cierre",
+      "outcome": "shipped",
+      "closedAt": "2026-10-07",
+      "archive": "archive/sprint-004-docs-y-cierre.md",
+      "snapshot": "archive/sprint-004-docs-y-cierre.json",
+      "checkpoint": "archive/sprint-004-docs-y-cierre.checkpoint.json",
+      "checkpointSha256": "b245d90a8925b1e63fba68e8bf850d4f8cb4e98e5fa2fd2684edd760e81f12cd"
     }
   ],
   "previousSprint": {
-    "n": 3,
-    "slug": "web-operaciones-y-uso",
+    "n": 4,
+    "slug": "docs-y-cierre",
     "outcome": "shipped",
-    "summary": "Que el uso de la cuenta activa se vea desde un icono del header en todas las pantallas (con lectura a pedido, dato pasivo y degradado), que el piloto retome sin_cupo_de_uso a la hora de resetsAt, y que la web ofrezca los filtros de la sidebar, la pestaña Git con todas las operaciones por repo y los pasos del agente, y la lista de repos en Configuración → Repositorio."
+    "summary": "Que docs/plan.md, docs/estados.md, docs/panel-desarrollo.md y CLAUDE.md reflejen las decisiones D18 a D28 tal como quedaron implementadas (repos del proyecto, operaciones manuales con el servicio único, Crear PR, ver cambios, descartar y borrar, indicador de uso por cuenta y web de operaciones), con una matriz de verificación que lo pruebe y el scope listo para cerrarse."
   },
   "activeSprint": null,
   "debt": [],
   "handoff": {
-    "nextAction": "plan_sprint",
+    "nextAction": "await_scope_completion",
     "nextTaskId": null,
     "blockers": [],
-    "note": "Sprint 3 (web-operaciones-y-uso) closed as shipped. Scope remains open for planning.",
+    "note": "Sprint 4 (docs-y-cierre) closed as shipped. Roadmap exhausted; await explicit scope completion or an expansion decision.",
     "lastUpdated": "2026-10-07"
   },
   "author": {
