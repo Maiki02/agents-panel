@@ -2,7 +2,7 @@
   "schemaVersion": 4,
   "scope": "operaciones-worktree",
   "title": "Operaciones manuales por trabajo y uso de proveedores",
-  "status": "planning",
+  "status": "completed",
   "objective": "Que toda acción que hace el agente o el piloto tenga su botón en la web, usando el mismo servicio que el piloto (D26), y que el uso de los proveedores se vea desde cualquier pantalla.",
   "successCriteria": [
     "Desde la web, sin SSH, un usuario puede ver el estado de cada repo de un trabajo, commitear archivos elegidos, traer la base, traer su rama, pushear, reinstalar dependencias y abrir la PR, y cada operación queda en el Timeline con quién la hizo y su resultado.",
@@ -665,10 +665,10 @@
   "activeSprint": null,
   "debt": [],
   "handoff": {
-    "nextAction": "await_scope_completion",
+    "nextAction": "done",
     "nextTaskId": null,
     "blockers": [],
-    "note": "Sprint 4 (docs-y-cierre) closed as shipped. Roadmap exhausted; await explicit scope completion or an expansion decision.",
+    "note": "Scope explicitly completed.",
     "lastUpdated": "2026-10-07"
   },
   "author": {
@@ -676,5 +676,13 @@
     "email": "miqueasdavidgentile@gmail.com",
     "source": "git",
     "capturedAt": "2026-10-06T02:33:55.207Z"
+  },
+  "completion": {
+    "completedAt": "2026-10-07T00:25:12.009Z",
+    "by": "maker",
+    "requestDigest": "07731235fd0e1d5909b3532b1af5a21823e688550064851a0c84ebb4b7ec710d",
+    "beforeEntryDigest": "2c8ea01b4acbf1e6c7e58a5abbc5ff8b28bb2d19a7dab44f3cdc5294878c6a71",
+    "beforeStateDigest": "6a6b0aee800a4ac26407dae3cd7ee4352aff905e61e4d8763e0aa259de6676d7",
+    "planDigest": "84a55dc42770289c75f50e4001ec9566e281150de8ac537263e4d0123899afa9"
   }
 }

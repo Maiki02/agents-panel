@@ -276,3 +276,7 @@
 {"v":1,"ts":"2026-10-07T00:25:00.433Z","scope":"operaciones-worktree","type":"tool_command_run","surface":"cli","command":"close-sprint","args":{"outcome":"shipped"}}
 {"v":1,"ts":"2026-10-07T00:25:00.434Z","scope":"operaciones-worktree","type":"gate_approved","gate":"close_sprint"}
 {"v":1,"ts":"2026-10-07T00:25:00.763Z","scope":"operaciones-worktree","type":"close_snapshot","sprintN":4,"snapshotId":"sprint-004-docs-y-cierre.json","outcome":"shipped"}
+{"v":1,"ts":"2026-10-07T00:25:07.709Z","scope":"operaciones-worktree","type":"route_selected","nextAction":"await_scope_completion","packMode":"scope","budgetClass":"brief","reasoningTier":"light"}
+{"v":1,"ts":"2026-10-07T00:25:08.622Z","scope":"operaciones-worktree","type":"route_selected","nextAction":"await_scope_completion","packMode":"scope","budgetClass":"brief","reasoningTier":"light"}
+{"v":1,"ts":"2026-10-07T00:25:11.350Z","scope":"operaciones-worktree","type":"gate_approved","gate":"scope_complete"}
+{"v":1,"ts":"2026-10-07T00:25:11.351Z","scope":"operaciones-worktree","type":"tool_command_run","surface":"cli","command":"scope complete","args":{}}
