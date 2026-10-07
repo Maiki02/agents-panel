@@ -216,6 +216,13 @@ export interface ChatEvent {
   createdAt: number;
 }
 
+/** A window of a chat's events (`?tail=`): `firstSeq` is the cursor for the previous window. */
+export interface ChatEventWindow {
+  events: ChatEvent[];
+  hasMore: boolean;
+  firstSeq: number | null;
+}
+
 /** One question of an AskUserQuestion call, as the agent asked it. "Other" is added by the UI. */
 export interface AskedQuestion {
   question: string;

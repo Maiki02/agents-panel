@@ -2,6 +2,8 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import type { KyroVersionInfo } from '@agents-panel/shared';
 
+import { SwrCell } from './swr.js';
+
 const execFileAsync = promisify(execFile);
 
 const SEMVER_RE = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
@@ -23,25 +25,47 @@ export function parseVersion(output: string): string | null {
 const LATEST_TTL_MS = 60_000;
 
 export class KyroVersions {
-  private latestCache: { value: string | null; at: number } | undefined;
+  private readonly installedCell: SwrCell<string | null>;
+  private readonly latestCell: SwrCell<string | null>;
 
   constructor(
     private readonly exec: Exec = defaultExec,
-    private readonly now: () => number = Date.now,
-  ) {}
+    now: () => number = Date.now,
+  ) {
+    // The installed version only changes with a Kyro update (the updater invalidates it): the TTL
+    // is effectively infinite, so `kyro --version` is not spawned on every page load.
+    this.installedCell = new SwrCell(
+      () => this.read('kyro', ['--version'], 5_000),
+      Number.POSITIVE_INFINITY,
+      now,
+    );
+    // Stale-while-revalidate: with a previous value the answer is immediate and `npm view` (up to
+    // 10 s) refreshes in the background, once at a time.
+    this.latestCell = new SwrCell(
+      () => this.read('npm', ['view', 'kyro-ai', 'version'], 10_000),
+      LATEST_TTL_MS,
+      now,
+    );
+  }
 
-  async installed(): Promise<string | null> {
-    return this.read('kyro', ['--version'], 5_000);
+  installed(): Promise<string | null> {
+    return this.installedCell.get();
+  }
+
+  /** Forgets the cached installed version; the next read measures it again. */
+  invalidateInstalled(): void {
+    this.installedCell.invalidate();
   }
 
   /** Unknown (null) with no network, a timeout or an odd answer: the update stays allowed. */
-  async latest(): Promise<string | null> {
-    // Cached briefly so repeated page loads do not each spawn `npm view` (up to 10 s).
-    const cached = this.latestCache;
-    if (cached && this.now() - cached.at < LATEST_TTL_MS) return cached.value;
-    const value = await this.read('npm', ['view', 'kyro-ai', 'version'], 10_000);
-    this.latestCache = { value, at: this.now() };
-    return value;
+  latest(): Promise<string | null> {
+    return this.latestCell.get();
+  }
+
+  /** Loads both values without waiting (service start), so the first page load already has them. */
+  warm(): void {
+    this.installedCell.warm();
+    this.latestCell.warm();
   }
 
   async info(): Promise<KyroVersionInfo> {

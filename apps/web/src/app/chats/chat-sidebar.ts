@@ -87,6 +87,8 @@ const POLL_MS = 4000;
       } @empty {
         @if (loaded()) {
           <li class="hint px-1">{{ emptyText() }}</li>
+        } @else {
+          <li class="hint px-1" role="status">Cargando…</li>
         }
       }
     </ul>
@@ -99,6 +101,8 @@ export class ChatSidebar {
 
   protected readonly chats = signal<Chat[]>([]);
   protected readonly loaded = signal(false);
+  /** The project the shown chats belong to (the cached list is painted per project). */
+  private shown: number | undefined;
   protected readonly error = signal<string | null>(null);
   private timer: ReturnType<typeof setInterval> | undefined;
 
@@ -136,6 +140,13 @@ export class ChatSidebar {
   }
 
   private async reload(projectId: number): Promise<void> {
+    if (this.shown !== projectId) {
+      // Another project (or the first load): paint what the service already knows, or nothing.
+      this.shown = projectId;
+      const known = this.service.cachedList(projectId);
+      this.chats.set(known ?? []);
+      this.loaded.set(known !== undefined);
+    }
     try {
       const chats = await this.service.list(projectId);
       if (projectId !== this.projectId()) return;

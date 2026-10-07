@@ -2,13 +2,14 @@ import type { OutgoingHttpHeaders } from 'node:http';
 import type { FastifyInstance } from 'fastify';
 import type { ChatEvent } from '@agents-panel/shared';
 import type { ChatEventBus } from './events.js';
+import { clipEventForWeb } from './event-window.js';
 import type { ChatRepository } from './repo.js';
 
 export const HEARTBEAT_MS = 15_000;
 const REPLAY_PAGE = 500;
 
 function frame(event: ChatEvent): string {
-  return `id: ${String(event.seq)}\ndata: ${JSON.stringify(event)}\n\n`;
+  return `id: ${String(event.seq)}\ndata: ${JSON.stringify(clipEventForWeb(event))}\n\n`;
 }
 
 /**

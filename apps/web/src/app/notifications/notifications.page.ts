@@ -109,10 +109,14 @@ import { PushBrowser } from './push-browser';
             </div>
           </li>
         } @empty {
-          <li class="text-sm text-muted">
-            Ningún dispositivo recibe avisos todavía. Entrá desde el que quieras avisar y tocá
-            «Activar en este dispositivo».
-          </li>
+          @if (loaded()) {
+            <li class="text-sm text-muted">
+              Ningún dispositivo recibe avisos todavía. Entrá desde el que quieras avisar y tocá
+              «Activar en este dispositivo».
+            </li>
+          } @else {
+            <li class="text-sm text-muted" role="status">Cargando…</li>
+          }
         }
       </ul>
     </section>
@@ -122,23 +126,32 @@ export class NotificationsPage {
   private readonly service = inject(NotificationsService);
   private readonly browser = inject(PushBrowser);
 
-  protected readonly config = signal<PushConfig | null>(null);
-  protected readonly devices = signal<PushSubscriptionInfo[]>([]);
-  /** Endpoint of this browser's own subscription; null when it has none. */
-  protected readonly here = signal<string | null>(null);
+  /** Start from the last answers the service knows, so coming back paints at once. */
+  private readonly knownConfig = this.service.cachedConfig();
+  private readonly knownDevices = this.service.cachedList();
+  protected readonly config = signal<PushConfig | null>(this.knownConfig ?? null);
+  protected readonly devices = signal<PushSubscriptionInfo[]>(this.knownDevices ?? []);
+  /**
+   * Endpoint of this browser's own subscription; null when it has none, undefined while the
+   * browser has not answered yet. It never holds back the list of devices.
+   */
+  protected readonly here = signal<string | null | undefined>(undefined);
   protected readonly names = signal<Record<number, string>>({});
   protected readonly busy = signal(false);
   protected readonly error = signal<string | null>(null);
   protected readonly notice = signal<string | null>(null);
-  protected readonly loaded = signal(false);
+  protected readonly loaded = signal(
+    this.knownConfig !== undefined && this.knownDevices !== undefined,
+  );
 
   protected readonly support = computed<PushSupport | null>(() => {
     const config = this.config();
-    if (config === null || !this.loaded()) return null;
+    const here = this.here();
+    if (config === null || !this.loaded() || here === undefined) return null;
     return pushSupport({
       ...this.browser.environment(),
       serverEnabled: config.enabled,
-      subscribed: this.here() !== null && this.devices().some((d) => d.endpoint === this.here()),
+      subscribed: here !== null && this.devices().some((d) => d.endpoint === here),
     });
   });
 
@@ -147,15 +160,17 @@ export class NotificationsPage {
   }
 
   private async load(): Promise<void> {
+    // The browser's own subscription can take long: it is asked on its own, not awaited here.
+    void this.browser
+      .current()
+      .catch(() => null)
+      .then((current) => {
+        this.here.set(current?.endpoint ?? null);
+      });
     try {
-      const [config, devices, current] = await Promise.all([
-        this.service.config(),
-        this.service.list(),
-        this.browser.current().catch(() => null),
-      ]);
+      const [config, devices] = await Promise.all([this.service.config(), this.service.list()]);
       this.config.set(config);
       this.devices.set(devices);
-      this.here.set(current?.endpoint ?? null);
     } catch (cause) {
       this.error.set(apiErrorMessage(cause));
     } finally {

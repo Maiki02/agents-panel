@@ -72,6 +72,7 @@ const RUN_STATUS: Record<MaintenanceRun['status'], string> = {
         }
       } @else {
         <h3>Kyro</h3>
+        <p class="hint" role="status">Cargando…</p>
       }
     </section>
 
@@ -86,6 +87,8 @@ const RUN_STATUS: Record<MaintenanceRun['status'], string> = {
             @if (p.unavailableReason) {
               <p class="hint">{{ p.unavailableReason }}</p>
             }
+          } @else {
+            <p class="hint" role="status">Cargando…</p>
           }
           @switch (deploy()) {
             @case ('running') {
@@ -156,7 +159,11 @@ const RUN_STATUS: Record<MaintenanceRun['status'], string> = {
           }
         </details>
       } @empty {
-        <p class="hint">Todavía no hay actualizaciones.</p>
+        @if (runsLoaded()) {
+          <p class="hint">Todavía no hay actualizaciones.</p>
+        } @else {
+          <p class="hint" role="status">Cargando…</p>
+        }
       }
     </section>
   `,
@@ -164,9 +171,15 @@ const RUN_STATUS: Record<MaintenanceRun['status'], string> = {
 export class VersionsPage {
   private readonly service = inject(VersionsService);
 
-  protected readonly info = signal<VersionsResponse['kyro'] | null>(null);
-  protected readonly panel = signal<PanelDeployInfo | null>(null);
-  protected readonly runs = signal<MaintenanceRun[]>([]);
+  /** Start from the last answers the service knows, so coming back paints at once. */
+  private readonly knownVersions = this.service.cachedVersions();
+  private readonly knownRuns = this.service.cachedRuns();
+  protected readonly info = signal<VersionsResponse['kyro'] | null>(
+    this.knownVersions?.kyro ?? null,
+  );
+  protected readonly panel = signal<PanelDeployInfo | null>(this.knownVersions?.panel ?? null);
+  protected readonly runs = signal<MaintenanceRun[]>(this.knownRuns ?? []);
+  protected readonly runsLoaded = signal(this.knownRuns !== undefined);
   protected readonly askingDeploy = signal(false);
   /** Where the deploy started from this page is; null when none is being followed. */
   protected readonly deploy = signal<DeployPhase | null>(null);
@@ -275,6 +288,7 @@ export class VersionsPage {
       this.info.set(versions.kyro);
       this.panel.set(versions.panel);
       this.runs.set(runs);
+      this.runsLoaded.set(true);
       this.error.set(null);
       this.follow(versions.panel, runs);
       if (versions.kyro.updateRunning || versions.panel.deployRunning || this.following()) {

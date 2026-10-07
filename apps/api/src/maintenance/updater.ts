@@ -54,8 +54,10 @@ export const bashRunner: ScriptRunner = (args, timeoutMs) =>
 export interface KyroUpdaterDeps {
   manager: Pick<AgentManager, 'tryBeginMaintenance' | 'endMaintenance'>;
   runs: MaintenanceRunRepository;
-  versions: Pick<KyroVersions, 'installed'>;
+  versions: Pick<KyroVersions, 'installed'> & Partial<Pick<KyroVersions, 'invalidateInstalled'>>;
   projects: { list(): Project[] };
+  /** Called when the update finished (ok or not): `kyro update` rewrites project.json in clones. */
+  onFinished?: () => void;
   lock: KyroLock;
   scriptPath: string;
   runner?: ScriptRunner;
@@ -112,6 +114,8 @@ export class KyroUpdater {
         .map((project) => project.repoPath);
       // Waits for a `kyro install` in flight (project registration) before touching the runtime.
       const result = await lock.run(() => this.runner([scriptPath, ...roots], this.timeoutMs));
+      // The cached version is stale now: forget it so this read and the next page load measure it.
+      versions.invalidateInstalled?.();
       // The version shown is the one measured afterwards, not the one asked for.
       const toVersion =
         (await versions.installed()) ?? VERSION_LINE_RE.exec(result.output)?.[1] ?? null;
@@ -132,6 +136,9 @@ export class KyroUpdater {
         // rejected promise nobody awaits.
       }
     } finally {
+      // Also on failure: the script may have changed the version or the clones before failing.
+      versions.invalidateInstalled?.();
+      this.deps.onFinished?.();
       manager.endMaintenance();
     }
   }

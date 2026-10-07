@@ -1,3 +1,4 @@
+import compress from '@fastify/compress';
 import cookie from '@fastify/cookie';
 import rateLimit from '@fastify/rate-limit';
 import Fastify, { type FastifyInstance, type FastifyServerOptions } from 'fastify';
@@ -74,6 +75,7 @@ import { PullService } from './projects/pull.js';
 import { registerPullRoutes } from './projects/pull-routes.js';
 import { registerRepoRoutes } from './projects/repos-routes.js';
 import { registerProjectRoutes } from './projects/routes.js';
+import { KyroPendingCache } from './projects/kyro-pending-cache.js';
 import { UserRepository } from './auth/users.js';
 import { hasWebBuild, isWebRequest, registerWebStatic } from './web-static.js';
 import type { Config } from './config.js';
@@ -140,6 +142,11 @@ export interface AppDeps {
   usageReader?: UsageReader;
 }
 
+const COMPRESS_THRESHOLD_BYTES = 1024;
+/** JSON, text (except event-stream), JS/CSS/HTML/SVG of the web; images and fonts are already packed. */
+const COMPRESSIBLE =
+  /^text\/(?!event-stream)|(?:\+|\/)json(?:;|$)|(?:\+|\/)xml(?:;|$)|^application\/(?:javascript|manifest\+json)/u;
+
 export function buildApp(deps: AppDeps, options: FastifyServerOptions = {}): FastifyInstance {
   const app = Fastify({ bodyLimit: MAX_BODY_BYTES, ...options });
   const sessions = new SessionService(
@@ -159,6 +166,16 @@ export function buildApp(deps: AppDeps, options: FastifyServerOptions = {}): Fas
 
   void app.register(cookie);
   void app.register(rateLimit, { global: false });
+  // JSON and the compiled web, from 1 KB up. The SSE stream is hijacked (it writes to the raw
+  // response, never through onSend) and text/event-stream is excluded from the types anyway.
+  // @fastify/compress hooks every route through `onRoute`, and many routes here are added straight
+  // on `app` (not in a plugin), before a deferred `app.register` would load. So it is applied
+  // synchronously: the plugin is a plain function and its hooks land on the root instance.
+  compress(
+    app,
+    { threshold: COMPRESS_THRESHOLD_BYTES, customTypes: COMPRESSIBLE },
+    () => undefined,
+  );
   registerHeaders(app);
   registerOriginCheck(app, deps.config.allowedOrigins);
   const serveWeb = hasWebBuild(deps.config.webDir);
@@ -293,9 +310,13 @@ export function buildApp(deps: AppDeps, options: FastifyServerOptions = {}): Fas
 
   const runs = new MaintenanceRunRepository(deps.db, now);
   const kyroVersions = deps.kyroVersions ?? new KyroVersions();
+  const kyroPending = new KyroPendingCache({ now });
   const kyroUpdater = new KyroUpdater({
     manager,
     runs,
+    onFinished: () => {
+      kyroPending.invalidate();
+    },
     versions: kyroVersions,
     projects,
     lock: kyroLock,
@@ -338,9 +359,20 @@ export function buildApp(deps: AppDeps, options: FastifyServerOptions = {}): Fas
     // Same for Kyro updates: a run left 'running' by a restart can never finish.
     runs.failInterrupted();
     await panelDeployer.init();
+    // First values of Versiones, without holding the start.
+    // Only in the real service: tests must not spawn `kyro` or reach npm just by starting.
+    if (deps.config.selfDeploy) kyroVersions.warm();
+  });
+  // A pull, a Kyro init or a git action (commit) can change the Kyro state of a clone.
+  app.addHook('onResponse', (request, _reply, done) => {
+    const path = request.url.split('?')[0] ?? '';
+    if (request.method !== 'GET' && (path.startsWith('/api/projects/') || path.includes('/git/'))) {
+      kyroPending.invalidate();
+    }
+    done();
   });
 
-  registerProjectRoutes(app, { projects, service: projectService });
+  registerProjectRoutes(app, { projects, service: projectService, kyroPending });
   registerRepoRoutes(app, { projects, repos: projectRepos });
   registerPullRoutes(app, { service: new PullService({ projects, manager, projectRepos }) });
   const reauth = new ReauthVerifier({ users, secondFactor, audit, now });

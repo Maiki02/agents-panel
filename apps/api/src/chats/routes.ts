@@ -8,6 +8,7 @@ import {
 } from '@agents-panel/shared';
 import { readIdeaDocument, type IdeaScanner } from './idea.js';
 import type { IdeaActions } from './idea-actions.js';
+import { clipEventForWeb, readEventWindow } from './event-window.js';
 import { onlyKeys } from '../http/only-keys.js';
 import { ChatError, type ChatService } from './service.js';
 import type { ChatRepository } from './repo.js';
@@ -213,20 +214,40 @@ export function registerChatRoutes(
     },
   );
 
-  app.get<{ Params: { id: number }; Querystring: { afterSeq?: number } }>(
+  app.get<{
+    Params: { id: number };
+    Querystring: { afterSeq?: number; tail?: number; beforeSeq?: number };
+  }>(
     '/api/chats/:id/events',
     {
       schema: {
         params: idParams,
         querystring: {
           type: 'object',
-          properties: { afterSeq: { type: 'integer', minimum: 0 } },
+          properties: {
+            afterSeq: { type: 'integer', minimum: 0 },
+            tail: { type: 'integer', minimum: 1, maximum: 50 },
+            beforeSeq: { type: 'integer', minimum: 1 },
+          },
         },
       },
     },
-    (request) => {
+    (request, reply) => {
       service.requireChat(request.params.id);
-      return chats.eventsAfter(request.params.id, request.query.afterSeq ?? 0);
+      const { afterSeq, tail, beforeSeq } = request.query;
+      if (tail === undefined) {
+        if (beforeSeq !== undefined) {
+          return reply.code(400).send({ error: 'beforeSeq requiere tail' });
+        }
+        return chats.eventsAfter(request.params.id, afterSeq ?? 0).map(clipEventForWeb);
+      }
+      if (afterSeq !== undefined) {
+        return reply.code(400).send({ error: 'afterSeq no se combina con tail' });
+      }
+      return readEventWindow(chats, request.params.id, {
+        tail,
+        ...(beforeSeq === undefined ? {} : { beforeSeq }),
+      });
     },
   );
 
