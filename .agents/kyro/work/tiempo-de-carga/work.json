@@ -1,0 +1,518 @@
+{
+  "schemaVersion": 1,
+  "kind": "organic-work",
+  "id": "tiempo-de-carga",
+  "title": "Mejorar los tiempos de carga del panel",
+  "objective": "> Debemos mejorar los tiempos de carga. Actualmente, al ingresar a proyectos, versiones, notificaciones, etc, hay un leve retraso. Tardan en aparecer las cosas. Hay otro retraso que creo que es mucho más fácil de solucionar: los chats. Al apretar un chat, tarda MUCHO en cargar. Mi propuesta: que solo carguen los últimos 10 mensajes del agente y si quiere más, que scrollee hacia arriba y haga lazy loading.",
+  "brief": {
+    "path": "brief.md",
+    "digest": "21f71ac03c9d1f6f414e8e2c1c82c0705a0fadcc3a2d1d5d32eda06b265cbcf3",
+    "sourceIdea": null
+  },
+  "state": "closed",
+  "revision": 15,
+  "createdAt": "2026-10-07T00:39:49.376Z",
+  "updatedAt": "2026-10-07T01:19:07.263Z",
+  "handoff": {
+    "nextAction": "done",
+    "nextTaskId": null,
+    "blockedReason": null
+  },
+  "tasks": [
+    {
+      "id": "W1",
+      "title": "La API sirve los eventos de un chat por ventanas de 10 mensajes del agente, recortados",
+      "description": "GET /api/chats/:id/events suma el modo ventana: ?tail=10 devuelve la ventana más nueva y ?beforeSeq=<n>&tail=10 la anterior a n. Una ventana arranca en el décimo evento 'assistant' con texto visible contando desde el final (o desde beforeSeq) e incluye todo lo que hay entre ese y el final; la ventana inicial se extiende hasta la pregunta abierta más vieja (question_asked sin question_answered ni question_cancelled). Responde { events, hasMore, firstSeq }. ?afterSeq sigue como hoy (compatibilidad). Las lecturas para la web (ventana, afterSeq y la repetición del SSE en stream.ts) recortan en el servidor los textos grandes (tool_result content, tool_use input, result:*.result, worktree_output stdout/stderr) a 4000 caracteres con '… (recortado)', en una función pura compartida; la base guarda todo sin recortar. El límite de tail va de 1 a 50 en el schema.",
+      "context": "Hoy la web pide afterSeq=0 (hasta 1000 eventos completos) y recorta recién al dibujar (event-view.ts, MAX_TEXT 4000). Contar mensajes en TypeScript leyendo hacia atrás por páginas con chats.eventsBefore; no hace falta tocar el esquema de chat_events. Los tipos compartidos de la respuesta van en packages/shared. La ruta mantiene sesión y requireChat.",
+      "filesToTouch": [
+        "apps/api/src/chats/repo.ts",
+        "apps/api/src/chats/routes.ts",
+        "apps/api/src/chats/stream.ts",
+        "apps/api/src/chats/event-window.ts",
+        "packages/shared/src/index.ts",
+        "apps/api/test/chat-events-window.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "Con 30 mensajes del agente, ?tail=10 devuelve desde el décimo mensaje con texto contando desde el final hasta el último evento, hasMore=true y firstSeq correcto; ?beforeSeq=firstSeq&tail=10 devuelve los 10 anteriores sin repetir ni saltear eventos, y la última ventana da hasMore=false",
+        "Los eventos de herramientas y prompts entre mensajes vienen dentro de la ventana; los assistant sin texto (solo tool_use) no cuentan como mensaje",
+        "Una pregunta abierta más vieja que la ventana queda incluida en la ventana inicial; una ya respondida no la extiende",
+        "Un tool_result de 100 KB llega recortado a 4000 caracteres más '… (recortado)' por ventana, por afterSeq y por el SSE, y la fila en la base sigue entera",
+        "?afterSeq sin tail responde como antes; sin sesión 401 y chat inexistente 404; tail fuera de 1..50 da 400",
+        "typecheck, lint y tests de apps/api en verde"
+      ],
+      "dependsOn": [],
+      "definitionRevision": 1,
+      "status": "verified",
+      "blocker": null,
+      "evidence": {
+        "summary": "Ventanas de eventos por tail/beforeSeq con recorte de textos grandes en el servidor",
+        "validations": [
+          {
+            "command": "npm run typecheck",
+            "result": "passed",
+            "note": "shared, api y web"
+          },
+          {
+            "command": "npm run lint",
+            "result": "passed",
+            "note": "eslint sin errores"
+          },
+          {
+            "command": "npm test -w @agents-panel/api",
+            "result": "passed",
+            "note": "77 archivos, 1245 tests; chat-events-window 6/6 y stream 13/13 tras formatear"
+          }
+        ],
+        "filesChanged": [
+          "apps/api/src/chats/repo.ts",
+          "apps/api/src/chats/routes.ts",
+          "apps/api/src/chats/stream.ts",
+          "apps/api/src/chats/event-window.ts",
+          "packages/shared/src/index.ts",
+          "apps/api/test/chat-events-window.test.ts"
+        ],
+        "notes": "tool_use input grande se devuelve como el JSON recortado (string). tail con afterSeq o beforeSeq sin tail dan 400. Pregunta abierta más vieja por SQL (json_extract).",
+        "by": "maker-agent",
+        "recordedAt": "2026-10-07T00:48:30.608Z",
+        "definitionRevision": 1,
+        "materialDigest": "ca9ffdb4132fc3105b35dd9e8ed75335e4495d4600d590c2a27803fffc054150"
+      },
+      "verdict": {
+        "result": "pass",
+        "checkedCriteria": [
+          "Con 30 mensajes del agente, ?tail=10 devuelve desde el décimo mensaje con texto contando desde el final hasta el último evento, hasMore=true y firstSeq correcto; ?beforeSeq=firstSeq&tail=10 devuelve los 10 anteriores sin repetir ni saltear eventos, y la última ventana da hasMore=false",
+          "Los eventos de herramientas y prompts entre mensajes vienen dentro de la ventana; los assistant sin texto (solo tool_use) no cuentan como mensaje",
+          "Una pregunta abierta más vieja que la ventana queda incluida en la ventana inicial; una ya respondida no la extiende",
+          "Un tool_result de 100 KB llega recortado a 4000 caracteres más '… (recortado)' por ventana, por afterSeq y por el SSE, y la fila en la base sigue entera",
+          "?afterSeq sin tail responde como antes; sin sesión 401 y chat inexistente 404; tail fuera de 1..50 da 400",
+          "typecheck, lint y tests de apps/api en verde"
+        ],
+        "findings": [],
+        "by": "checker-agent",
+        "reviewedAt": "2026-10-07T00:48:38.407Z",
+        "definitionRevision": 1,
+        "evidenceDigest": "3b848287ccb391c40968c110134c9ba991547cb21d6bffab518bd25eef8a5f3c",
+        "reviewedMaterialDigest": "ca9ffdb4132fc3105b35dd9e8ed75335e4495d4600d590c2a27803fffc054150"
+      },
+      "disposition": null
+    },
+    {
+      "id": "W2",
+      "title": "El chat abre con la última ventana y carga lo anterior al scrollear hacia arriba",
+      "description": "chat.page.ts pide en paralelo el chat y la ventana más nueva (tail=10), dibuja, abre el SSE desde el último seq y pone el scroll al final. Al acercarse al tope del feed (isNearTop en scroll-logic.ts) pide ?beforeSeq=<primer seq>&tail=10, antepone los items y conserva la posición visual (sumar al scrollTop la diferencia de scrollHeight), sin pedir dos ventanas a la vez y descartando respuestas de un chat anterior (generation). Muestra 'Cargando mensajes anteriores…' mientras pide y 'Inicio de la conversación' cuando hasMore=false. El @for usa una clave estable (seq e índice dentro del evento) en vez de $index. chats.service.ts suma eventsWindow(id, beforeSeq?). El seguimiento del final (follow) y las preguntas pendientes siguen funcionando.",
+      "context": "La lógica pura (unir ventanas sin duplicar, calcular la nueva posición del scroll, decidir si pedir más) va en un archivo *-logic.ts con su spec, como el resto de apps/web/src/app/chats. Hoy restart() espera service.get antes de service.events y refreshWorkState vuelve a pedir el chat: evitar el pedido doble al abrir.",
+      "filesToTouch": [
+        "apps/web/src/app/chats/chat.page.ts",
+        "apps/web/src/app/chats/chats.service.ts",
+        "apps/web/src/app/chats/scroll-logic.ts",
+        "apps/web/src/app/chats/feed-window-logic.ts",
+        "apps/web/src/app/chats/feed-window-logic.spec.ts"
+      ],
+      "acceptanceCriteria": [
+        "Abrir un chat hace un solo pedido de eventos con tail=10 (en paralelo con el del chat) y no pide afterSeq=0",
+        "Scrollear al tope pide la ventana anterior una sola vez, antepone sin duplicar y la vista no salta; con hasMore=false no pide más y muestra 'Inicio de la conversación'",
+        "Cambiar de chat mientras carga una ventana anterior no mezcla eventos de los dos chats",
+        "Los eventos que llegan por SSE se agregan al final como hoy y el feed sigue al final solo si el usuario está abajo; una pregunta abierta sigue mostrando su tarjeta",
+        "Specs de la lógica nueva y typecheck, lint, format:check y tests de apps/web en verde"
+      ],
+      "dependsOn": [
+        "W1"
+      ],
+      "definitionRevision": 1,
+      "status": "verified",
+      "blocker": null,
+      "evidence": {
+        "summary": "El chat abre con la ventana tail=10 en paralelo con el chat y carga las anteriores al llegar al tope, sin saltos ni mezcla entre chats",
+        "validations": [
+          {
+            "command": "npm run typecheck -w @agents-panel/web",
+            "result": "passed",
+            "note": "sin errores"
+          },
+          {
+            "command": "npm run lint",
+            "result": "passed",
+            "note": "eslint sin errores"
+          },
+          {
+            "command": "npm run format:check",
+            "result": "passed",
+            "note": "todo con estilo prettier"
+          },
+          {
+            "command": "npm test -w @agents-panel/web",
+            "result": "passed",
+            "note": "36 archivos, 341 tests; feed-window-logic.spec cubre claves, unir sin duplicar, cursor, shouldLoadOlder, scroll y isNearTop"
+          }
+        ],
+        "filesChanged": [
+          "apps/web/src/app/chats/chat.page.ts",
+          "apps/web/src/app/chats/chats.service.ts",
+          "apps/web/src/app/chats/scroll-logic.ts",
+          "apps/web/src/app/chats/feed-window-logic.ts",
+          "apps/web/src/app/chats/feed-window-logic.spec.ts"
+        ],
+        "notes": "restart() usa Promise.all(get, eventsWindow) y refreshWorkState(chat) reutiliza el chat ya leido. loadOlder descarta respuestas de otra generation y usa un solo pedido a la vez (loadingOlder). El ancla de scroll se aplica en afterRenderEffect; la linea de estado tiene altura fija para no mover el feed. Si el feed no desborda y hay mas, se pide otra ventana. Sin prueba manual en navegador.",
+        "by": "maker-agent",
+        "recordedAt": "2026-10-07T00:51:51.048Z",
+        "definitionRevision": 1,
+        "materialDigest": "06d7882fbe8953e76add8c1ae20741846bd4a606b05a1c66d4ed86a51ad59039"
+      },
+      "verdict": {
+        "result": "pass",
+        "checkedCriteria": [
+          "Abrir un chat hace un solo pedido de eventos con tail=10 (en paralelo con el del chat) y no pide afterSeq=0",
+          "Scrollear al tope pide la ventana anterior una sola vez, antepone sin duplicar y la vista no salta; con hasMore=false no pide más y muestra 'Inicio de la conversación'",
+          "Cambiar de chat mientras carga una ventana anterior no mezcla eventos de los dos chats",
+          "Los eventos que llegan por SSE se agregan al final como hoy y el feed sigue al final solo si el usuario está abajo; una pregunta abierta sigue mostrando su tarjeta",
+          "Specs de la lógica nueva y typecheck, lint, format:check y tests de apps/web en verde"
+        ],
+        "findings": [],
+        "by": "checker-agent",
+        "reviewedAt": "2026-10-07T00:52:06.346Z",
+        "definitionRevision": 1,
+        "evidenceDigest": "6b8815ed96329c2652692e95ff1c711ea3f96a8bb0e27c9f293abef7fc34858d",
+        "reviewedMaterialDigest": "06d7882fbe8953e76add8c1ae20741846bd4a606b05a1c66d4ed86a51ad59039"
+      },
+      "disposition": null
+    },
+    {
+      "id": "W3",
+      "title": "La API responde rápido en Versiones y Proyectos y comprime las respuestas",
+      "description": "KyroVersions cachea installed() (kyro --version) hasta que termina una actualización de Kyro (el updater lo invalida). latest() y Deployer.behind() pasan a stale-while-revalidate: con un valor previo responden enseguida y, vencido el TTL, refrescan en segundo plano una sola vez a la vez; el primer valor se calienta al arrancar el servicio sin bloquear el arranque. /api/projects cachea kyroPendingCommit por proyecto unos segundos (y lo invalida tras pull, commit de Kyro o init) o lo calcula en paralelo con un tope de tiempo. Se registra @fastify/compress para JSON y archivos de la web con umbral de 1 KB, excluyendo text/event-stream.",
+      "context": "Hoy /api/versions espera git fetch (hasta 15 s) y npm view (hasta 10 s) cada 60 s y lanza kyro --version en cada carga. @fastify/compress es una dependencia npm gratis (sin costo ni cambio en la VM). Medir antes y después con el inject de Fastify o curl local y anotar los tiempos en la evidencia.",
+      "filesToTouch": [
+        "apps/api/src/maintenance/versions.ts",
+        "apps/api/src/maintenance/deployer.ts",
+        "apps/api/src/maintenance/updater.ts",
+        "apps/api/src/projects/routes.ts",
+        "apps/api/src/app.ts",
+        "apps/api/package.json",
+        "package-lock.json",
+        "apps/api/test/maintenance-versions.test.ts",
+        "apps/api/test/compression.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "Con valores previos, /api/versions responde sin esperar a npm view ni a git fetch (test con exec falso lento) y refresca en segundo plano una sola vez por TTL",
+        "kyro --version no se lanza en cada carga; una actualización de Kyro terminada hace que la próxima carga vea la versión nueva",
+        "/api/projects no corre git en cada listado dentro de la ventana de caché y una acción que cambia el estado de Kyro lo invalida",
+        "Una respuesta JSON grande sale con content-encoding gzip o br cuando el cliente lo acepta y el SSE de /api/chats/:id/stream sale sin comprimir y sigue entregando eventos",
+        "typecheck, lint, format:check y tests de apps/api en verde"
+      ],
+      "dependsOn": [],
+      "definitionRevision": 1,
+      "status": "verified",
+      "blocker": null,
+      "evidence": {
+        "summary": "Versiones y Proyectos responden sin esperar a npm view, git fetch ni git status, y la API comprime JSON y archivos de la web",
+        "validations": [
+          {
+            "command": "npm run typecheck",
+            "result": "passed",
+            "note": "shared, api y web sin errores"
+          },
+          {
+            "command": "npm run lint",
+            "result": "passed",
+            "note": "eslint sin errores"
+          },
+          {
+            "command": "npm run format:check",
+            "result": "passed",
+            "note": "todo con estilo prettier"
+          },
+          {
+            "command": "npm test -w apps/api",
+            "result": "passed",
+            "note": "79 archivos; corrida completa 1259 ok y el unico fallo (project-pull: kyroPendingCommit inmediato) se ajusto con reloj inyectado y paso; maintenance-versions.test.ts y compression.test.ts nuevos pasan. Tiempos con exec falso de 400 ms: versions.info() primera carga 401 ms, con valor previo vencido el TTL 0 ms; deployer.info() 400 ms la primera, 0 ms vencida (un solo fetch/npm view en segundo plano por TTL). Antes: cada carga vencida el TTL esperaba el exec completo (hasta 15 s git fetch + 10 s npm view) y kyro --version se lanzaba en cada carga. /api/projects con 25 proyectos: 8932 B sin comprimir -> 615 B con gzip."
+          }
+        ],
+        "filesChanged": [
+          "apps/api/src/maintenance/swr.ts",
+          "apps/api/src/maintenance/versions.ts",
+          "apps/api/src/maintenance/deployer.ts",
+          "apps/api/src/maintenance/updater.ts",
+          "apps/api/src/projects/kyro-pending-cache.ts",
+          "apps/api/src/projects/routes.ts",
+          "apps/api/src/web-static.ts",
+          "apps/api/src/app.ts",
+          "apps/api/package.json",
+          "package-lock.json",
+          "apps/api/test/maintenance-versions.test.ts",
+          "apps/api/test/compression.test.ts",
+          "apps/api/test/project-pull.test.ts"
+        ],
+        "notes": "SwrCell (nuevo) da stale-while-revalidate con un solo refresco en vuelo y invalidate(). KyroVersions: installed cacheado hasta invalidateInstalled() (el updater lo invalida al terminar, ok o error); latest y Deployer.behind en SWR; warm() al arrancar solo con selfDeploy (en tests no se lanza kyro/npm). KyroPendingCache (5 s, compartido, tope 3 s por proyecto, en paralelo) se invalida al terminar un update de Kyro y con cualquier POST/PATCH/PUT bajo /api/projects/ o /git/ (pull, kyro-init, commit). @fastify/compress (umbral 1 KB, text/event-stream excluido) se aplica de forma sincrona sobre app porque engancha onRoute y muchas rutas se registran directo en app antes de que cargue un register diferido; los archivos de la web salen por el notFound handler, que no es una ruta y no pasa por el plugin, asi que web-static.ts comprime a mano con br/gzip desde 1 KB (pierde el 304 por ETag en esos archivos). El SSE se hijackea y sigue sin comprimir (test lo verifica con un cliente HTTP real). Dependencia npm gratis, sin cambio en la VM ni costo. Un npm install previo con omit=dev podaba devDependencies: se restauro con npm install --include=dev. Decisiones propias (kyro adr no aplica a Work): swr.ts como archivo nuevo, compress sincrono, compresion manual en web-static, warm solo en servicio real.",
+        "by": "maker-agent",
+        "recordedAt": "2026-10-07T01:10:10.853Z",
+        "definitionRevision": 1,
+        "materialDigest": "77649fb385791675700901b89b09ee931f975dcb5b8e624a669d8a0a94d72a86"
+      },
+      "verdict": {
+        "result": "pass",
+        "checkedCriteria": [
+          "Con valores previos, /api/versions responde sin esperar a npm view ni a git fetch (test con exec falso lento) y refresca en segundo plano una sola vez por TTL",
+          "kyro --version no se lanza en cada carga; una actualización de Kyro terminada hace que la próxima carga vea la versión nueva",
+          "/api/projects no corre git en cada listado dentro de la ventana de caché y una acción que cambia el estado de Kyro lo invalida",
+          "Una respuesta JSON grande sale con content-encoding gzip o br cuando el cliente lo acepta y el SSE de /api/chats/:id/stream sale sin comprimir y sigue entregando eventos",
+          "typecheck, lint, format:check y tests de apps/api en verde"
+        ],
+        "findings": [],
+        "by": "checker-agent",
+        "reviewedAt": "2026-10-07T01:10:15.825Z",
+        "definitionRevision": 1,
+        "evidenceDigest": "3f7da700f5549dc0cb890eae588ccc2cd4422cbe4f3b0a9bf1705e077e676edb",
+        "reviewedMaterialDigest": "77649fb385791675700901b89b09ee931f975dcb5b8e624a669d8a0a94d72a86"
+      },
+      "disposition": null
+    },
+    {
+      "id": "W4",
+      "title": "La web muestra al instante lo último conocido y precarga las pantallas",
+      "description": "Los servicios de proyectos, chats (lista del sidebar), versiones y notificaciones guardan en memoria la última respuesta: la pantalla la muestra enseguida y la reemplaza cuando llega la nueva (stale-while-revalidate), y la primera vez muestra un esqueleto o 'Cargando…' en vez de vacío. Las acciones que cambian datos invalidan su caché. app.config.ts suma withPreloading(PreloadAllModules) para que los chunks lazy estén al entrar. En Notificaciones, la consulta de la suscripción del navegador no bloquea la lista de dispositivos. Documentar en docs/plan.md la carga por ventanas del chat, el recorte en el servidor, el stale-while-revalidate y la compresión.",
+      "context": "La caché vive en el servicio (providedIn root) con signals; se borra al cerrar sesión para no mostrar datos de otra sesión. No se cachea nada en localStorage.",
+      "filesToTouch": [
+        "apps/web/src/app/app.config.ts",
+        "apps/web/src/app/projects/projects.service.ts",
+        "apps/web/src/app/projects/projects.page.ts",
+        "apps/web/src/app/chats/chats.service.ts",
+        "apps/web/src/app/chats/chat-sidebar.ts",
+        "apps/web/src/app/versions/versions.service.ts",
+        "apps/web/src/app/versions/versions.page.ts",
+        "apps/web/src/app/notifications/notifications.page.ts",
+        "apps/web/src/app/shared/swr-cache.ts",
+        "apps/web/src/app/shared/swr-cache.spec.ts",
+        "docs/plan.md"
+      ],
+      "acceptanceCriteria": [
+        "Volver a Proyectos, Versiones, Notificaciones o a la lista de chats muestra al instante los datos anteriores y después los actualiza (spec de la caché: devuelve el valor previo y luego el nuevo; una acción la invalida; cerrar sesión la vacía)",
+        "La primera carga muestra un estado de carga, no una pantalla vacía",
+        "El router precarga los módulos lazy",
+        "En Notificaciones la lista de dispositivos aparece aunque la consulta de la suscripción del navegador tarde",
+        "docs/plan.md describe la carga por ventanas, el recorte, el stale-while-revalidate y la compresión",
+        "typecheck, lint, format:check, tests de apps/api y apps/web y npm run build en verde"
+      ],
+      "dependsOn": [
+        "W2",
+        "W3"
+      ],
+      "definitionRevision": 1,
+      "status": "verified",
+      "blocker": null,
+      "evidence": {
+        "summary": "Proyectos, lista de chats, Versiones y Notificaciones pintan al instante la ultima respuesta (SwrCache en memoria) y muestran Cargando la primera vez; el router precarga los modulos lazy y docs/plan.md documenta ventanas, recorte, SWR y compresion",
+        "validations": [
+          {
+            "command": "npm run typecheck",
+            "result": "passed",
+            "note": "shared, api y web sin errores"
+          },
+          {
+            "command": "npm run lint",
+            "result": "passed",
+            "note": "eslint sin errores (se quito una asercion innecesaria en swr-cache.ts)"
+          },
+          {
+            "command": "npm run format:check",
+            "result": "passed",
+            "note": "todo con estilo prettier"
+          },
+          {
+            "command": "npm test",
+            "result": "passed",
+            "note": "apps/api 79 archivos 1260 tests ok; apps/web 37 archivos 346 tests ok, incluido swr-cache.spec.ts (valor previo y luego el nuevo, clave por entrada, invalidar incluso con respuesta en vuelo, cerrar sesion vacia todo, una carga fallida no pisa)"
+          },
+          {
+            "command": "npm run build",
+            "result": "passed",
+            "note": "shared, api y web compilan; chunks lazy generados"
+          }
+        ],
+        "filesChanged": [
+          "apps/web/src/app/shared/swr-cache.ts",
+          "apps/web/src/app/shared/swr-cache.spec.ts",
+          "apps/web/src/app/app.config.ts",
+          "apps/web/src/app/auth/auth.service.ts",
+          "apps/web/src/app/projects/projects.service.ts",
+          "apps/web/src/app/projects/projects.page.ts",
+          "apps/web/src/app/chats/chats.service.ts",
+          "apps/web/src/app/chats/chat-sidebar.ts",
+          "apps/web/src/app/versions/versions.service.ts",
+          "apps/web/src/app/versions/versions.page.ts",
+          "apps/web/src/app/notifications/notifications.service.ts",
+          "apps/web/src/app/notifications/notifications.page.ts",
+          "docs/plan.md"
+        ],
+        "notes": "SwrCache (signals, por clave) con registro global: AuthService llama clearAllSwrCaches al iniciar sesion, cerrar, expirar o markLoggedOut. Cada servicio expone cachedX() para que la pagina arranque con el valor previo y su metodo de lectura lo reemplaza; las acciones que mutan pasan por changed() que invalida. invalidate sube una generacion para que una respuesta en vuelo no rellene la cache. Notificaciones: browser.current() ya no entra en el Promise.all; here es undefined hasta que responde y solo la tarjeta Este dispositivo espera (muestra Cargando), la lista de dispositivos aparece con la respuesta del servidor. Nada va a localStorage. Se ajusto el doc: los archivos de la web los comprime web-static.ts a mano. Decisiones propias: invalidate descarta el valor en vez de marcarlo viejo; registro global de caches en vez de inyectar AuthService en cada servicio.",
+        "by": "maker-agent",
+        "recordedAt": "2026-10-07T01:18:52.718Z",
+        "definitionRevision": 1,
+        "materialDigest": "414971ad35d2dc6a63845c2d90f4e37a3ae8546d6d4c2d5e463ad334bc6fcefa"
+      },
+      "verdict": {
+        "result": "pass",
+        "checkedCriteria": [
+          "Volver a Proyectos, Versiones, Notificaciones o a la lista de chats muestra al instante los datos anteriores y después los actualiza (spec de la caché: devuelve el valor previo y luego el nuevo; una acción la invalida; cerrar sesión la vacía)",
+          "La primera carga muestra un estado de carga, no una pantalla vacía",
+          "El router precarga los módulos lazy",
+          "En Notificaciones la lista de dispositivos aparece aunque la consulta de la suscripción del navegador tarde",
+          "docs/plan.md describe la carga por ventanas, el recorte, el stale-while-revalidate y la compresión",
+          "typecheck, lint, format:check, tests de apps/api y apps/web y npm run build en verde"
+        ],
+        "findings": [],
+        "by": "checker-agent",
+        "reviewedAt": "2026-10-07T01:18:57.972Z",
+        "definitionRevision": 1,
+        "evidenceDigest": "e8fd3104f43c4dbc4a5bfc41270ad21d37f957745b0fb0290a2b5f2b636adb7f",
+        "reviewedMaterialDigest": "414971ad35d2dc6a63845c2d90f4e37a3ae8546d6d4c2d5e463ad334bc6fcefa"
+      },
+      "disposition": null
+    }
+  ],
+  "activity": [
+    {
+      "seq": 1,
+      "at": "2026-10-07T00:39:49.376Z",
+      "event": "created",
+      "taskId": null,
+      "by": "claude-maker",
+      "reason": "Created through the Work CLI.",
+      "revision": 1
+    },
+    {
+      "seq": 2,
+      "at": "2026-10-07T00:40:30.819Z",
+      "event": "tasks_planned",
+      "taskId": null,
+      "by": "claude-maker",
+      "reason": "Planned 4 Work tasks.",
+      "revision": 2
+    },
+    {
+      "seq": 3,
+      "at": "2026-10-07T00:40:50.082Z",
+      "event": "task_started",
+      "taskId": "W1",
+      "by": "cli",
+      "reason": "Task started through the Work CLI.",
+      "revision": 3
+    },
+    {
+      "seq": 4,
+      "at": "2026-10-07T00:48:30.608Z",
+      "event": "evidence_recorded",
+      "taskId": "W1",
+      "by": "maker-agent",
+      "reason": "Evidence recorded with 3 validation results.",
+      "revision": 4
+    },
+    {
+      "seq": 5,
+      "at": "2026-10-07T00:48:38.407Z",
+      "event": "review_recorded",
+      "taskId": "W1",
+      "by": "checker-agent",
+      "reason": "Task review recorded with pass.",
+      "revision": 5
+    },
+    {
+      "seq": 6,
+      "at": "2026-10-07T00:48:53.608Z",
+      "event": "task_started",
+      "taskId": "W2",
+      "by": "cli",
+      "reason": "Task started through the Work CLI.",
+      "revision": 6
+    },
+    {
+      "seq": 7,
+      "at": "2026-10-07T00:51:51.048Z",
+      "event": "evidence_recorded",
+      "taskId": "W2",
+      "by": "maker-agent",
+      "reason": "Evidence recorded with 4 validation results.",
+      "revision": 7
+    },
+    {
+      "seq": 8,
+      "at": "2026-10-07T00:52:06.346Z",
+      "event": "review_recorded",
+      "taskId": "W2",
+      "by": "checker-agent",
+      "reason": "Task review recorded with pass.",
+      "revision": 8
+    },
+    {
+      "seq": 9,
+      "at": "2026-10-07T00:52:22.124Z",
+      "event": "task_started",
+      "taskId": "W3",
+      "by": "cli",
+      "reason": "Task started through the Work CLI.",
+      "revision": 9
+    },
+    {
+      "seq": 10,
+      "at": "2026-10-07T01:10:10.853Z",
+      "event": "evidence_recorded",
+      "taskId": "W3",
+      "by": "maker-agent",
+      "reason": "Evidence recorded with 4 validation results.",
+      "revision": 10
+    },
+    {
+      "seq": 11,
+      "at": "2026-10-07T01:10:15.825Z",
+      "event": "review_recorded",
+      "taskId": "W3",
+      "by": "checker-agent",
+      "reason": "Task review recorded with pass.",
+      "revision": 11
+    },
+    {
+      "seq": 12,
+      "at": "2026-10-07T01:10:34.153Z",
+      "event": "task_started",
+      "taskId": "W4",
+      "by": "cli",
+      "reason": "Task started through the Work CLI.",
+      "revision": 12
+    },
+    {
+      "seq": 13,
+      "at": "2026-10-07T01:18:52.718Z",
+      "event": "evidence_recorded",
+      "taskId": "W4",
+      "by": "maker-agent",
+      "reason": "Evidence recorded with 5 validation results.",
+      "revision": 13
+    },
+    {
+      "seq": 14,
+      "at": "2026-10-07T01:18:57.972Z",
+      "event": "review_recorded",
+      "taskId": "W4",
+      "by": "checker-agent",
+      "reason": "Task review recorded with pass.",
+      "revision": 14
+    },
+    {
+      "seq": 15,
+      "at": "2026-10-07T01:19:07.263Z",
+      "event": "work_closed",
+      "taskId": null,
+      "by": "pilot",
+      "reason": "Trabajo completado por el piloto",
+      "revision": 15
+    }
+  ],
+  "closure": {
+    "outcome": "completed",
+    "reason": "Trabajo completado por el piloto",
+    "by": "pilot",
+    "closedAt": "2026-10-07T01:19:07.263Z",
+    "briefDigest": "21f71ac03c9d1f6f414e8e2c1c82c0705a0fadcc3a2d1d5d32eda06b265cbcf3",
+    "finalRevision": 15
+  },
+  "promotion": null
+}
