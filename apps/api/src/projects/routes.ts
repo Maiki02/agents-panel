@@ -8,7 +8,7 @@ import {
   ProjectNotFoundError,
   type ProjectRepository,
 } from './repo.js';
-import { kyroPendingCommit } from './git.js';
+import { KyroPendingCache } from './kyro-pending-cache.js';
 import type { ProjectService } from './service.js';
 
 export const idParams = {
@@ -87,11 +87,20 @@ export async function respond(
 
 export function registerProjectRoutes(
   app: FastifyInstance,
-  deps: { projects: ProjectRepository; service: ProjectService },
+  deps: {
+    projects: ProjectRepository;
+    service: ProjectService;
+    /** Shared with whatever changes the Kyro state of a clone, so it can invalidate it. */
+    kyroPending?: KyroPendingCache;
+  },
 ): void {
   const { projects, service } = deps;
+  const cache = deps.kyroPending ?? new KyroPendingCache();
 
-  app.get('/api/projects', () => Promise.all(projects.list().map(withKyroState)));
+  // In parallel and cached for a few seconds: no `git status` per project on every load.
+  app.get('/api/projects', () =>
+    Promise.all(projects.list().map((project) => withKyroState(project, cache))),
+  );
 
   app.post<{ Body: AddBody }>(
     '/api/projects',
@@ -113,7 +122,7 @@ export function registerProjectRoutes(
         const project = projects.findById(request.params.id);
         if (!project)
           throw new ProjectNotFoundError(`Project not found: ${String(request.params.id)}`);
-        return withSuggestion(service, project);
+        return withSuggestion(service, cache, project);
       }),
   );
 
@@ -125,7 +134,7 @@ export function registerProjectRoutes(
     },
     (request, reply) =>
       respond(reply, async () =>
-        withSuggestion(service, await service.update(request.params.id, request.body)),
+        withSuggestion(service, cache, await service.update(request.params.id, request.body)),
       ),
   );
 
@@ -174,19 +183,20 @@ function requireProject(projects: ProjectRepository, id: number): Project {
 }
 
 /** Adds `kyroPendingCommit` to a project that has Kyro (the only ones that can have it). */
-async function withKyroState(project: Project): Promise<Project> {
+async function withKyroState(project: Project, cache: KyroPendingCache): Promise<Project> {
   if (!project.hasKyro || project.status !== 'ready') return project;
-  return { ...project, kyroPendingCommit: await kyroPendingCommit(project.repoPath) };
+  return { ...project, kyroPendingCommit: await cache.get(project.repoPath) };
 }
 
 /** `suggestedSetupCommand` is only offered while the project has no explicit setup command. */
 async function withSuggestion(
   service: ProjectService,
+  cache: KyroPendingCache,
   project: Project,
 ): Promise<Project & { suggestedSetupCommand: string | null }> {
   const suggestedSetupCommand =
     project.setupCommand === null && project.status === 'ready'
       ? await service.suggestedSetup(project)
       : null;
-  return { ...(await withKyroState(project)), suggestedSetupCommand };
+  return { ...(await withKyroState(project, cache)), suggestedSetupCommand };
 }

@@ -21,8 +21,16 @@ import type {
 } from '@agents-panel/shared';
 import { ChatStreamService, type StreamHandle } from './chat-stream.service';
 import { ChatsService, apiErrorMessage } from './chats.service';
-import { endsTurn, pendingQuestionIds, toViewItems, type ViewItem } from './event-view';
-import { isNearBottom } from './scroll-logic';
+import { endsTurn, pendingQuestionIds } from './event-view';
+import { isNearBottom, isNearTop } from './scroll-logic';
+import {
+  nextFirstSeq,
+  olderThan,
+  rowsFromEvents,
+  scrollTopAfterPrepend,
+  shouldLoadOlder,
+  type FeedRow,
+} from './feed-window-logic';
 import { QuestionCard } from './question-card';
 import { DebtApprovalCard } from './debt-approval.card';
 import { IdeaApprovalCard } from './idea-approval.card';
@@ -161,7 +169,15 @@ import { Badge } from '../ui/badge';
         aria-live="polite"
         (scroll)="onFeedScroll()"
       >
-        @for (item of items(); track $index) {
+        <p class="hint feed-edge min-h-6 text-center" data-testid="feed-edge">
+          @if (loadingOlder()) {
+            Cargando mensajes anteriores…
+          } @else if (!hasMore() && rows().length > 0) {
+            Inicio de la conversación
+          }
+        </p>
+        @for (row of rows(); track row.key) {
+          @let item = row.item;
           @switch (item.kind) {
             @case ('user') {
               <div class="msg user">{{ item.text }}</div>
@@ -279,7 +295,14 @@ export class ChatPage {
   private handle: StreamHandle | undefined;
 
   protected readonly chat = signal<Chat | null>(null);
-  protected readonly items = signal<ViewItem[]>([]);
+  protected readonly rows = signal<FeedRow[]>([]);
+  private readonly items = computed(() => this.rows().map((row) => row.item));
+  /** Earlier messages: the cursor for the next window, whether any is left, and the one in flight. */
+  private firstSeq: number | null = null;
+  protected readonly hasMore = signal(false);
+  protected readonly loadingOlder = signal(false);
+  /** Feed height before older rows went in, so the render keeps what the user was reading in place. */
+  private prependAnchor: number | null = null;
   protected readonly error = signal<string | null>(null);
   protected readonly connected = signal(true);
   protected readonly draft = signal('');
@@ -332,9 +355,21 @@ export class ChatPage {
     });
     // After the DOM has the new events: keep the feed at its end, moving only the feed box.
     afterRenderEffect(() => {
-      this.items();
+      this.rows();
       const feed = this.feed()?.nativeElement;
-      if (feed && this.follow) feed.scrollTop = feed.scrollHeight;
+      if (!feed) return;
+      if (this.prependAnchor !== null) {
+        feed.scrollTop = scrollTopAfterPrepend(
+          feed.scrollTop,
+          this.prependAnchor,
+          feed.scrollHeight,
+        );
+        this.prependAnchor = null;
+      } else if (this.follow) {
+        feed.scrollTop = feed.scrollHeight;
+      }
+      // A feed that does not overflow cannot be scrolled up: fill it with earlier messages.
+      if (feed.scrollHeight <= feed.clientHeight) void this.loadOlder();
     });
     effect(() => {
       if (this.tab() === 'chat') this.follow = true;
@@ -346,7 +381,44 @@ export class ChatPage {
 
   protected onFeedScroll(): void {
     const feed = this.feed()?.nativeElement;
-    if (feed) this.follow = isNearBottom(feed);
+    if (!feed) return;
+    this.follow = isNearBottom(feed);
+    if (isNearTop(feed)) void this.loadOlder();
+  }
+
+  /** Asks for the window before the first shown event; one at a time, dropped if the chat changed. */
+  private async loadOlder(): Promise<void> {
+    const feed = this.feed()?.nativeElement;
+    const firstSeq = this.firstSeq;
+    if (
+      !feed ||
+      firstSeq === null ||
+      !shouldLoadOlder({
+        nearTop: isNearTop(feed),
+        loading: this.loadingOlder(),
+        hasMore: this.hasMore(),
+        firstSeq,
+      })
+    ) {
+      return;
+    }
+    const generation = this.generation;
+    this.loadingOlder.set(true);
+    try {
+      const window = await this.service.eventsWindow(this.current, firstSeq);
+      if (generation !== this.generation) return;
+      const older = olderThan(window.events, this.firstSeq);
+      this.hasMore.set(window.hasMore && older.length > 0);
+      if (older.length > 0) {
+        this.firstSeq = nextFirstSeq(this.firstSeq, older);
+        this.prependAnchor = this.feed()?.nativeElement.scrollHeight ?? null;
+        this.rows.update((current) => [...rowsFromEvents(older), ...current]);
+      }
+    } catch (cause) {
+      if (generation === this.generation) this.error.set(apiErrorMessage(cause));
+    } finally {
+      if (generation === this.generation) this.loadingOlder.set(false);
+    }
   }
 
   protected text(event: Event): string {
@@ -360,9 +432,13 @@ export class ChatPage {
     const generation = ++this.generation;
     this.current = id;
     this.lastSeq = 0;
+    this.firstSeq = null;
+    this.prependAnchor = null;
+    this.hasMore.set(false);
+    this.loadingOlder.set(false);
     this.follow = true;
     this.chat.set(null);
-    this.items.set([]);
+    this.rows.set([]);
     this.error.set(null);
     this.connected.set(true);
     this.draft.set('');
@@ -378,12 +454,16 @@ export class ChatPage {
       return;
     }
     try {
-      const chat = await this.service.get(id);
-      const events = await this.service.events(id);
+      const [chat, window] = await Promise.all([
+        this.service.get(id),
+        this.service.eventsWindow(id),
+      ]);
       if (generation !== this.generation) return;
       this.chat.set(chat);
-      this.ingest(events);
-      void this.refreshWorkState();
+      this.firstSeq = window.firstSeq;
+      this.hasMore.set(window.hasMore);
+      this.ingest(window.events);
+      void this.refreshWorkState(chat);
     } catch (cause) {
       if (generation === this.generation) this.error.set(apiErrorMessage(cause));
       return;
@@ -403,7 +483,7 @@ export class ChatPage {
     const fresh = events.filter((event) => event.seq > this.lastSeq);
     if (fresh.length === 0) return;
     this.lastSeq = Math.max(this.lastSeq, ...fresh.map((event) => event.seq));
-    this.items.update((current) => [...current, ...fresh.flatMap(toViewItems)]);
+    this.rows.update((current) => [...current, ...rowsFromEvents(fresh)]);
     if (fresh.some((event) => event.type === 'user_prompt')) this.setStatus('running');
     if (fresh.some(endsTurn)) void this.refreshStatus();
     if (fresh.some((event) => movesState(event.type))) void this.refreshWorkState();
@@ -414,10 +494,10 @@ export class ChatPage {
   }
 
   /** The pilot or the agent moved the work: read its state and what the cards show. */
-  protected async refreshWorkState(): Promise<void> {
+  protected async refreshWorkState(known?: Chat): Promise<void> {
     const id = this.current;
     try {
-      const fresh = await this.service.get(id);
+      const fresh = known ?? (await this.service.get(id));
       if (id !== this.current) return;
       this.chat.update((c) =>
         c ? { ...c, workState: fresh.workState ?? null, kind: fresh.kind } : c,

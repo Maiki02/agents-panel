@@ -3,6 +3,7 @@ import type { AgentManager } from '../agent/manager.js';
 import type { AutopilotRunRepository } from '../pilot/runs-repo.js';
 import type { MaintenanceRunRepository } from './runs.js';
 import { UpdateBlockedError, bashRunner, type ScriptRunner } from './updater.js';
+import { SwrCell } from './swr.js';
 import { defaultExec, type Exec } from './versions.js';
 
 const SCRIPT_TIMEOUT_MS = 20 * 60 * 1000;
@@ -46,7 +47,7 @@ export class PanelDeployer {
   private readonly timeoutMs: number;
   private readonly pending = new Set<Promise<void>>();
   private commit: string | null = null;
-  private behindCache: { value: number | null; at: number } | undefined;
+  private readonly behindCell: SwrCell<number | null>;
   private running = false;
 
   constructor(private readonly deps: PanelDeployerDeps) {
@@ -54,11 +55,15 @@ export class PanelDeployer {
     this.exec = deps.exec ?? defaultExec;
     this.now = deps.now ?? Date.now;
     this.timeoutMs = deps.timeoutMs ?? SCRIPT_TIMEOUT_MS;
+    // Stale-while-revalidate: the fetch (up to 15 s) refreshes in the background, not in a request.
+    this.behindCell = new SwrCell(() => this.loadBehind(), FETCH_TTL_MS, this.now);
   }
 
   /** Reads the commit the server started from; called once at boot, so a later pull does not lie. */
   async init(): Promise<void> {
     this.commit = await this.git(['rev-parse', '--short', 'HEAD'], 5_000);
+    // Warms the first value without waiting for it.
+    this.behindCell.warm();
   }
 
   get deployRunning(): boolean {
@@ -68,7 +73,7 @@ export class PanelDeployer {
   async info(): Promise<PanelDeployInfo> {
     return {
       commit: this.commit,
-      behind: await this.behind(),
+      behind: await this.behindCell.get(),
       deployRunning: this.running,
       unavailableReason: this.deps.selfDeploy ? null : NOT_UNDER_SYSTEMD,
     };
@@ -139,28 +144,22 @@ export class PanelDeployer {
       }
     } finally {
       this.running = false;
-      this.behindCache = undefined;
+      this.behindCell.invalidate();
       // Sessions stay blocked until the process is gone: the new build is what starts them.
       if (restart) this.deps.restart();
       else manager.endMaintenance();
     }
   }
 
-  /** Commits of origin/main the running server does not have; cached briefly (it fetches). */
-  private async behind(): Promise<number | null> {
-    const cached = this.behindCache;
-    if (cached && this.now() - cached.at < FETCH_TTL_MS) return cached.value;
-    let value: number | null = null;
-    if (this.commit !== null) {
-      await this.git(['fetch', '--quiet', 'origin', BRANCH], 15_000);
-      const count = await this.git(
-        ['rev-list', '--count', `${this.commit}..origin/${BRANCH}`],
-        5_000,
-      );
-      value = count !== null && /^\d+$/.test(count) ? Number(count) : null;
-    }
-    this.behindCache = { value, at: this.now() };
-    return value;
+  /** Commits of origin/main the running server does not have (it fetches: slow, so cached). */
+  private async loadBehind(): Promise<number | null> {
+    if (this.commit === null) return null;
+    await this.git(['fetch', '--quiet', 'origin', BRANCH], 15_000);
+    const count = await this.git(
+      ['rev-list', '--count', `${this.commit}..origin/${BRANCH}`],
+      5_000,
+    );
+    return count !== null && /^\d+$/.test(count) ? Number(count) : null;
   }
 
   private async git(args: string[], timeoutMs: number): Promise<string | null> {

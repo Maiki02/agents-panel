@@ -400,15 +400,18 @@ describe('pull and repos routes with a child repo on another base', () => {
 
 describe('kyroPendingCommit in the project API', () => {
   it("is true only when Kyro's project.json is modified in the clone, and false once committed", async () => {
-    const made = makeApp();
+    // The list caches kyroPendingCommit for a few seconds: the test moves the clock past it.
+    let clock = Date.now();
+    const made = makeApp({}, () => clock);
     app = made.app;
     await app.ready();
     const server = app;
     const user = await new UserRepository(made.db).create('alice', PASSWORD);
-    const { token } = new SessionService(made.db, {
-      idleTtlSeconds: 1800,
-      absoluteTtlSeconds: 43200,
-    }).create(user.id);
+    const { token } = new SessionService(
+      made.db,
+      { idleTtlSeconds: 1800, absoluteTtlSeconds: 43200 },
+      () => clock,
+    ).create(user.id);
     const headers = { cookie: `${SESSION_COOKIE}=${token}` };
     const { clone } = makeRemote();
     mkdirSync(join(clone, '.agents', 'kyro'), { recursive: true });
@@ -430,8 +433,10 @@ describe('kyroPendingCommit in the project API', () => {
     };
     expect(await pending()).toEqual([false, false]);
     writeFileSync(join(clone, '.agents', 'kyro', 'project.json'), '{"v":2}\n');
+    clock += 6_000;
     expect(await pending()).toEqual([true, true]);
     git(clone, 'commit', '-q', '-am', 'kyro update');
+    clock += 6_000;
     expect(await pending()).toEqual([false, false]);
   });
 

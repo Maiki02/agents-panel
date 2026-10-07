@@ -4,6 +4,7 @@ import type {
   AutopilotInfo,
   Chat,
   ChatEvent,
+  ChatEventWindow,
   ChatKind,
   IdeaAction,
   IdeaDocument,
@@ -14,6 +15,8 @@ import type {
   WorktreeTransition,
 } from '@agents-panel/shared';
 import { firstValueFrom } from 'rxjs';
+import { SwrCache } from '../shared/swr-cache';
+import { FEED_WINDOW_TAIL } from './feed-window-logic';
 
 export interface NewChatInput {
   projectId: number;
@@ -48,17 +51,37 @@ export function isInvalidTotp(error: unknown): boolean {
   return (error.error as { error?: unknown } | null)?.error === 'invalid_totp';
 }
 
+function listKey(projectId: number | undefined): string {
+  return projectId === undefined ? '' : String(projectId);
+}
+
 @Injectable({ providedIn: 'root' })
 export class ChatsService {
   private readonly http = inject(HttpClient);
+  private readonly listCache = new SwrCache<Chat[]>();
 
   projects(): Promise<Project[]> {
     return firstValueFrom(this.http.get<Project[]>('/api/projects'));
   }
 
+  /** The last list of a project's chats: paints at once while list() fetches the new one. */
+  cachedList(projectId?: number): Chat[] | undefined {
+    return this.listCache.peek(listKey(projectId));
+  }
+
   list(projectId?: number): Promise<Chat[]> {
     const params = projectId === undefined ? {} : { projectId: String(projectId) };
-    return firstValueFrom(this.http.get<Chat[]>('/api/chats', { params }));
+    return this.listCache.load(
+      () => firstValueFrom(this.http.get<Chat[]>('/api/chats', { params })),
+      listKey(projectId),
+    );
+  }
+
+  /** Every action that changes a chat drops the cached lists. */
+  private changed<T>(request: Promise<T>): Promise<T> {
+    return request.finally(() => {
+      this.listCache.invalidate();
+    });
   }
 
   get(id: number): Promise<Chat> {
@@ -73,12 +96,23 @@ export class ChatsService {
     );
   }
 
+  /** The last `tail` agent messages, or the ones right before `beforeSeq`. */
+  eventsWindow(id: number, beforeSeq?: number): Promise<ChatEventWindow> {
+    const params: Record<string, string> = { tail: String(FEED_WINDOW_TAIL) };
+    if (beforeSeq !== undefined) params['beforeSeq'] = String(beforeSeq);
+    return firstValueFrom(
+      this.http.get<ChatEventWindow>(`/api/chats/${String(id)}/events`, { params }),
+    );
+  }
+
   create(input: NewChatInput): Promise<Chat> {
-    return firstValueFrom(this.http.post<Chat>('/api/chats', input));
+    return this.changed(firstValueFrom(this.http.post<Chat>('/api/chats', input)));
   }
 
   send(id: number, text: string): Promise<unknown> {
-    return firstValueFrom(this.http.post(`/api/chats/${String(id)}/messages`, { text }));
+    return this.changed(
+      firstValueFrom(this.http.post(`/api/chats/${String(id)}/messages`, { text })),
+    );
   }
 
   /** Answers a question the agent is waiting on; 409 when it was already answered or cancelled. */
@@ -87,10 +121,12 @@ export class ChatsService {
     questionId: number,
     body: { answer: QuestionAnswer },
   ): Promise<PendingQuestion> {
-    return firstValueFrom(
-      this.http.post<PendingQuestion>(
-        `/api/chats/${String(chatId)}/questions/${String(questionId)}/answer`,
-        body,
+    return this.changed(
+      firstValueFrom(
+        this.http.post<PendingQuestion>(
+          `/api/chats/${String(chatId)}/questions/${String(questionId)}/answer`,
+          body,
+        ),
       ),
     );
   }
@@ -102,7 +138,7 @@ export class ChatsService {
 
   /** The decision about the plan: approve it as a scope or a work, or ask for changes. */
   ideaAction(id: number, body: { action: IdeaAction; text?: string }): Promise<unknown> {
-    return firstValueFrom(this.http.post(`/api/chats/${String(id)}/idea`, body));
+    return this.changed(firstValueFrom(this.http.post(`/api/chats/${String(id)}/idea`, body)));
   }
 
   timeline(id: number): Promise<WorktreeTransition[]> {
@@ -125,19 +161,23 @@ export class ChatsService {
 
   /** Switch the pilot on or off, pause or resume it; 409 with a readable reason when it does not apply. */
   autopilotAction(id: number, action: 'on' | 'off' | 'pause' | 'resume'): Promise<AutopilotInfo> {
-    return firstValueFrom(
-      this.http.post<AutopilotInfo>(`/api/chats/${String(id)}/autopilot`, { action }),
+    return this.changed(
+      firstValueFrom(
+        this.http.post<AutopilotInfo>(`/api/chats/${String(id)}/autopilot`, { action }),
+      ),
     );
   }
 
   /** The user's explicit OK to complete a scope with its debt still open. */
   acceptDebt(id: number, reason: string): Promise<unknown> {
-    return firstValueFrom(
-      this.http.post(`/api/chats/${String(id)}/autopilot`, { action: 'accept_debt', reason }),
+    return this.changed(
+      firstValueFrom(
+        this.http.post(`/api/chats/${String(id)}/autopilot`, { action: 'accept_debt', reason }),
+      ),
     );
   }
 
   cancel(id: number): Promise<unknown> {
-    return firstValueFrom(this.http.post(`/api/chats/${String(id)}/cancel`, {}));
+    return this.changed(firstValueFrom(this.http.post(`/api/chats/${String(id)}/cancel`, {})));
   }
 }
