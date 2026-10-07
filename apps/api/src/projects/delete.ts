@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 import { lstat, realpath, rm } from 'node:fs/promises';
 import { join, relative, resolve, sep } from 'node:path';
 import type { AgentManager } from '../agent/manager.js';
+import { notifyDiskChanged } from '../capacity/disk.js';
 import type { ChatRepository } from '../chats/repo.js';
 import type { Config } from '../config.js';
 import { git } from './git.js';
@@ -113,6 +114,7 @@ export class ProjectDeleter {
       }
       const cloneRemoved = await this.removeFiles(project.repoPath, project.name, repoExists);
       projects.deleteWithDependents(project.id);
+      notifyDiskChanged();
       return { cloneRemoved };
     } catch (error) {
       if (error instanceof ProjectError || error instanceof DeleteBlockedError) throw error;

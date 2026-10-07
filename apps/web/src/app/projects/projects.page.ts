@@ -17,6 +17,9 @@ import {
   projectStatusTone,
   repoDisplay,
 } from './project-label';
+import { CapacityBars } from './capacity-bars';
+import { projectDiskText } from './capacity-logic';
+import { CapacityService } from './capacity.service';
 import { ProjectsService } from './projects.service';
 import { Button } from '../ui/button';
 import { Icon } from '../ui/icon';
@@ -28,7 +31,7 @@ const POLL_MS = 3000;
 @Component({
   selector: 'app-projects',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink, AddProjectForm, Button, Badge, Icon],
+  imports: [RouterLink, AddProjectForm, Button, Badge, Icon, CapacityBars],
   template: `
     <div class="mb-4 flex items-center justify-between gap-3">
       <h2 class="m-0">Proyectos</h2>
@@ -40,6 +43,7 @@ const POLL_MS = 3000;
     @if (error(); as message) {
       <p class="error" role="alert">{{ message }}</p>
     }
+    <app-capacity-bars />
     @for (project of projects(); track project.id) {
       <article class="card project-card">
         <div class="flex items-start justify-between gap-3">
@@ -61,6 +65,7 @@ const POLL_MS = 3000;
                 }
               }
             </div>
+            <div class="meta">{{ diskText(project) }}</div>
           </div>
           <app-badge class="shrink-0" [tone]="tone(project)">{{ statusText(project) }}</app-badge>
         </div>
@@ -125,6 +130,7 @@ const POLL_MS = 3000;
 })
 export class ProjectsPage {
   private readonly service = inject(ProjectsService);
+  private readonly capacity = inject(CapacityService);
 
   protected readonly projects = signal<Project[]>([]);
   protected readonly loaded = signal(false);
@@ -149,6 +155,11 @@ export class ProjectsPage {
   }
 
   protected pendingNotice = kyroPendingNotice;
+
+  protected diskText(project: Project): string {
+    const entry = this.capacity.disk()?.projects.find((p) => p.name === project.name);
+    return projectDiskText(this.capacity.diskState(), entry);
+  }
 
   protected label(project: Project): string {
     return projectLabel(project);

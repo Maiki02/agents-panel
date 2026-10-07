@@ -5,6 +5,7 @@ import { join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import type { Project } from '@agents-panel/shared';
+import { notifyDiskChanged } from '../capacity/disk.js';
 import type { Config } from '../config.js';
 import { KyroLock } from '../maintenance/lock.js';
 import { splitCommand } from '../worktrees/create.js';
@@ -375,6 +376,7 @@ export class ProjectService {
     }
     const run = this.runClone(project, github).finally(() => {
       this.pending.delete(project.id);
+      notifyDiskChanged();
     });
     this.pending.set(project.id, run);
     return project;

@@ -512,6 +512,22 @@ export const migrations: readonly Migration[] = [
         ADD COLUMN account_id INTEGER REFERENCES claude_accounts(id) ON DELETE SET NULL;
     `,
   },
+  {
+    version: 20,
+    name: 'panel_steps',
+    // Timed steps of the panel that run no AI (setup, analyze, push, merge phase steps).
+    sql: `
+      CREATE TABLE panel_steps (
+        id INTEGER PRIMARY KEY,
+        chat_id INTEGER NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
+        kind TEXT NOT NULL,
+        started_at INTEGER NOT NULL,
+        ended_at INTEGER,
+        result TEXT
+      );
+      CREATE INDEX panel_steps_chat ON panel_steps (chat_id, started_at);
+    `,
+  },
 ];
 
 /** Applies pending migrations in order, each in its own transaction. Safe to run repeatedly. */

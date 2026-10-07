@@ -9,6 +9,7 @@ import {
   type ValidateTarget,
   type ValidationResult,
 } from '../worktrees/validate.js';
+import type { StepRunner } from '../chats/steps-repo.js';
 import type { PilotGh } from './github-cli.js';
 import type { MergeGit, PilotGit } from './git-ops.js';
 import { describeSecrets, scanWorktreeSecrets, type SecretFinding } from './secrets.js';
@@ -36,7 +37,13 @@ export interface MergeDeps {
   scan?: (cwd: string, base: string) => Promise<SecretFinding[]>;
   validate?: (project: ValidateTarget, cwd: string, timeoutMs: number) => Promise<ValidationResult>;
   validateTimeoutMs?: number;
+  /** Times a step of the phase (no AI); each step runs untimed when absent. */
+  step?: StepRunner;
 }
+
+/** The step runner of the deps, or one that just runs the step. */
+export const stepOf = (deps: { step?: StepRunner }): StepRunner =>
+  deps.step ?? ((_kind, fn) => fn());
 
 export interface MergeMark {
   data?: Record<string, unknown>;
@@ -69,7 +76,10 @@ export async function runGenericMerge(deps: MergeDeps, input: MergeInput): Promi
   const { git, gh } = deps;
   const cwd = input.chat.worktreePath;
   const branch = input.chat.branch;
-  const scan = deps.scan ?? scanWorktreeSecrets;
+  const step = stepOf(deps);
+  const rawScan = deps.scan ?? scanWorktreeSecrets;
+  const scan = (dir: string, base: string): Promise<SecretFinding[]> =>
+    step('merge_scan', () => rawScan(dir, base));
   const validate = deps.validate ?? runValidation;
 
   deps.mark('trayendo_dev', `Trae ${input.base} a ${branch}`, { data: { base: input.base } });
@@ -84,7 +94,7 @@ export async function runGenericMerge(deps: MergeDeps, input: MergeInput): Promi
 
     // 2. The base comes in as a merge, never a rebase.
     const headBefore = await git.head(cwd);
-    const pulled = await git.pull(cwd, input.base);
+    const pulled = await step('merge_pull', () => git.pull(cwd, input.base));
     if (!pulled.ok) {
       const unmerged = await git.unmergedPaths(cwd);
       if (unmerged.length === 0 && !(await git.mergeInProgress(cwd))) {
@@ -114,11 +124,11 @@ export async function runGenericMerge(deps: MergeDeps, input: MergeInput): Promi
     if (secrets.length > 0) return stop('secretos', describeSecrets(secrets));
 
     // 6. Push (never forced) and the PR.
-    await git.push(cwd, branch);
+    await step('push', () => git.push(cwd, branch));
     deps.mark('abriendo_pr', `Abre la PR de ${branch} hacia ${input.base}`, {
       data: { base: input.base },
     });
-    const url = await openOrReusePr(gh, input);
+    const url = await step('merge_pr', () => openOrReusePr(gh, input));
     deps.mark('pr_lista', 'La PR está lista para revisar', { data: { prUrl: url }, detail: url });
     return { kind: 'pr', url };
   } catch (error) {
@@ -150,10 +160,12 @@ async function validateMerge(
   deps.mark('validando_post_merge', 'Valida el resultado del merge', {
     data: { validation: 'running', command },
   });
-  const result = await validate(
-    input.project,
-    input.chat.worktreePath,
-    deps.validateTimeoutMs ?? DEFAULT_VALIDATE_TIMEOUT_MS,
+  const result = await stepOf(deps)('merge_validate', () =>
+    validate(
+      input.project,
+      input.chat.worktreePath,
+      deps.validateTimeoutMs ?? DEFAULT_VALIDATE_TIMEOUT_MS,
+    ),
   );
   deps.record('validation', validationEventPayload(result));
   if (result.status === 'failed' || result.status === 'timeout') {

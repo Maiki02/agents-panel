@@ -36,6 +36,8 @@ export function makeApp(
       | 'pilotGh'
       | 'pushSender'
       | 'accountsHome'
+      | 'diskMeter'
+      | 'procRoot'
     >
   > = {},
 ): {
@@ -71,6 +73,8 @@ export function makeApp(
     ...(extra.pilotGh ? { pilotGh: extra.pilotGh } : {}),
     ...(extra.pushSender ? { pushSender: extra.pushSender } : {}),
     ...(extra.accountsHome ? { accountsHome: extra.accountsHome } : {}),
+    ...(extra.diskMeter ? { diskMeter: extra.diskMeter } : {}),
+    ...(extra.procRoot ? { procRoot: extra.procRoot } : {}),
   });
   return { app, db, worktreesDir, projectsDir };
 }
