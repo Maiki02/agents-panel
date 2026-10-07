@@ -24,6 +24,7 @@ import {
   type ChatFilterId,
 } from './chat-filter-logic';
 import { ChatsService, apiErrorMessage } from './chats.service';
+import { RUNTIME_APPROX_HELP, createdLabel, runtimeLabel } from './runtime-logic';
 import { chatSubtitle, hasRunning, sidebarBadge } from './status';
 
 const POLL_MS = 4000;
@@ -82,6 +83,15 @@ const POLL_MS = 4000;
               </app-badge>
             </span>
             <span class="mt-0.5 block break-all text-xs text-muted">{{ subtitle(chat) }}</span>
+            <span class="mt-0.5 flex items-center justify-between gap-2 text-xs text-muted">
+              <span>{{ created(chat.createdAt) }}</span>
+              <span
+                [attr.title]="chat.runtimeApprox ? approxHelp : null"
+                [attr.aria-label]="chat.runtimeApprox ? approxHelp : null"
+              >
+                {{ runtime(chat) }}
+              </span>
+            </span>
           </a>
         </li>
       } @empty {
@@ -116,6 +126,9 @@ export class ChatSidebar {
 
   protected readonly badge = sidebarBadge;
   protected readonly subtitle = chatSubtitle;
+  protected readonly created = createdLabel;
+  protected readonly runtime = runtimeLabel;
+  protected readonly approxHelp = RUNTIME_APPROX_HELP;
 
   constructor() {
     effect(() => {

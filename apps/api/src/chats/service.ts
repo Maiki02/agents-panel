@@ -28,6 +28,7 @@ import {
   type QuestionRepository,
 } from './questions-repo.js';
 import type { ChatRepository } from './repo.js';
+import type { PanelStepRepository } from './steps-repo.js';
 import { POLICY_VERSION, buildPolicy } from '../pilot/policy.js';
 import type { AutopilotRunRepository } from '../pilot/runs-repo.js';
 
@@ -88,6 +89,8 @@ export interface ChatServiceDeps {
   autopilot?: AutopilotRunRepository;
   /** Called once the chat exists and its first turn started, when the autopilot is on. */
   onAutopilotStart?: (chatId: number) => void;
+  /** Timed steps of the panel; absent in tests that do not measure them. */
+  steps?: PanelStepRepository;
 }
 
 /**
@@ -176,9 +179,14 @@ export class ChatService {
 
     const buffered: { type: string; payload: Record<string, unknown> }[] = [];
     let worktree;
+    const timed = this.deps.steps?.deferred();
     try {
-      worktree = await createWorktree(project, input.slug, worktreesDir, (type, payload) =>
-        buffered.push({ type, payload }),
+      worktree = await createWorktree(
+        project,
+        input.slug,
+        worktreesDir,
+        (type, payload) => buffered.push({ type, payload }),
+        timed ? { step: timed.run } : {},
       );
     } catch (error) {
       if (error instanceof WorktreeError) throw new ChatError(error.message, 422);
@@ -197,6 +205,7 @@ export class ChatService {
         status: 'idle',
         models,
       });
+      timed?.flush(chat.id);
       try {
         if (input.autopilot === true) this.deps.autopilot?.create(chat.id);
         for (const event of buffered) chats.appendEvent(chat.id, event.type, event.payload);

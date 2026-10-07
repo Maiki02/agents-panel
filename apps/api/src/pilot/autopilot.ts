@@ -7,6 +7,7 @@ import {
 } from '../agent/manager.js';
 import type { ChatRepository } from '../chats/repo.js';
 import type { AgentSessionRepository } from '../chats/sessions-repo.js';
+import type { PanelStepRepository, StepRunner } from '../chats/steps-repo.js';
 import type { QuestionRepository } from '../chats/questions-repo.js';
 import type { KyroActionResult, KyroReadResult } from '../kyro/reader.js';
 import type {
@@ -97,6 +98,8 @@ export interface AutopilotDeps {
   validateTimeoutMs?: number;
   /** Sessions of every chat; needed to resume an interrupted step after a restart. */
   sessions?: AgentSessionRepository;
+  /** Timed steps of the panel (analyze, push, merge phase); untimed when absent. */
+  steps?: PanelStepRepository;
   /** Last usage windows per account; the fallback for the reset time of a rejected window. */
   usage?: Pick<UsageRepository, 'listByAccount'>;
   maxSessionsPerSprint?: number;
@@ -417,7 +420,9 @@ export class Autopilot {
       let step: PromptStep;
       let findings: string[] = [];
       if (decision.kind === 'check_quality' && state.kind === 'scope') {
-        const analysis = await kyro.analyze(cwd, state.scope);
+        const analysis = await this.stepFor(chat.id)('analyze', () =>
+          kyro.analyze(cwd, state.scope),
+        );
         if (!analysis.ok) {
           this.stop(chat, {
             state: 'bloqueado',
@@ -544,11 +549,18 @@ export class Autopilot {
     return this.push(chat);
   }
 
+  /** Times a step of the chat; runs it untimed when the pilot has no step repository. */
+  private stepFor(chatId: number): StepRunner {
+    return this.deps.steps ? this.deps.steps.runnerFor(chatId) : (_kind, fn) => fn();
+  }
+
   /** `git push -u origin <branch>` of the chat's branch; a failure stops with `git` and the output. */
   private async push(chat: Chat): Promise<boolean> {
     try {
-      const outcome = await this.actions.pushBranch(chat.id, 'pilot');
-      if (outcome.result !== 'ok') throw new Error(outcome.output);
+      await this.stepFor(chat.id)('push', async () => {
+        const outcome = await this.actions.pushBranch(chat.id, 'pilot');
+        if (outcome.result !== 'ok') throw new Error(outcome.output);
+      });
       return true;
     } catch (error) {
       this.stop(chat, {
@@ -639,6 +651,7 @@ export class Autopilot {
           ? { validateTimeoutMs: this.deps.validateTimeoutMs }
           : {}),
         ...(this.deps.scan ? { scan: this.deps.scan } : {}),
+        step: this.stepFor(chat.id),
       },
       {
         chat,

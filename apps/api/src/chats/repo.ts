@@ -9,6 +9,7 @@ import {
   type ModelSelection,
 } from '@agents-panel/shared';
 import type { Db } from '../db/index.js';
+import { netRuntimeMs, type Interval } from './runtime.js';
 
 interface ChatRow {
   id: number;
@@ -40,7 +41,7 @@ interface EventRow {
 const SELECT_CHAT =
   'SELECT c.*, p.name AS project_name FROM chats c JOIN projects p ON p.id = c.project_id';
 
-function toChat(row: ChatRow): Chat {
+function toChat(row: ChatRow): Omit<Chat, 'runtimeMs' | 'runtimeApprox'> {
   return {
     id: row.id,
     projectId: row.project_id,
@@ -116,17 +117,67 @@ export class ChatRepository {
 
   findById(id: number): Chat | undefined {
     const row = this.db.prepare(`${SELECT_CHAT} WHERE c.id = ?`).get(id) as ChatRow | undefined;
-    return row ? toChat(row) : undefined;
+    return row ? this.withRuntime([toChat(row)])[0] : undefined;
   }
 
   list(projectId?: number): Chat[] {
     const where = projectId === undefined ? '' : ' WHERE c.project_id = ?';
     const args = projectId === undefined ? [] : [projectId];
-    return (
-      this.db
-        .prepare(`${SELECT_CHAT}${where} ORDER BY c.updated_at DESC, c.id DESC`)
-        .all(...args) as unknown as ChatRow[]
-    ).map(toChat);
+    return this.withRuntime(
+      (
+        this.db
+          .prepare(`${SELECT_CHAT}${where} ORDER BY c.updated_at DESC, c.id DESC`)
+          .all(...args) as unknown as ChatRow[]
+      ).map(toChat),
+    );
+  }
+
+  /**
+   * Adds the net runtime to each chat with three queries for all of them. A chat is approximate when
+   * it was created before the panel steps were measured (migration `panel_steps`).
+   */
+  private withRuntime(chats: Omit<Chat, 'runtimeMs' | 'runtimeApprox'>[]): Chat[] {
+    if (chats.length === 0) return [];
+    const ids = chats.map((chat) => chat.id);
+    const marks = ids.map(() => '?').join(', ');
+    const intervalsOf = (sql: string): Map<number, Interval[]> => {
+      const byChat = new Map<number, Interval[]>();
+      for (const row of this.db.prepare(sql).all(...ids)) {
+        const chatId = Number(row['chat_id']);
+        const end = row['end_at'];
+        const list = byChat.get(chatId) ?? [];
+        list.push({ start: Number(row['start_at']), end: end === null ? null : Number(end) });
+        byChat.set(chatId, list);
+      }
+      return byChat;
+    };
+    const sessions = intervalsOf(
+      `SELECT chat_id, started_at AS start_at, ended_at AS end_at FROM agent_sessions WHERE chat_id IN (${marks})`,
+    );
+    const steps = intervalsOf(
+      `SELECT chat_id, started_at AS start_at, ended_at AS end_at FROM panel_steps WHERE chat_id IN (${marks})`,
+    );
+    // Pending questions count up to now; a cancelled one has no answered_at (its end is unknown), so
+    // it subtracts nothing.
+    const waits = intervalsOf(
+      `SELECT chat_id, created_at AS start_at,
+              CASE WHEN status = 'pending' THEN NULL ELSE COALESCE(answered_at, created_at) END AS end_at
+         FROM pending_questions WHERE chat_id IN (${marks})`,
+    );
+    const marker = this.db
+      .prepare('SELECT applied_at FROM schema_migrations WHERE name = ?')
+      .get('panel_steps') as { applied_at: number } | undefined;
+    const measuredSince = marker === undefined ? 0 : marker.applied_at;
+    const now = this.now();
+    return chats.map((chat) => ({
+      ...chat,
+      runtimeMs: netRuntimeMs(
+        [...(sessions.get(chat.id) ?? []), ...(steps.get(chat.id) ?? [])],
+        waits.get(chat.id) ?? [],
+        now,
+      ),
+      runtimeApprox: chat.createdAt < measuredSince,
+    }));
   }
 
   delete(id: number): void {
@@ -154,11 +205,13 @@ export class ChatRepository {
 
   /** Chats whose turn is marked running (read before `markRunningAsInterrupted` on startup). */
   listRunning(): Chat[] {
-    return (
-      this.db
-        .prepare(`${SELECT_CHAT} WHERE c.status = 'running' ORDER BY c.id`)
-        .all() as unknown as ChatRow[]
-    ).map(toChat);
+    return this.withRuntime(
+      (
+        this.db
+          .prepare(`${SELECT_CHAT} WHERE c.status = 'running' ORDER BY c.id`)
+          .all() as unknown as ChatRow[]
+      ).map(toChat),
+    );
   }
 
   /** On startup nothing is really running: chats left as running become interrupted. */

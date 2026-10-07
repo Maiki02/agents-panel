@@ -13,16 +13,594 @@
       "title": "Capacidad de la VM y tiempos de cada trabajo"
     }
   },
-  "state": "draft",
-  "revision": 1,
+  "state": "closed",
+  "revision": 42,
   "createdAt": "2026-10-05T23:36:25.678Z",
-  "updatedAt": "2026-10-05T23:36:25.678Z",
+  "updatedAt": "2026-10-07T22:24:25.323Z",
   "handoff": {
-    "nextAction": "plan_tasks",
+    "nextAction": "done",
     "nextTaskId": null,
     "blockedReason": null
   },
-  "tasks": [],
+  "tasks": [
+    {
+      "id": "W1",
+      "title": "Disco: medición en segundo plano por proyecto y total (API)",
+      "description": "Módulo apps/api/src/capacity/ con un medidor de disco inyectable (por defecto du -sxb por execFile sin shell, o Node puro, sin seguir symlinks, con timeout) que mide por proyecto registrado el repositorio (~/proyectos/<proyecto>) y sus worktrees (~/wt/<proyecto>), más las carpetas sueltas de PANEL_PROJECTS_DIR y PANEL_WORKTREES_DIR que no son proyectos, y el disco total con statfs (Proyectos, Worktrees, Otros = usado − Proyectos − Worktrees, Libre). Guarda el resultado con su hora (tabla nueva en una migración o en memoria con persistencia, a elección justificada) y el error por ítem. Corre cada 10 minutos, al crear o borrar un worktree o un proyecto, y con Recalcular; una sola medición a la vez. Rutas GET /api/capacity/disk (lectura del último resultado, nunca espera a du) y POST /api/capacity/disk/refresh (con CSRF; si ya mide responde que está midiendo). Tipos en packages/shared. No expone rutas absolutas a la web: solo nombres de proyecto y números.",
+      "context": "Brief D2, D4, D6, L2, L3, L4, L5, L6, L8. El único dato de disco hoy es diskFreeBytes (statfs) en apps/api/src/projects/service.ts. Directorios en apps/api/src/config.ts (PANEL_PROJECTS_DIR, PANEL_WORKTREES_DIR). createWorktree y removeWorktree en apps/api/src/worktrees/create.ts; borrado de proyecto en apps/api/src/projects/delete.ts. Última migración: 19. Medir es solo lectura y no instala nada.",
+      "filesToTouch": [
+        "apps/api/src/capacity/disk.ts",
+        "apps/api/src/capacity/routes.ts",
+        "apps/api/src/db/migrations.ts",
+        "apps/api/src/app.ts",
+        "apps/api/src/worktrees/create.ts",
+        "apps/api/src/projects/delete.ts",
+        "packages/shared/src/index.ts",
+        "apps/api/test/capacity-disk.test.ts",
+        "apps/api/test/db.test.ts",
+        "apps/api/test/cli.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "Sin medición todavía la ruta devuelve un estado midiendo (sin ceros) y, tras medir, cada proyecto trae repositorio y worktrees en bytes con la hora de la medición",
+        "Un proyecto sin worktrees devuelve worktrees 0 medido; una carpeta de proyecto ausente o ilegible devuelve sin dato solo para ese ítem y el error va al log",
+        "Proyectos + Worktrees + Otros + Libre suman el total de statfs, y Otros nunca es negativo",
+        "No corren dos mediciones a la vez: Recalcular durante una medición responde que está midiendo, y GET responde mientras un medidor lento simulado sigue corriendo",
+        "Un symlink a una carpeta grande no suma (test con medidor real sobre una carpeta temporal)",
+        "Crear o borrar un worktree o un proyecto dispara una medición nueva",
+        "GET sin sesión responde 401 y POST de Recalcular sin CSRF responde 403",
+        "Tests, eslint, tsc y prettier de la API en verde"
+      ],
+      "dependsOn": [],
+      "definitionRevision": 1,
+      "status": "verified",
+      "blocker": null,
+      "evidence": {
+        "summary": "Added apps/api/src/capacity: DiskMonitor (in-memory last result, one measurement at a time, 10 min timer, re-measure on worktree/project create or delete via notifyDiskChanged), duMeter (du -sx --block-size=1 via execFile, no symlink following, timeout), statfs totals (Proyectos/Worktrees/Otros/Libre summing to total, Otros >= 0), routes GET /api/capacity/disk and POST /api/capacity/disk/refresh (202 started / 200 already measuring), shared types, wiring in app.ts, notifications in createWorktree/removeWorktree/ProjectDeleter/ProjectService clone. No migration: the result is derived data recomputed at startup. Per-item errors go to the log, only names and numbers are exposed.",
+        "validations": [
+          {
+            "command": "npm test -w @agents-panel/api",
+            "result": "passed",
+            "note": "62 files, 1078 tests"
+          },
+          {
+            "command": "npm run typecheck",
+            "result": "passed",
+            "note": null
+          },
+          {
+            "command": "npm run lint",
+            "result": "passed",
+            "note": null
+          },
+          {
+            "command": "npm run format:check",
+            "result": "passed",
+            "note": null
+          }
+        ],
+        "filesChanged": [
+          "apps/api/src/capacity/disk.ts",
+          "apps/api/src/capacity/routes.ts",
+          "apps/api/src/app.ts",
+          "apps/api/src/worktrees/create.ts",
+          "apps/api/src/projects/delete.ts",
+          "apps/api/src/projects/service.ts",
+          "packages/shared/src/index.ts",
+          "apps/api/test/capacity-disk.test.ts",
+          "apps/api/test/helpers.ts",
+          "apps/api/test/cli.test.ts"
+        ],
+        "notes": "db.test.ts and migrations.ts untouched on purpose (in-memory storage, no table).",
+        "by": "maker-agent",
+        "recordedAt": "2026-10-06T02:44:13.783Z",
+        "definitionRevision": 1,
+        "materialDigest": "e6a85187a71cfec1c63853f6a129755a3df2992aecf90def07e23a7fbca6e803"
+      },
+      "verdict": {
+        "result": "pass",
+        "checkedCriteria": [
+          "Sin medición todavía la ruta devuelve un estado midiendo (sin ceros) y, tras medir, cada proyecto trae repositorio y worktrees en bytes con la hora de la medición",
+          "Un proyecto sin worktrees devuelve worktrees 0 medido; una carpeta de proyecto ausente o ilegible devuelve sin dato solo para ese ítem y el error va al log",
+          "Proyectos + Worktrees + Otros + Libre suman el total de statfs, y Otros nunca es negativo",
+          "No corren dos mediciones a la vez: Recalcular durante una medición responde que está midiendo, y GET responde mientras un medidor lento simulado sigue corriendo",
+          "Un symlink a una carpeta grande no suma (test con medidor real sobre una carpeta temporal)",
+          "Crear o borrar un worktree o un proyecto dispara una medición nueva",
+          "GET sin sesión responde 401 y POST de Recalcular sin CSRF responde 403",
+          "Tests, eslint, tsc y prettier de la API en verde"
+        ],
+        "findings": [
+          {
+            "severity": "suggestion",
+            "detail": "Project deletion trigger is covered by code (ProjectDeleter) but only the worktree trigger has a dedicated test."
+          }
+        ],
+        "by": "checker-agent",
+        "reviewedAt": "2026-10-06T02:44:20.801Z",
+        "definitionRevision": 1,
+        "evidenceDigest": "e7f533f57e098a954af87aca02e8a51d672226797a1057388697db1bbebfdd0c",
+        "reviewedMaterialDigest": "e6a85187a71cfec1c63853f6a129755a3df2992aecf90def07e23a7fbca6e803"
+      },
+      "disposition": null
+    },
+    {
+      "id": "W2",
+      "title": "RAM: lectura de /proc por función y swap (API)",
+      "description": "Lector de RAM en apps/api/src/capacity/memory.ts con la raíz de /proc inyectable. Lee /proc/meminfo (total, disponible, swap total y libre) y, para cada /proc/<pid>, el cwd y VmRSS de status. Atribuye: Sesiones de IA y builds (cwd bajo PANEL_WORKTREES_DIR), Panel (el proceso de la API y sus descendientes que no están en worktrees), Otros (resto, incluidos los cwd ilegibles) y Disponible (MemAvailable). Ruta GET /api/capacity/memory con sesión, leída en cada consulta, sin caché. Tipos en packages/shared.",
+      "context": "Brief D3, D5, L2, L4, L5. Linux ARM. RSS por proceso puede no cuadrar exacto con MemTotal − MemAvailable; Otros se calcula como usado − IA − Panel con piso 0 para que la barra cierre.",
+      "filesToTouch": [
+        "apps/api/src/capacity/memory.ts",
+        "apps/api/src/capacity/routes.ts",
+        "packages/shared/src/index.ts",
+        "apps/api/test/capacity-memory.test.ts",
+        "apps/api/test/fixtures/proc"
+      ],
+      "acceptanceCriteria": [
+        "Con un /proc simulado, un proceso con cwd bajo el directorio de worktrees suma en Sesiones de IA y builds y el proceso de la API y sus hijos fuera de worktrees en Panel",
+        "Un cwd ilegible se cuenta en Otros y no rompe la lectura",
+        "Sesiones + Panel + Otros + Disponible = MemTotal, y el swap usado y total salen de meminfo",
+        "Si /proc/meminfo falla la ruta devuelve sin dato, no ceros, y el error va al log",
+        "GET sin sesión responde 401",
+        "Tests, eslint, tsc y prettier de la API en verde"
+      ],
+      "dependsOn": [],
+      "definitionRevision": 1,
+      "status": "verified",
+      "blocker": null,
+      "evidence": {
+        "summary": "Added apps/api/src/capacity/memory.ts: readMemory reads meminfo (total, available, swap total/free) and, per pid under an injectable procRoot, PPid, VmRSS and the cwd link. Processes with cwd under the worktrees dir go to AI; the API pid and its descendants outside worktrees go to Panel; Otros = used - AI - Panel (floor 0, AI and Panel scaled down if RSS overshoots) so the sum closes on MemTotal. Unreadable cwd counts in Otros. Meminfo failure is logged and returns totals/swap null. Route GET /api/capacity/memory (behind the session guard, read each request, no cache); shared types MemoryUsage/MemoryTotals/SwapUsage; app wiring with a procRoot dep for tests; fixture meminfo.",
+        "validations": [
+          {
+            "command": "npm test -w @agents-panel/api",
+            "result": "passed",
+            "note": "63 files, 1086 tests"
+          },
+          {
+            "command": "npm run typecheck -w @agents-panel/api",
+            "result": "passed",
+            "note": null
+          },
+          {
+            "command": "npm run lint",
+            "result": "passed",
+            "note": null
+          },
+          {
+            "command": "npm run format:check",
+            "result": "passed",
+            "note": null
+          }
+        ],
+        "filesChanged": [
+          "apps/api/src/capacity/memory.ts",
+          "apps/api/src/capacity/routes.ts",
+          "apps/api/src/app.ts",
+          "packages/shared/src/index.ts",
+          "apps/api/test/capacity-memory.test.ts",
+          "apps/api/test/helpers.ts",
+          "apps/api/test/fixtures/proc/meminfo"
+        ],
+        "notes": "The simulated /proc is built in a temp dir per test (symlinks need absolute paths); fixtures/proc/meminfo is the shared meminfo sample.",
+        "by": "maker-agent",
+        "recordedAt": "2026-10-06T02:56:42.457Z",
+        "definitionRevision": 1,
+        "materialDigest": "8a986bd09c27db3baf5b739ffc98a8841eb4ae4e81fc808a5ff477e9064e20c1"
+      },
+      "verdict": {
+        "result": "pass",
+        "checkedCriteria": [
+          "Con un /proc simulado, un proceso con cwd bajo el directorio de worktrees suma en Sesiones de IA y builds y el proceso de la API y sus hijos fuera de worktrees en Panel",
+          "Un cwd ilegible se cuenta en Otros y no rompe la lectura",
+          "Sesiones + Panel + Otros + Disponible = MemTotal, y el swap usado y total salen de meminfo",
+          "Si /proc/meminfo falla la ruta devuelve sin dato, no ceros, y el error va al log",
+          "GET sin sesión responde 401",
+          "Tests, eslint, tsc y prettier de la API en verde"
+        ],
+        "findings": [
+          {
+            "severity": "suggestion",
+            "detail": "The route-level test checks the null response on a bad procRoot; the log line is asserted on readMemory directly, not through the app logger."
+          }
+        ],
+        "by": "checker-agent",
+        "reviewedAt": "2026-10-06T02:56:46.567Z",
+        "definitionRevision": 1,
+        "evidenceDigest": "0bab17bc38f1ad1a7c196ae8bb1ab330cb3cb35092a26b7cd16ef7ae6de296ac",
+        "reviewedMaterialDigest": "8a986bd09c27db3baf5b739ffc98a8841eb4ae4e81fc808a5ff477e9064e20c1"
+      },
+      "disposition": null
+    },
+    {
+      "id": "W3",
+      "title": "Página Proyectos: barras de disco y RAM y dato por proyecto (web)",
+      "description": "Servicio CapacityService en la web. Arriba de la página Proyectos, una barra de disco (Proyectos, Worktrees, Otros, Libre) con leyenda, valores, hora de medición y botón Recalcular, y debajo una barra de RAM (Sesiones de IA y builds, Panel, Otros, Disponible) más el swap usado sobre el total. Cada tarjeta de proyecto muestra «Repositorio X GB · Worktrees Y GB» (nunca «clon»), «Midiendo…» sin medición y «sin dato» ante error. Lógica pura (porcentajes, formato de bytes, estados) en un archivo aparte con spec.",
+      "context": "apps/web/src/app/projects/projects.page.ts recarga cada 3 s. Angular standalone con signals, componentes de ui/ y tokens de docs/identidad-visual.md. El CSRF lo pone el interceptor.",
+      "filesToTouch": [
+        "apps/web/src/app/projects/capacity.service.ts",
+        "apps/web/src/app/projects/capacity-logic.ts",
+        "apps/web/src/app/projects/capacity-bars.ts",
+        "apps/web/src/app/projects/capacity.spec.ts",
+        "apps/web/src/app/projects/projects.page.ts"
+      ],
+      "acceptanceCriteria": [
+        "La barra de disco muestra los cuatro tramos con porcentajes que suman 100 y la hora de medición visible",
+        "Sin medición muestra «Midiendo…» y con error «sin dato», nunca 0, en la barra y en las tarjetas",
+        "La barra de RAM muestra los cuatro tramos y el swap usado sobre el total",
+        "Cada tarjeta muestra «Repositorio X GB · Worktrees Y GB»",
+        "Recalcular llama a la ruta de refresco y muestra que está midiendo",
+        "Build y tests de la web en verde"
+      ],
+      "dependsOn": [
+        "W1",
+        "W2"
+      ],
+      "definitionRevision": 1,
+      "status": "verified",
+      "blocker": null,
+      "evidence": {
+        "summary": "CapacityService (signals disk y memory, estados measuring/error/ready, load, refresh que hace POST /api/capacity/disk/refresh y relee). capacity-logic.ts con lógica pura: formatBytes y formatGb (coma decimal), percents por mayor resto (suman 100), estados de disco y RAM, tramos de disco (Proyectos, Worktrees, Otros, Libre) y de RAM (Sesiones de IA y builds, Panel, Otros, Disponible), swapText, hora de medición y la línea de cada tarjeta. capacity-bars.ts: barras con leyenda, valores y porcentajes, hora de medición, botón Recalcular (deshabilitado y con «Midiendo…» mientras mide), swap usado sobre el total; 'Midiendo…' sin medición y 'sin dato' con error; relee cada 3 s. projects.page.ts muestra la barra arriba y en cada tarjeta «Repositorio X GB · Worktrees Y GB».",
+        "validations": [
+          {
+            "command": "npm test -w @agents-panel/web",
+            "result": "passed",
+            "note": "29 archivos, 268 tests, incluido capacity.spec.ts (formato, porcentajes que suman 100, tramos, estados, texto de tarjeta sin «clon»)"
+          },
+          {
+            "command": "npm run build -w @agents-panel/web",
+            "result": "passed",
+            "note": "bundle generado"
+          },
+          {
+            "command": "npm run format -- apps/web/src/app/projects",
+            "result": "passed",
+            "note": "Prettier aplicado"
+          }
+        ],
+        "filesChanged": [
+          "apps/web/src/app/projects/capacity.service.ts",
+          "apps/web/src/app/projects/capacity-logic.ts",
+          "apps/web/src/app/projects/capacity-bars.ts",
+          "apps/web/src/app/projects/capacity.spec.ts",
+          "apps/web/src/app/projects/projects.page.ts"
+        ],
+        "notes": "No se probó en un navegador ni se corrió eslint (npx no está permitido en esta sesión).",
+        "by": "claude-maker",
+        "recordedAt": "2026-10-06T02:59:12.346Z",
+        "definitionRevision": 1,
+        "materialDigest": "8e489ba8b3724e7030c33a35e118f594751bb90733686abbbf4ba96d1c096179"
+      },
+      "verdict": {
+        "result": "pass",
+        "checkedCriteria": [
+          "La barra de disco muestra los cuatro tramos con porcentajes que suman 100 y la hora de medición visible",
+          "Sin medición muestra «Midiendo…» y con error «sin dato», nunca 0, en la barra y en las tarjetas",
+          "La barra de RAM muestra los cuatro tramos y el swap usado sobre el total",
+          "Cada tarjeta muestra «Repositorio X GB · Worktrees Y GB»",
+          "Recalcular llama a la ruta de refresco y muestra que está midiendo",
+          "Build y tests de la web en verde"
+        ],
+        "findings": [
+          {
+            "severity": "suggestion",
+            "detail": "Sin prueba en navegador ni eslint; los specs cubren solo la lógica pura."
+          },
+          {
+            "severity": "suggestion",
+            "detail": "Un proyecto recién agregado, sin entrada en la medición, muestra «sin dato» hasta la próxima medición."
+          }
+        ],
+        "by": "claude-checker",
+        "reviewedAt": "2026-10-06T02:59:17.952Z",
+        "definitionRevision": 1,
+        "evidenceDigest": "b65011be6142660769948adc810fa330e5ad7e3d2dd85ace67fe4b0f802d423a",
+        "reviewedMaterialDigest": "8e489ba8b3724e7030c33a35e118f594751bb90733686abbbf4ba96d1c096179"
+      },
+      "disposition": null
+    },
+    {
+      "id": "W4",
+      "title": "Tiempos: registro de los pasos del panel sin IA (API)",
+      "description": "Tabla panel_steps (migración nueva: id, chat_id, kind, started_at, ended_at, result) con repositorio y una única función envoltorio timeStep(chatId, kind, fn) que abre el intervalo, corre el paso y lo cierra aunque falle. Se instrumentan: el setup de createWorktree, kyro analyze y el push del piloto, y en la fase de merge el pull de la base, validate_command, el escaneo de secretos, el merge genérico o la comprobación posterior al merge-dev y la apertura de la PR. Al arrancar el panel se cierran los pasos abiertos con la hora del reinicio, igual que agent_sessions.closeOpen.",
+      "context": "Brief D1, L7 y riesgo «Pasos del panel sin medir». Puntos de entrada: apps/api/src/worktrees/create.ts (setupCommand), apps/api/src/pilot/autopilot.ts (kyro.analyze, push), apps/api/src/pilot/merge-phase.ts y apps/api/src/pilot/merge.ts (pull, validate, scan, PR), apps/api/src/worktrees/validate.ts. Las sesiones de IA ya tienen started_at y ended_at en agent_sessions.",
+      "filesToTouch": [
+        "apps/api/src/db/migrations.ts",
+        "apps/api/src/chats/steps-repo.ts",
+        "apps/api/src/worktrees/create.ts",
+        "apps/api/src/pilot/autopilot.ts",
+        "apps/api/src/pilot/merge-phase.ts",
+        "apps/api/src/pilot/merge.ts",
+        "apps/api/src/app.ts",
+        "apps/api/src/main.ts",
+        "apps/api/test/panel-steps.test.ts",
+        "apps/api/test/db.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "Cada paso instrumentado deja una fila con chat, tipo, inicio y fin, también cuando el paso falla",
+        "Un validate_command simulado de 3 minutos deja un intervalo de 3 minutos",
+        "Un test recorre el merge genérico y el merge-dev y falla si alguno de sus pasos no deja inicio y fin",
+        "Al reiniciar con un paso abierto, la fila se cierra con la hora del reinicio",
+        "Tests, eslint, tsc y prettier de la API en verde"
+      ],
+      "dependsOn": [],
+      "definitionRevision": 1,
+      "status": "verified",
+      "blocker": null,
+      "evidence": {
+        "summary": "Added migration 20 (panel_steps: id, chat_id, kind, started_at, ended_at, result) and apps/api/src/chats/steps-repo.ts: PanelStepRepository.timeStep(chatId, kind, fn) opens the interval, runs the step and closes it even on failure (rethrows), runnerFor(chatId), deferred() for the worktree setup that runs before the chat exists (flushed under the chat once created), closeOpen(result) and listByChat. Instrumented: setup (createWorktree option step, flushed by ChatService), analyze and push (autopilot), and in the merge phase merge_pull, merge_validate, merge_scan, push and merge_pr (generic merge) plus merge_scan and merge_dev_check (merge-dev). app.ts closes the open steps with the restart time at startup, like agent_sessions.closeOpen.",
+        "validations": [
+          {
+            "command": "npm run test -w @agents-panel/api",
+            "result": "passed",
+            "note": "64 files, 1093 tests"
+          },
+          {
+            "command": "npm run typecheck -w @agents-panel/api",
+            "result": "passed",
+            "note": null
+          },
+          {
+            "command": "npm run lint -- apps/api",
+            "result": "passed",
+            "note": null
+          },
+          {
+            "command": "npm run format",
+            "result": "passed",
+            "note": "prettier left every file unchanged"
+          }
+        ],
+        "filesChanged": [
+          "apps/api/src/db/migrations.ts",
+          "apps/api/src/chats/steps-repo.ts",
+          "apps/api/src/chats/service.ts",
+          "apps/api/src/worktrees/create.ts",
+          "apps/api/src/pilot/autopilot.ts",
+          "apps/api/src/pilot/merge-phase.ts",
+          "apps/api/src/pilot/merge.ts",
+          "apps/api/src/app.ts",
+          "apps/api/test/panel-steps.test.ts",
+          "apps/api/test/db.test.ts"
+        ],
+        "notes": "main.ts untouched: the startup close lives in buildApp next to the other restart cleanups. chats/service.ts was also touched (not in filesToTouch) because the chat does not exist when the setup runs, so its interval is buffered and stored once the chat is created; a setup that fails leaves no chat and therefore no row.",
+        "by": "maker-agent",
+        "recordedAt": "2026-10-06T03:06:14.188Z",
+        "definitionRevision": 1,
+        "materialDigest": "4cd71023ab365cf83e5790ee7c292dbd3a560fbc376f2fd5e6a11c74c953b40f"
+      },
+      "verdict": {
+        "result": "pass",
+        "checkedCriteria": [
+          "Cada paso instrumentado deja una fila con chat, tipo, inicio y fin, también cuando el paso falla",
+          "Un validate_command simulado de 3 minutos deja un intervalo de 3 minutos",
+          "Un test recorre el merge genérico y el merge-dev y falla si alguno de sus pasos no deja inicio y fin",
+          "Al reiniciar con un paso abierto, la fila se cierra con la hora del reinicio",
+          "Tests, eslint, tsc y prettier de la API en verde"
+        ],
+        "findings": [
+          {
+            "severity": "suggestion",
+            "detail": "The startup close in app.ts (panelSteps.closeOpen) is covered through the repository test, not through buildApp; a failed worktree setup leaves no row because the chat is never created."
+          }
+        ],
+        "by": "checker-agent",
+        "reviewedAt": "2026-10-06T03:06:22.873Z",
+        "definitionRevision": 1,
+        "evidenceDigest": "ba782760eb77b0bdc4d621ccdde811a581666a52256cb560a9d50a70ca324859",
+        "reviewedMaterialDigest": "4cd71023ab365cf83e5790ee7c292dbd3a560fbc376f2fd5e6a11c74c953b40f"
+      },
+      "disposition": null
+    },
+    {
+      "id": "W5",
+      "title": "Tiempos: cálculo del tiempo de ejecución neto (API y shared)",
+      "description": "Función pura netRuntimeMs(work, waits, now) que une los intervalos de trabajo (sesiones de IA y pasos del panel, los abiertos hasta now) y resta solo la intersección con las esperas de preguntas (pending_questions created_at a answered_at, las abiertas hasta now), con piso 0. Chat suma runtimeMs y runtimeApprox (true si el chat se creó antes de la función: sin pasos del panel medidos y anterior a la migración de W4) y el listado de chats los devuelve.",
+      "context": "Brief D1, D7, L1, L7. Chat en packages/shared/src/index.ts ya trae createdAt y updatedAt. La cola, el cupo de uso y las aprobaciones ocurren entre sesiones, así que no suman. El listado de chats sale de apps/api/src/chats/repo.ts y service.ts.",
+      "filesToTouch": [
+        "apps/api/src/chats/runtime.ts",
+        "apps/api/src/chats/repo.ts",
+        "apps/api/src/chats/service.ts",
+        "packages/shared/src/index.ts",
+        "apps/api/test/runtime.test.ts",
+        "apps/api/test/chats.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "Una sesión de 65 minutos con una pregunta abierta 60 minutos dentro da unos 5 minutos",
+        "Una sesión y un paso superpuestos no se cuentan dos veces",
+        "Una sesión o una pregunta abierta se cuentan hasta ahora (la pregunta abierta deja el tiempo quieto)",
+        "Una pregunta fuera de toda sesión no resta y el resultado nunca es negativo",
+        "Un chat anterior a la función devuelve runtimeApprox true",
+        "El listado de chats trae runtimeMs y runtimeApprox; tests, eslint, tsc y prettier en verde"
+      ],
+      "dependsOn": [
+        "W4"
+      ],
+      "definitionRevision": 1,
+      "status": "verified",
+      "blocker": null,
+      "evidence": {
+        "summary": "Added apps/api/src/chats/runtime.ts with the pure netRuntimeMs(work, waits, now): unions the work intervals (AI sessions and panel steps, open ones up to now) so overlaps count once, unions the question waits, subtracts only their intersection with worked time, floor 0. Chat gains runtimeMs and runtimeApprox (shared). ChatRepository.findById, list and listRunning compute them with three queries per call (agent_sessions, panel_steps, pending_questions; pending questions are open up to now, cancelled ones have no end and subtract nothing); runtimeApprox is true when the chat was created before the panel_steps migration was applied.",
+        "validations": [
+          {
+            "command": "npm run test -w @agents-panel/api",
+            "result": "passed",
+            "note": "65 files, 1099 tests (before the final lint fix); chats and runtime tests re-run after: 34 passed"
+          },
+          {
+            "command": "npm run typecheck",
+            "result": "passed",
+            "note": null
+          },
+          {
+            "command": "npm run lint",
+            "result": "passed",
+            "note": null
+          },
+          {
+            "command": "npm run format -- --check",
+            "result": "passed",
+            "note": "chats.test.ts reformatted once, then clean"
+          }
+        ],
+        "filesChanged": [
+          "apps/api/src/chats/runtime.ts",
+          "apps/api/src/chats/repo.ts",
+          "packages/shared/src/index.ts",
+          "apps/api/test/runtime.test.ts",
+          "apps/api/test/chats.test.ts"
+        ],
+        "notes": "service.ts untouched: the list route goes through ChatRepository.list, which now returns the runtime. 65-minute session with a 60-minute question gives 5 minutes (test in runtime.test.ts and chats.test.ts).",
+        "by": "maker-agent",
+        "recordedAt": "2026-10-06T03:21:06.673Z",
+        "definitionRevision": 1,
+        "materialDigest": "1d5d04a1b64d60246a0a39fcc0ccdd184c35a3e97226c63ddb4a556e08bf2d5e"
+      },
+      "verdict": {
+        "result": "pass",
+        "checkedCriteria": [
+          "Una sesión de 65 minutos con una pregunta abierta 60 minutos dentro da unos 5 minutos",
+          "Una sesión y un paso superpuestos no se cuentan dos veces",
+          "Una sesión o una pregunta abierta se cuentan hasta ahora (la pregunta abierta deja el tiempo quieto)",
+          "Una pregunta fuera de toda sesión no resta y el resultado nunca es negativo",
+          "Un chat anterior a la función devuelve runtimeApprox true",
+          "El listado de chats trae runtimeMs y runtimeApprox; tests, eslint, tsc y prettier en verde"
+        ],
+        "findings": [
+          {
+            "severity": "suggestion",
+            "detail": "service.ts was not touched: the list route reads ChatRepository.list, which now returns the runtime. Runtime is computed per request with three queries; fine at this scale."
+          }
+        ],
+        "by": "checker-agent",
+        "reviewedAt": "2026-10-06T03:21:11.520Z",
+        "definitionRevision": 1,
+        "evidenceDigest": "464ce63685c98e90e24d7472407b27ee219fe704941a86d3a2b36ca3fff453e5",
+        "reviewedMaterialDigest": "1d5d04a1b64d60246a0a39fcc0ccdd184c35a3e97226c63ddb4a556e08bf2d5e"
+      },
+      "disposition": null
+    },
+    {
+      "id": "W6",
+      "title": "Tiempos: fecha y tiempo de ejecución en la tarjeta de chat (web)",
+      "description": "En cada ítem de la barra lateral de chats, la fecha de creación (formato local corto) y el tiempo de ejecución («1 h 12 min», «45 s»), con prefijo «≈» y una ayuda que aclara que solo cuenta las sesiones de IA cuando runtimeApprox es true. Formato en lógica pura con spec.",
+      "context": "apps/web/src/app/chats/chat-sidebar.ts recarga cada 4 s, así que el tiempo avanza solo con la recarga. Componentes de ui/ y docs/identidad-visual.md.",
+      "filesToTouch": [
+        "apps/web/src/app/chats/runtime-logic.ts",
+        "apps/web/src/app/chats/runtime.spec.ts",
+        "apps/web/src/app/chats/chat-sidebar.ts"
+      ],
+      "acceptanceCriteria": [
+        "Cada tarjeta de chat muestra la fecha de creación y el tiempo de ejecución",
+        "El formato da «45 s», «12 min» y «1 h 12 min» según el caso",
+        "Un chat aproximado muestra «≈» y la ayuda",
+        "Build y tests de la web en verde"
+      ],
+      "dependsOn": [
+        "W5"
+      ],
+      "definitionRevision": 1,
+      "status": "verified",
+      "blocker": null,
+      "evidence": {
+        "summary": "runtime-logic.ts (lógica pura): formatRuntime da «45 s», «12 min», «1 h 12 min»; runtimeLabel antepone «≈» cuando runtimeApprox; createdLabel da la fecha corta local; RUNTIME_APPROX_HELP aclara que solo cuenta las sesiones de IA. chat-sidebar.ts muestra en cada tarjeta la fecha de creación y el tiempo, con la ayuda en title y aria-label si es aproximado; avanza con la recarga de 4 s.",
+        "validations": [
+          {
+            "command": "npm test -w apps/web",
+            "result": "passed",
+            "note": "271 tests, incluido runtime.spec.ts"
+          },
+          {
+            "command": "npm run build -w apps/web",
+            "result": "passed",
+            "note": "bundle generado"
+          }
+        ],
+        "filesChanged": [
+          "apps/web/src/app/chats/runtime-logic.ts",
+          "apps/web/src/app/chats/runtime.spec.ts",
+          "apps/web/src/app/chats/chat-sidebar.ts"
+        ],
+        "notes": null,
+        "by": "claude-maker",
+        "recordedAt": "2026-10-06T03:26:25.420Z",
+        "definitionRevision": 1,
+        "materialDigest": "3b5a0c534ce6d4930590a79437382b6ca6e68f11f2b4ea172855da1d30421cc9"
+      },
+      "verdict": {
+        "result": "pass",
+        "checkedCriteria": [
+          "Cada tarjeta de chat muestra la fecha de creación y el tiempo de ejecución",
+          "El formato da «45 s», «12 min» y «1 h 12 min» según el caso",
+          "Un chat aproximado muestra «≈» y la ayuda",
+          "Build y tests de la web en verde"
+        ],
+        "findings": [],
+        "by": "checker-agent",
+        "reviewedAt": "2026-10-06T03:26:32.457Z",
+        "definitionRevision": 1,
+        "evidenceDigest": "22c4aaabf0c905ca7a37f204d8c78fff5ec520c9c8a8c8a8c90a228ae5a52e85",
+        "reviewedMaterialDigest": "3b5a0c534ce6d4930590a79437382b6ca6e68f11f2b4ea172855da1d30421cc9"
+      },
+      "disposition": null
+    },
+    {
+      "id": "W7",
+      "title": "Docs y verificación en la VM",
+      "description": "Actualizar docs/plan.md (capacidad de la VM y tiempo de ejecución: decisiones D1 a D8, rutas nuevas, tabla de pasos) y, con el panel compilado, comparar los valores de la web contra du -sh, df y free en vm-ia.",
+      "context": "Regla del repo: si una decisión cambia se actualiza el doc en el mismo cambio. Medir es solo lectura y no toca la VM: no hace falta bitácora. Si para verla en la web hay que reiniciar el servicio agents-panel, se avisa en vez de hacerlo sin pedirlo.",
+      "filesToTouch": [
+        "docs/plan.md"
+      ],
+      "acceptanceCriteria": [
+        "docs/plan.md describe la medición de disco y RAM, el registro de pasos y el cálculo del tiempo neto",
+        "Disco por proyecto y total de la API a ≤1 % de du -sh y df",
+        "Los tramos de RAM son coherentes con free"
+      ],
+      "dependsOn": [
+        "W3",
+        "W6"
+      ],
+      "definitionRevision": 1,
+      "status": "verified",
+      "blocker": null,
+      "evidence": {
+        "summary": "docs/plan.md documenta D1-D8, las rutas /api/capacity/*, la medición de disco (du -sx, statfs) y RAM (/proc), el registro panel_steps y el cálculo del tiempo neto. Verificación en vm-ia, solo lectura: la web no estaba desplegada (el servicio corre main), así que se corrieron DiskMonitor y readMemory de este worktree con tsx y se compararon con du/df/free. Disco: agents-panel repo 769912832 (du 769912832), worktrees 2786279424 (du 2786275328); test-panel 618496/172032 idénticos; ventas repo 1249894400 idéntico, worktrees 0; total 206900281344 (df igual); libre 184619737088 (df 184619741184). Proyectos+Worktrees+Otros difiere de df used 0,008 % por bloques reservados de root. RAM: total 12503814144 igual a free; IA+Panel+Otros = 2138243072 = total − disponible; disponible 10365571072 vs free 10435743744 (0,7 %, lecturas no simultáneas); swap 96546816 de 8589930496 igual a free. Todo ≤1 %.",
+        "validations": [
+          {
+            "command": "DiskMonitor del worktree con tsx vs du -sx -B1 y df",
+            "result": "passed",
+            "note": "diferencias ≤0,01 %; medido por la sesión del usuario en vm-ia, no por la web"
+          },
+          {
+            "command": "readMemory del worktree con tsx vs free -b",
+            "result": "passed",
+            "note": "disponible 0,7 % de diferencia por lectura no simultánea; total y swap idénticos"
+          }
+        ],
+        "filesChanged": [
+          "docs/plan.md"
+        ],
+        "notes": "Los valores no salieron de la página Proyectos (no desplegada), sino de los mismos módulos que la sirven.",
+        "by": "claude-maker",
+        "recordedAt": "2026-10-07T22:22:20.179Z",
+        "definitionRevision": 1,
+        "materialDigest": "0680806dbc64b2f4ec177d1cd38dd3daaafe318e6458c01ada9916af8d0bd4f8"
+      },
+      "verdict": {
+        "result": "pass",
+        "checkedCriteria": [
+          "docs/plan.md describe la medición de disco y RAM, el registro de pasos y el cálculo del tiempo neto",
+          "Disco por proyecto y total de la API a ≤1 % de du -sh y df",
+          "Los tramos de RAM son coherentes con free"
+        ],
+        "findings": [],
+        "by": "checker-agent",
+        "reviewedAt": "2026-10-07T22:22:29.014Z",
+        "definitionRevision": 1,
+        "evidenceDigest": "d9cbbb30665cfa72da76f820011584b626fc69a04b597157d28f0d840f140d23",
+        "reviewedMaterialDigest": "0680806dbc64b2f4ec177d1cd38dd3daaafe318e6458c01ada9916af8d0bd4f8"
+      },
+      "disposition": null
+    }
+  ],
   "activity": [
     {
       "seq": 1,
@@ -32,8 +610,384 @@
       "by": "Maiki02",
       "reason": "Created through the Work CLI.",
       "revision": 1
+    },
+    {
+      "seq": 2,
+      "at": "2026-10-06T02:33:04.130Z",
+      "event": "tasks_planned",
+      "taskId": null,
+      "by": "claude",
+      "reason": "Planned 7 Work tasks.",
+      "revision": 2
+    },
+    {
+      "seq": 3,
+      "at": "2026-10-06T02:33:28.950Z",
+      "event": "task_started",
+      "taskId": "W1",
+      "by": "cli",
+      "reason": "Task started through the Work CLI.",
+      "revision": 3
+    },
+    {
+      "seq": 4,
+      "at": "2026-10-06T02:44:13.783Z",
+      "event": "evidence_recorded",
+      "taskId": "W1",
+      "by": "maker-agent",
+      "reason": "Evidence recorded with 4 validation results.",
+      "revision": 4
+    },
+    {
+      "seq": 5,
+      "at": "2026-10-06T02:44:20.801Z",
+      "event": "review_recorded",
+      "taskId": "W1",
+      "by": "checker-agent",
+      "reason": "Task review recorded with pass.",
+      "revision": 5
+    },
+    {
+      "seq": 6,
+      "at": "2026-10-06T02:44:40.965Z",
+      "event": "task_started",
+      "taskId": "W2",
+      "by": "cli",
+      "reason": "Task started through the Work CLI.",
+      "revision": 6
+    },
+    {
+      "seq": 7,
+      "at": "2026-10-06T02:56:42.457Z",
+      "event": "evidence_recorded",
+      "taskId": "W2",
+      "by": "maker-agent",
+      "reason": "Evidence recorded with 4 validation results.",
+      "revision": 7
+    },
+    {
+      "seq": 8,
+      "at": "2026-10-06T02:56:46.567Z",
+      "event": "review_recorded",
+      "taskId": "W2",
+      "by": "checker-agent",
+      "reason": "Task review recorded with pass.",
+      "revision": 8
+    },
+    {
+      "seq": 9,
+      "at": "2026-10-06T02:57:04.055Z",
+      "event": "task_started",
+      "taskId": "W3",
+      "by": "cli",
+      "reason": "Task started through the Work CLI.",
+      "revision": 9
+    },
+    {
+      "seq": 10,
+      "at": "2026-10-06T02:59:12.346Z",
+      "event": "evidence_recorded",
+      "taskId": "W3",
+      "by": "claude-maker",
+      "reason": "Evidence recorded with 3 validation results.",
+      "revision": 10
+    },
+    {
+      "seq": 11,
+      "at": "2026-10-06T02:59:17.952Z",
+      "event": "review_recorded",
+      "taskId": "W3",
+      "by": "claude-checker",
+      "reason": "Task review recorded with pass.",
+      "revision": 11
+    },
+    {
+      "seq": 12,
+      "at": "2026-10-06T02:59:34.977Z",
+      "event": "task_started",
+      "taskId": "W4",
+      "by": "cli",
+      "reason": "Task started through the Work CLI.",
+      "revision": 12
+    },
+    {
+      "seq": 13,
+      "at": "2026-10-06T03:06:14.188Z",
+      "event": "evidence_recorded",
+      "taskId": "W4",
+      "by": "maker-agent",
+      "reason": "Evidence recorded with 4 validation results.",
+      "revision": 13
+    },
+    {
+      "seq": 14,
+      "at": "2026-10-06T03:06:22.873Z",
+      "event": "review_recorded",
+      "taskId": "W4",
+      "by": "checker-agent",
+      "reason": "Task review recorded with pass.",
+      "revision": 14
+    },
+    {
+      "seq": 15,
+      "at": "2026-10-06T03:06:43.218Z",
+      "event": "task_started",
+      "taskId": "W5",
+      "by": "cli",
+      "reason": "Task started through the Work CLI.",
+      "revision": 15
+    },
+    {
+      "seq": 16,
+      "at": "2026-10-06T03:21:06.673Z",
+      "event": "evidence_recorded",
+      "taskId": "W5",
+      "by": "maker-agent",
+      "reason": "Evidence recorded with 4 validation results.",
+      "revision": 16
+    },
+    {
+      "seq": 17,
+      "at": "2026-10-06T03:21:11.520Z",
+      "event": "review_recorded",
+      "taskId": "W5",
+      "by": "checker-agent",
+      "reason": "Task review recorded with pass.",
+      "revision": 17
+    },
+    {
+      "seq": 18,
+      "at": "2026-10-06T03:25:39.573Z",
+      "event": "task_started",
+      "taskId": "W6",
+      "by": "cli",
+      "reason": "Task started through the Work CLI.",
+      "revision": 18
+    },
+    {
+      "seq": 19,
+      "at": "2026-10-06T03:26:25.420Z",
+      "event": "evidence_recorded",
+      "taskId": "W6",
+      "by": "claude-maker",
+      "reason": "Evidence recorded with 2 validation results.",
+      "revision": 19
+    },
+    {
+      "seq": 20,
+      "at": "2026-10-06T03:26:32.457Z",
+      "event": "review_recorded",
+      "taskId": "W6",
+      "by": "checker-agent",
+      "reason": "Task review recorded with pass.",
+      "revision": 20
+    },
+    {
+      "seq": 21,
+      "at": "2026-10-06T03:28:34.272Z",
+      "event": "task_started",
+      "taskId": "W7",
+      "by": "cli",
+      "reason": "Task started through the Work CLI.",
+      "revision": 21
+    },
+    {
+      "seq": 22,
+      "at": "2026-10-06T03:29:23.620Z",
+      "event": "task_blocked",
+      "taskId": "W7",
+      "by": "cli",
+      "reason": "docs/plan.md ya está actualizado, pero el panel bloquea du, df, free y la lectura de /proc desde esta sesión: no se puede comparar disco (≤1 %) ni RAM contra la VM. Falta que alguien corra esa comparación a mano en vm-ia, con el panel compilado y el servicio reiniciado si hace falta.",
+      "revision": 22
+    },
+    {
+      "seq": 23,
+      "at": "2026-10-06T19:41:55.544Z",
+      "event": "task_unblocked",
+      "taskId": "W7",
+      "by": "user",
+      "reason": "Task unblocked and returned to pending eligibility.",
+      "revision": 23
+    },
+    {
+      "seq": 24,
+      "at": "2026-10-06T19:46:25.282Z",
+      "event": "task_blocked",
+      "taskId": "W7",
+      "by": "cli",
+      "reason": "docs/plan.md ya describe la medicion de disco y RAM, el registro de pasos y el tiempo neto, pero los criterios 2 y 3 no se pudieron verificar: en esta sesion el panel deniega du, df y free, y la lectura de /proc fuera del worktree, y la web compilada exige sesion con segundo factor. Hace falta que una persona compare los valores de la web contra du -sh, df y free en vm-ia.",
+      "revision": 24
+    },
+    {
+      "seq": 25,
+      "at": "2026-10-06T20:03:32.181Z",
+      "event": "task_unblocked",
+      "taskId": "W7",
+      "by": "user",
+      "reason": "Task unblocked and returned to pending eligibility.",
+      "revision": 25
+    },
+    {
+      "seq": 26,
+      "at": "2026-10-06T20:03:54.985Z",
+      "event": "task_blocked",
+      "taskId": "W7",
+      "by": "cli",
+      "reason": "docs/plan.md listo. Falta verificar criterios 2 y 3: du, df y free ahora corren, pero esta sesion no puede obtener los valores de la web (exige sesion con TOTP/passkey) ni ejecutar el codigo de apps/api/src/capacity (node, npx y tsx estan denegados). Referencia medida: du -sx /home/ubuntu/wt/agents-panel = 2034642944 B; df / = 206900281344 B total, 185460133888 B libres; free -b = 12503814144 total, 10378502144 available, swap 96546816 usado. Una persona debe abrir Proyectos en la web y comparar con estos comandos (<=1 %).",
+      "revision": 26
+    },
+    {
+      "seq": 27,
+      "at": "2026-10-06T20:16:41.375Z",
+      "event": "task_unblocked",
+      "taskId": "W7",
+      "by": "user",
+      "reason": "Task unblocked and returned to pending eligibility.",
+      "revision": 27
+    },
+    {
+      "seq": 28,
+      "at": "2026-10-06T20:16:52.186Z",
+      "event": "task_started",
+      "taskId": "W7",
+      "by": "cli",
+      "reason": "Task started through the Work CLI.",
+      "revision": 28
+    },
+    {
+      "seq": 29,
+      "at": "2026-10-06T20:16:59.471Z",
+      "event": "task_blocked",
+      "taskId": "W7",
+      "by": "cli",
+      "reason": "docs/plan.md listo. Faltan criterios 2 y 3: la sesion del piloto no puede leer la web (exige TOTP/passkey) ni ejecutar apps/api/src/capacity (node, npx, tsx denegados; curl con comillas denegado y la API pide sesion). Hace falta que una persona abra Proyectos y pase los valores (disco por proyecto, total, RAM) o confirme <=1 % contra: du -sx -B1 /home/ubuntu/wt/agents-panel = 2034688000 B; df / total 206900281344, usado 21428129792, libre 185455374336; free -b total 12503814144, available 9629106176, swap usado 96546816.",
+      "revision": 29
+    },
+    {
+      "seq": 30,
+      "at": "2026-10-06T22:38:10.713Z",
+      "event": "task_unblocked",
+      "taskId": "W7",
+      "by": "user",
+      "reason": "Task unblocked and returned to pending eligibility.",
+      "revision": 30
+    },
+    {
+      "seq": 31,
+      "at": "2026-10-06T22:38:20.205Z",
+      "event": "task_started",
+      "taskId": "W7",
+      "by": "cli",
+      "reason": "Task started through the Work CLI.",
+      "revision": 31
+    },
+    {
+      "seq": 32,
+      "at": "2026-10-06T22:38:33.098Z",
+      "event": "task_blocked",
+      "taskId": "W7",
+      "by": "cli",
+      "reason": "docs/plan.md listo (D1-D8, rutas, pasos, tiempo neto). Faltan los criterios 2 y 3, que requieren valores de la web: la sesion no puede leerla (exige TOTP/passkey) ni ejecutar el codigo (node, npx, tsx denegados por el panel). Falta que una persona pase de Proyectos: disco por proyecto (Repositorio y Worktrees), total/Proyectos/Worktrees/Otros/Libre y los tramos de RAM con swap. Referencia medida ahora: du -sx -B1 /home/ubuntu/wt/agents-panel=2034819072; df / total 206900281344, usado 21448269824, disponible 185435234304; free -b total 12503814144, used 2324484096, available 10179330048, swap usado 96546816. Por codigo, la API usa el mismo du -sx --block-size=1 y statfs (total y bavail de df), asi que se espera <=1 %.",
+      "revision": 32
+    },
+    {
+      "seq": 33,
+      "at": "2026-10-06T22:39:02.208Z",
+      "event": "task_unblocked",
+      "taskId": "W7",
+      "by": "user",
+      "reason": "Task unblocked and returned to pending eligibility.",
+      "revision": 33
+    },
+    {
+      "seq": 34,
+      "at": "2026-10-06T22:39:11.180Z",
+      "event": "task_started",
+      "taskId": "W7",
+      "by": "cli",
+      "reason": "Task started through the Work CLI.",
+      "revision": 34
+    },
+    {
+      "seq": 35,
+      "at": "2026-10-06T22:39:21.869Z",
+      "event": "task_blocked",
+      "taskId": "W7",
+      "by": "cli",
+      "reason": "docs/plan.md listo (D1-D8, rutas, pasos, tiempo neto). Faltan los criterios 2 y 3: la sesion no recibio los valores de la web (exige TOTP/passkey) ni puede ejecutar node/tsx (denegado por el panel). Hace falta que una persona escriba aqui, desde Proyectos: disco por proyecto (Repositorio y Worktrees), total/Proyectos/Worktrees/Otros/Libre y tramos de RAM con swap. Referencia medida: du -sx -B1 agents-panel=2034819072; df / total 206900281344 usado 21448269824 disp 185435234304; free -b total 12503814144 used 2324484096 avail 10179330048 swap usado 96546816. Por codigo la API usa du -sx --block-size=1 y statfs, se espera <=1 %.",
+      "revision": 35
+    },
+    {
+      "seq": 36,
+      "at": "2026-10-07T00:29:11.293Z",
+      "event": "task_unblocked",
+      "taskId": "W7",
+      "by": "user",
+      "reason": "Task unblocked and returned to pending eligibility.",
+      "revision": 36
+    },
+    {
+      "seq": 37,
+      "at": "2026-10-07T00:29:30.899Z",
+      "event": "task_blocked",
+      "taskId": "W7",
+      "by": "builder-agent",
+      "reason": "docs/plan.md listo. Faltan criterios 2 y 3: esta sesion no puede ver la web (TOTP/passkey) ni ejecutar node/tsx/npx/sqlite3 (denegado por el panel). El reintento no trajo los valores de la web. Hace falta que una persona los escriba en el chat: Proyectos > disco por proyecto (Repositorio y Worktrees), total/Proyectos/Worktrees/Otros/Libre, y tramos de RAM con swap. Referencia actual: du -sx agents-panel=766971904; df / total 206900281344 usado 21485563904; free total 12503814144 used 1933824000 avail 10569990144 swap usado 96546816.",
+      "revision": 37
+    },
+    {
+      "seq": 38,
+      "at": "2026-10-07T22:21:37.673Z",
+      "event": "task_unblocked",
+      "taskId": "W7",
+      "by": "builder-agent",
+      "reason": "Task unblocked and returned to pending eligibility.",
+      "revision": 38
+    },
+    {
+      "seq": 39,
+      "at": "2026-10-07T22:22:17.246Z",
+      "event": "task_started",
+      "taskId": "W7",
+      "by": "builder-agent",
+      "reason": "Task started through the Work CLI.",
+      "revision": 39
+    },
+    {
+      "seq": 40,
+      "at": "2026-10-07T22:22:20.179Z",
+      "event": "evidence_recorded",
+      "taskId": "W7",
+      "by": "claude-maker",
+      "reason": "Evidence recorded with 2 validation results.",
+      "revision": 40
+    },
+    {
+      "seq": 41,
+      "at": "2026-10-07T22:22:29.014Z",
+      "event": "review_recorded",
+      "taskId": "W7",
+      "by": "checker-agent",
+      "reason": "Task review recorded with pass.",
+      "revision": 41
+    },
+    {
+      "seq": 42,
+      "at": "2026-10-07T22:24:25.323Z",
+      "event": "work_closed",
+      "taskId": null,
+      "by": "pilot",
+      "reason": "Trabajo completado por el piloto",
+      "revision": 42
     }
   ],
-  "closure": null,
+  "closure": {
+    "outcome": "completed",
+    "reason": "Trabajo completado por el piloto",
+    "by": "pilot",
+    "closedAt": "2026-10-07T22:24:25.323Z",
+    "briefDigest": "6629e83341fa831103beb992ccbe40600d02ee7080759f74b50319d0628bb5d5",
+    "finalRevision": 42
+  },
   "promotion": null
 }

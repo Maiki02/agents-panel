@@ -41,6 +41,8 @@ export function makeApp(
       | 'panelDeploy'
       | 'pushSender'
       | 'accountsHome'
+      | 'diskMeter'
+      | 'procRoot'
       | 'usageReader'
     >
   > = {},
@@ -85,6 +87,8 @@ export function makeApp(
     },
     ...(extra.pushSender ? { pushSender: extra.pushSender } : {}),
     ...(extra.accountsHome ? { accountsHome: extra.accountsHome } : {}),
+    ...(extra.diskMeter ? { diskMeter: extra.diskMeter } : {}),
+    ...(extra.procRoot ? { procRoot: extra.procRoot } : {}),
     ...(extra.usageReader ? { usageReader: extra.usageReader } : {}),
   });
   return { app, db, worktreesDir, projectsDir };

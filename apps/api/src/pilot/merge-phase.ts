@@ -2,10 +2,12 @@ import { existsSync } from 'node:fs';
 import { readdir } from 'node:fs/promises';
 import path from 'node:path';
 import type { BlockedReason, WorktreeStateId } from '@agents-panel/shared';
+import type { StepRunner } from '../chats/steps-repo.js';
 import type { PilotGh } from './github-cli.js';
 import type { MergeGit, PilotGit } from './git-ops.js';
 import {
   runGenericMerge,
+  stepOf,
   type MergeDeps,
   type MergeInput,
   type MergeMark,
@@ -34,6 +36,8 @@ export interface MergePhaseDeps {
   scan?: (cwd: string, base: string) => Promise<SecretFinding[]>;
   validate?: (project: ValidateTarget, cwd: string, timeoutMs: number) => Promise<ValidationResult>;
   validateTimeoutMs?: number;
+  /** Times the steps of the phase that run no AI. */
+  step?: StepRunner;
   push?: MergeDeps['push'];
   openPr?: MergeDeps['openPr'];
 }
@@ -82,6 +86,7 @@ export async function runMergePhase(
       record: deps.record,
       resolveConflicts: (conflicts) => deps.session('merge', deps.conflictPrompt(conflicts)),
       ...(deps.scan ? { scan: deps.scan } : {}),
+      ...(deps.step ? { step: deps.step } : {}),
       ...(deps.validate ? { validate: deps.validate } : {}),
       ...(deps.push ? { push: deps.push } : {}),
       ...(deps.openPr ? { openPr: deps.openPr } : {}),
@@ -102,7 +107,10 @@ async function runMergeDev(
 ): Promise<MergePhaseOutcome> {
   const { git, gh } = deps;
   const cwd = input.chat.worktreePath;
-  const scan = deps.scan ?? scanWorktreeSecrets;
+  const step = stepOf(deps);
+  const rawScan = deps.scan ?? scanWorktreeSecrets;
+  const scan = (dir: string, base: string): Promise<SecretFinding[]> =>
+    step('merge_scan', () => rawScan(dir, base));
   deps.mark('trayendo_dev', 'El merge-dev del proyecto trae y mergea el trabajo', {
     data: { skill: 'merge-dev', base: input.base },
   });
@@ -122,13 +130,16 @@ async function runMergeDev(
     if (secrets.length > 0) return stop('secretos', secrets.join(', '));
 
     // Success signal: the root branch is already in origin/<base>, or there are open PRs.
-    const merged = await git.isAncestor(cwd, `origin/${input.base}`);
-    const urls: string[] = [];
-    for (const repo of repos) {
-      const branch = repo === cwd ? input.chat.branch : await git.currentBranch(repo);
-      if (branch === '' || branch === input.base) continue;
-      urls.push(...(await gh.openPrsOf(repo, branch)));
-    }
+    const { merged, urls } = await step('merge_dev_check', async () => {
+      const isMerged = await git.isAncestor(cwd, `origin/${input.base}`);
+      const found: string[] = [];
+      for (const repo of repos) {
+        const branch = repo === cwd ? input.chat.branch : await git.currentBranch(repo);
+        if (branch === '' || branch === input.base) continue;
+        found.push(...(await gh.openPrsOf(repo, branch)));
+      }
+      return { merged: isMerged, urls: found };
+    });
     if (!merged && urls.length === 0) {
       return stop(
         'merge_sin_pr',

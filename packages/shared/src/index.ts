@@ -202,6 +202,10 @@ export interface Chat {
   models: ModelSelection;
   /** Fine state of a scope, work or idea (`null` before the first transition and for a direct chat). */
   workState?: WorktreeStateId | null;
+  /** Net execution time: AI sessions and panel steps (union), minus the wait on questions. */
+  runtimeMs: number;
+  /** True when the chat predates the measure (no panel steps timed): `runtimeMs` is a lower bound. */
+  runtimeApprox: boolean;
   createdAt: number;
   updatedAt: number;
 }
@@ -599,6 +603,74 @@ export interface ClaudeAccount {
 export interface NewClaudeAccount {
   name: string;
   configDir: string;
+}
+
+/** Disk use of one registered project. null means "sin dato" (absent or unreadable folder). */
+export interface DiskProjectUsage {
+  name: string;
+  repositoryBytes: number | null;
+  worktreesBytes: number | null;
+}
+
+/** A folder of the projects or worktrees directory that belongs to no registered project. */
+export interface DiskStrayUsage {
+  name: string;
+  area: 'proyectos' | 'worktrees';
+  bytes: number | null;
+}
+
+/** projectsBytes + worktreesBytes + otherBytes + freeBytes === totalBytes; otherBytes is never negative. */
+export interface DiskTotals {
+  totalBytes: number;
+  projectsBytes: number;
+  worktreesBytes: number;
+  otherBytes: number;
+  freeBytes: number;
+}
+
+/**
+ * Last disk measurement. Before the first one finishes it is `measuring` with `measuredAt` null and
+ * no numbers (never zeros). `measuring` is also true while a newer measurement runs.
+ */
+export interface DiskUsage {
+  measuring: boolean;
+  /** Epoch ms of the measurement the numbers come from. */
+  measuredAt: number | null;
+  /** null when the filesystem stats could not be read. */
+  totals: DiskTotals | null;
+  projects: DiskProjectUsage[];
+  strays: DiskStrayUsage[];
+}
+
+export interface DiskRefreshResponse {
+  /** False when a measurement was already running. */
+  started: boolean;
+  measuring: true;
+}
+
+/** RAM split by function. aiBytes + panelBytes + otherBytes + availableBytes === totalBytes. */
+export interface MemoryTotals {
+  totalBytes: number;
+  /** Processes whose cwd is under the worktrees directory (AI sessions and their builds). */
+  aiBytes: number;
+  /** The API process and its descendants that are not in worktrees. */
+  panelBytes: number;
+  /** The rest of the used memory, including processes whose cwd could not be read. Never negative. */
+  otherBytes: number;
+  /** MemAvailable. */
+  availableBytes: number;
+}
+
+export interface SwapUsage {
+  totalBytes: number;
+  usedBytes: number;
+}
+
+/** Read on every request. `totals` and `swap` are null (sin dato, never zeros) when meminfo fails. */
+export interface MemoryUsage {
+  measuredAt: number;
+  totals: MemoryTotals | null;
+  swap: SwapUsage | null;
 }
 
 // --- Git operations of a work (GET/POST /api/chats/:id/git, /setup) -------------------------------

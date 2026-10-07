@@ -12,6 +12,7 @@ import { SESSION_COOKIE, SessionService } from '../src/auth/sessions.js';
 import { UserRepository } from '../src/auth/users.js';
 import { buildInitialPrompt } from '../src/chats/service.js';
 import { QuestionRepository } from '../src/chats/questions-repo.js';
+import { AgentSessionRepository } from '../src/chats/sessions-repo.js';
 import { ChatRepository } from '../src/chats/repo.js';
 import { openDatabase, type Db } from '../src/db/index.js';
 import { EnvFileRepository } from '../src/env-files/repo.js';
@@ -676,5 +677,64 @@ describe('idea chats', () => {
     expect((await get('/api/chats')).json<Chat[]>()).toEqual([]);
     expect(existsSync(join(worktreesDir, project.name))).toBe(false);
     expect(runner.calls).toHaveLength(0);
+  });
+});
+
+describe('chat runtime', () => {
+  it('lists runtimeMs net of questions and flags chats older than the measure as approximate', async () => {
+    const MIN = 60_000;
+    const db = openDatabase(':memory:');
+    const project = await new ProjectRepository(db).add({
+      name: 'demo',
+      repoPath: makeKyroRepo(),
+      baseBranch: 'main',
+    });
+    const marker = db
+      .prepare('SELECT applied_at FROM schema_migrations WHERE name = ?')
+      .get('panel_steps') as { applied_at: number };
+    const t0 = marker.applied_at + 1000 * MIN;
+    let clock = t0;
+    const chats = new ChatRepository(db, () => clock);
+    const sessions = new AgentSessionRepository(db, () => clock);
+    const questions = new QuestionRepository(db, () => clock);
+    const newChat = (slug: string) =>
+      chats.create({
+        projectId: project.id,
+        kind: 'work',
+        slug,
+        title: slug,
+        worktreePath: `/tmp/${slug}`,
+        branch: `feature/${slug}`,
+        status: 'idle',
+      });
+    const chat = newChat('timed');
+    const session = sessions.open(chat.id, 'executor', 'claude', 'sonnet');
+    clock = t0 + 2 * MIN;
+    const asked = questions.create(chat.id, 'tool-1', [
+      {
+        question: 'Q?',
+        header: 'Q',
+        options: [
+          { label: 'a', description: '' },
+          { label: 'b', description: '' },
+        ],
+        multiSelect: false,
+      },
+    ]);
+    clock = t0 + 62 * MIN;
+    const user = await new UserRepository(db).create('bob', PASSWORD);
+    questions.answer(asked.id, { 'Q?': { selected: ['a'], text: null } }, user.id);
+    clock = t0 + 65 * MIN;
+    sessions.close(session, 'ok');
+
+    clock = t0 + 70 * MIN;
+    const listed = chats.list().find((c) => c.id === chat.id);
+    expect(listed?.runtimeMs).toBe(5 * MIN);
+    expect(listed?.runtimeApprox).toBe(false);
+
+    const old = newChat('old');
+    db.prepare('UPDATE chats SET created_at = ? WHERE id = ?').run(marker.applied_at - MIN, old.id);
+    expect(chats.findById(old.id)?.runtimeApprox).toBe(true);
+    expect(chats.findById(old.id)?.runtimeMs).toBe(0);
   });
 });
