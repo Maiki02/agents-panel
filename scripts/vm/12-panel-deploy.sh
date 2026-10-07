@@ -75,7 +75,9 @@ git diff --quiet "$from" HEAD -- package-lock.json 2>/dev/null || lock_changed=y
 build() {
   if [ "$lock_changed" = yes ]; then
     echo "   package-lock.json cambió: npm ci"
-    npm ci --no-audit --no-fund
+    # The service runs with NODE_ENV=production and this script inherits it: without --include=dev
+    # npm ci leaves out typescript and the Angular CLI, and the build fails (exit 127).
+    npm ci --include=dev --no-audit --no-fund
   fi
   npm run build
 }

@@ -126,7 +126,7 @@ describe('12-panel-deploy.sh', () => {
     const { push, run, calls } = sandbox();
     const to = push('package-lock.json', '{"v":2}\n');
     expect(run().code).toBe(0);
-    expect(calls()).toEqual([`npm ci --no-audit --no-fund @ ${to}`, `npm run build @ ${to}`]);
+    expect(calls()).toEqual([`npm ci --include=dev --no-audit --no-fund @ ${to}`, `npm run build @ ${to}`]);
   });
 
   it('refuses with local changes or off main, without touching anything', () => {
