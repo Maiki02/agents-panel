@@ -5,6 +5,7 @@ import { SessionService } from '../auth/sessions.js';
 import { SecondFactorRepository, checkTotp, generateTotpSecret, totpUri } from '../auth/totp.js';
 import { UserRepository, type User } from '../auth/users.js';
 import { ProjectRepository } from '../projects/repo.js';
+import { ProjectRepoRepository } from '../projects/repos-repo.js';
 import { ProjectService } from '../projects/service.js';
 import type { Config } from '../config.js';
 import { PROJECT_USAGE, runProjectCommand } from './projects.js';
@@ -51,6 +52,7 @@ export async function runCli(argv: readonly string[], io: CliIo, deps: CliDeps):
   const projectService = new ProjectService({
     repo: projectRepo,
     config: deps.projectConfig ?? { projectsDir: '', minFreeDiskGb: 10 },
+    projectRepos: new ProjectRepoRepository(deps.db, now),
   });
   if (
     await runProjectCommand(command, argv.slice(1), io, {

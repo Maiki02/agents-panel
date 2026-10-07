@@ -46,10 +46,56 @@ describe('deny-by-default guard', () => {
       'GET /api/projects/:id/env',
       'PUT /api/projects/:id/env',
       'DELETE /api/projects/:id/env',
+      'GET /api/projects/:id/repos',
+      'POST /api/projects/:id/repos/detect',
+      'PATCH /api/projects/:id/repos/:repoId',
+      'POST /api/projects/:id/pull',
     ]) {
       expect(seen).toContain(expected);
     }
     expect(routes.every((r) => !r.public)).toBe(true);
+  });
+
+  it('registers the git routes of a work and keeps them non-public', async () => {
+    app = makeApp().app;
+    await app.ready();
+    const routes = app.registeredRoutes.filter(
+      (r) =>
+        r.url.startsWith('/api/chats/:id/git') ||
+        r.url.startsWith('/api/chats/:id/work/') ||
+        r.url === '/api/chats/:id/setup' ||
+        r.url === '/api/chats/:id/steps',
+    );
+    const seen = routes.map((r) => `${r.method} ${r.url}`);
+    for (const expected of [
+      'GET /api/chats/:id/git',
+      'GET /api/chats/:id/git/diff',
+      'POST /api/chats/:id/git/commit',
+      'POST /api/chats/:id/git/discard',
+      'POST /api/chats/:id/git/pull-base',
+      'POST /api/chats/:id/git/pull-branch',
+      'POST /api/chats/:id/git/push',
+      'GET /api/chats/:id/git/pr',
+      'POST /api/chats/:id/git/pr',
+      'GET /api/chats/:id/work/delete-preview',
+      'POST /api/chats/:id/work/delete',
+      'POST /api/chats/:id/setup',
+      'POST /api/chats/:id/steps',
+    ]) {
+      expect(seen).toContain(expected);
+    }
+    expect(routes.every((r) => !r.public)).toBe(true);
+  });
+
+  it('registers GET /api/usage behind the session and without a mutating verb', async () => {
+    app = makeApp().app;
+    await app.ready();
+    const usage = app.registeredRoutes.filter((r) => r.url === '/api/usage');
+    expect(usage.map((r) => r.method)).toContain('GET');
+    expect(usage.every((r) => !r.public && ['GET', 'HEAD'].includes(r.method))).toBe(true);
+    expect((await app.inject({ url: '/api/usage', headers: { origin: ORIGIN } })).statusCode).toBe(
+      401,
+    );
   });
 
   it('registers the chat question routes and keeps them non-public', async () => {

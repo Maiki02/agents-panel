@@ -13,6 +13,7 @@ import { EnvFileError } from '../env-files/validate.js';
 import { writeEnvFiles } from '../env-files/write.js';
 import { workToolingHints } from '../pilot/prompts.js';
 import type { WorktreeStateTracker } from '../worktrees/state-tracker.js';
+import type { WorktreeStateRepository } from '../worktrees/state-repo.js';
 import { InvalidModelError, validateModels, type ProjectRepository } from '../projects/repo.js';
 import {
   WorktreeError,
@@ -81,10 +82,37 @@ export interface ChatServiceDeps {
   envFiles: EnvFileRepository;
   /** Fine state of scopes and works; absent in tests that do not track it. */
   tracker?: WorktreeStateTracker;
+  /** Fine state, to refuse writes on an archived work; absent in tests that do not track it. */
+  states?: Pick<WorktreeStateRepository, 'get'>;
   /** Autopilot rows; absent in tests that do not use the pilot. */
   autopilot?: AutopilotRunRepository;
   /** Called once the chat exists and its first turn started, when the autopilot is on. */
   onAutopilotStart?: (chatId: number) => void;
+}
+
+/**
+ * Writes the project's development .env files into a worktree, after setup (it may create the
+ * folders, e.g. child repos): the agent never starts without them, so any failure, an unreadable
+ * file included, aborts. Events carry paths only. Shared by create and by the manual reinstall.
+ */
+export async function writeProjectEnv(
+  envFiles: Pick<EnvFileRepository, 'readAll'>,
+  projectId: number,
+  worktreePath: string,
+  buffered: { type: string; payload: Record<string, unknown> }[],
+): Promise<void> {
+  const files = envFiles.readAll(projectId);
+  if (files.length === 0) return;
+  try {
+    await writeEnvFiles(worktreePath, files);
+  } catch (error) {
+    if (error instanceof EnvFileError) throw new ChatError(error.message, 422);
+    throw error;
+  }
+  buffered.push({
+    type: 'worktree_output',
+    payload: { step: 'env', paths: files.map((file) => file.path) },
+  });
 }
 
 export class ChatService {
@@ -204,31 +232,17 @@ export class ChatService {
     }
   }
 
-  /**
-   * After setup (it may create the folders, e.g. child repos): the agent never starts without its
-   * .env files, so any failure, an unreadable file included, aborts the create. Events carry paths only.
-   */
   private async writeEnv(
     projectId: number,
     worktreePath: string,
     buffered: { type: string; payload: Record<string, unknown> }[],
   ): Promise<void> {
-    const files = this.deps.envFiles.readAll(projectId);
-    if (files.length === 0) return;
-    try {
-      await writeEnvFiles(worktreePath, files);
-    } catch (error) {
-      if (error instanceof EnvFileError) throw new ChatError(error.message, 422);
-      throw error;
-    }
-    buffered.push({
-      type: 'worktree_output',
-      payload: { step: 'env', paths: files.map((file) => file.path) },
-    });
+    await writeProjectEnv(this.deps.envFiles, projectId, worktreePath, buffered);
   }
 
   sendMessage(chatId: number, text: string): void {
     this.requireChat(chatId);
+    this.assertWritable(chatId);
     this.startTurn(chatId, text);
   }
 
@@ -264,6 +278,13 @@ export class ChatService {
       if (error instanceof QuestionNotPendingError) throw new ChatError(error.message, 409);
       if (error instanceof QuestionAnswerError) throw new ChatError(error.message, 400);
       throw error;
+    }
+  }
+
+  /** An archived work (its worktree was deleted) is read only: 409 for anything that writes. */
+  assertWritable(chatId: number): void {
+    if (this.deps.states?.get(chatId)?.state === 'archivado') {
+      throw new ChatError('El trabajo está archivado: es de solo lectura', 409);
     }
   }
 

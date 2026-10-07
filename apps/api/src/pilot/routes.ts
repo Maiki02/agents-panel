@@ -108,6 +108,8 @@ export function registerAutopilotRoutes(
     },
     async (request) => {
       const chatId = request.params.id;
+      service.requireChat(chatId);
+      service.assertWritable(chatId);
       if (request.body.action === 'on') {
         requireSwitchable(chatId);
         if (runs.get(chatId) === undefined) runs.create(chatId);

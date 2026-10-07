@@ -39,6 +39,7 @@ import { workStateBadge } from './work-state';
 import { AutopilotBar } from './autopilot-bar';
 import { PhaseStepper } from './phase-stepper';
 import { Timeline } from './timeline';
+import { GitTab } from './git/git-tab';
 import { Tabs, type TabItem } from '../ui/tabs';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
@@ -53,6 +54,7 @@ import { Badge } from '../ui/badge';
     AutopilotBar,
     PhaseStepper,
     Timeline,
+    GitTab,
     QuestionCard,
     IdeaApprovalCard,
     DebtApprovalCard,
@@ -82,9 +84,11 @@ import { Badge } from '../ui/badge';
             [workState]="c.workState ?? null"
             (changed)="refreshWorkState()"
           />
+        }
+        @if (tabs().length > 1) {
           <app-tabs
             class="mt-3 block"
-            [tabs]="tabs"
+            [tabs]="tabs()"
             [active]="tab()"
             (selected)="tab.set($event)"
           />
@@ -139,6 +143,16 @@ import { Badge } from '../ui/badge';
       <section class="chat-scroll" aria-label="Timeline">
         <app-timeline [transitions]="timeline()" />
       </section>
+    } @else if (tab() === 'git' && chat(); as g) {
+      <app-git-tab
+        [chatId]="g.id"
+        [chatStatus]="g.status"
+        [workState]="g.workState ?? null"
+        [kind]="g.kind"
+        (messageSent)="afterMessageSent()"
+        (stepStarted)="afterMessageSent()"
+        (workChanged)="refreshAfterDecision()"
+      />
     } @else {
       <section
         #feed
@@ -215,21 +229,29 @@ import { Badge } from '../ui/badge';
     }
 
     @if (chat(); as c) {
-      @if (tab() === 'chat' || !hasWork()) {
+      @if (tab() === 'chat' || tabs().length < 2) {
         <form class="composer" (submit)="send($event)">
           <label for="message" class="sr-only">Mensaje</label>
+          @if (c.workState === 'archivado') {
+            <p class="hint">El trabajo está archivado: es de solo lectura.</p>
+          }
           <textarea
             id="message"
             rows="3"
             placeholder="Escribí un mensaje"
-            [disabled]="c.status === 'running'"
+            [disabled]="c.status === 'running' || c.workState === 'archivado'"
             [value]="draft()"
             (input)="draft.set(text($event))"
           ></textarea>
           <button
             appButton
             type="submit"
-            [disabled]="c.status === 'running' || draft().trim() === '' || sending()"
+            [disabled]="
+              c.status === 'running' ||
+              c.workState === 'archivado' ||
+              draft().trim() === '' ||
+              sending()
+            "
           >
             Enviar
           </button>
@@ -290,10 +312,16 @@ export class ChatPage {
     const kind = this.chat()?.kind;
     return kind !== undefined && kind !== 'direct';
   });
-  protected readonly tabs: readonly TabItem[] = [
-    { id: 'chat', label: 'Chat' },
-    { id: 'timeline', label: 'Timeline' },
-  ];
+  /** Chat always; Timeline for a scope, work or idea; Git for every chat that has a worktree. */
+  protected readonly tabs = computed<readonly TabItem[]>(() => {
+    const chat = this.chat();
+    if (!chat) return [{ id: 'chat', label: 'Chat' }];
+    return [
+      { id: 'chat', label: 'Chat' },
+      ...(this.hasWork() ? [{ id: 'timeline', label: 'Timeline' }] : []),
+      ...(chat.worktreePath ? [{ id: 'git', label: 'Git' }] : []),
+    ];
+  });
   protected readonly tab = signal('chat');
   protected readonly workState = signal<WorktreeState | null>(null);
   protected readonly timeline = signal<WorktreeTransition[]>([]);
@@ -412,6 +440,12 @@ export class ChatPage {
     } catch {
       // The state is a view: the next event reads it again.
     }
+  }
+
+  /** A conflict was handed to the agent from the Git tab: show its turn in the chat. */
+  protected afterMessageSent(): void {
+    this.setStatus('running');
+    this.tab.set('chat');
   }
 
   /** A decision about the plan or the debt went through: the work changed state and may be a new kind. */

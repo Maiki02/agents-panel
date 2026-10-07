@@ -17,6 +17,10 @@ import { KyroVersions, type Exec } from './maintenance/versions.js';
 import type { AgentRunner } from './agent/runner.js';
 import { SdkRunner } from './agent/sdk-runner.js';
 import { AgentSessionRepository } from './chats/sessions-repo.js';
+import { UsageRepository } from './usage/repo.js';
+import { registerUsageRoutes } from './usage/routes.js';
+import { UsageService } from './usage/service.js';
+import { readUsageWithSdk, type UsageReader } from './usage/sdk-usage.js';
 import { registerAutopilotRoutes } from './pilot/routes.js';
 import { PushNotifier } from './push/notifier.js';
 import { registerPushRoutes } from './push/routes.js';
@@ -34,10 +38,13 @@ import { WorktreeStateTracker, type KyroStateReader } from './worktrees/state-tr
 import { scanIdeaDocuments, type IdeaScanner } from './chats/idea.js';
 import { IdeaActions } from './chats/idea-actions.js';
 import { DebtAcceptance } from './pilot/accept-debt.js';
-import type { MergeGit, PilotGit } from './pilot/git-ops.js';
+import type { MergeGit, PilotGit, RepoGit } from './pilot/git-ops.js';
 import type { PilotGh } from './pilot/github-cli.js';
 import { PrLookup, type BranchPrs } from './pilot/pr-lookup.js';
 import { registerChatRoutes } from './chats/routes.js';
+import { registerChatGitRoutes } from './chats/git-routes.js';
+import { registerStepRoutes, StepService } from './chats/step-routes.js';
+import { WorktreeOps } from './worktrees/ops.js';
 import { registerStreamRoute } from './chats/stream.js';
 import { ChatService } from './chats/service.js';
 import { registerGuard } from './auth/guard.js';
@@ -55,6 +62,7 @@ import {
 import { EnvFileRepository } from './env-files/repo.js';
 import { registerEnvFileRoutes } from './env-files/routes.js';
 import { ProjectRepository } from './projects/repo.js';
+import { ProjectRepoRepository } from './projects/repos-repo.js';
 import { ProjectService } from './projects/service.js';
 import { KyroBranchService } from './projects/kyro-branch.js';
 import type { KyroInitializer } from './projects/service.js';
@@ -63,6 +71,7 @@ import { ProjectDeleter } from './projects/delete.js';
 import { registerDeleteRoutes } from './projects/delete-routes.js';
 import { PullService } from './projects/pull.js';
 import { registerPullRoutes } from './projects/pull-routes.js';
+import { registerRepoRoutes } from './projects/repos-routes.js';
 import { registerProjectRoutes } from './projects/routes.js';
 import { UserRepository } from './auth/users.js';
 import { hasWebBuild, isWebRequest, registerWebStatic } from './web-static.js';
@@ -124,6 +133,8 @@ export interface AppDeps {
   kyroRunner?: CommandRunner;
   /** Home where the Claude accounts live (~/.claude, ~/.claude.json); tests use a temporary one. */
   accountsHome?: string;
+  /** Reads the plan usage with a short SDK session; tests inject fixtures instead of a process. */
+  usageReader?: UsageReader;
 }
 
 export function buildApp(deps: AppDeps, options: FastifyServerOptions = {}): FastifyInstance {
@@ -187,6 +198,7 @@ export function buildApp(deps: AppDeps, options: FastifyServerOptions = {}): Fas
   const tracker = new WorktreeStateTracker(worktreeState, kyroReader, ideaScanner, questions);
   const agentSessions = new AgentSessionRepository(deps.db, now);
   const accounts = new AccountService(new AccountRepository(deps.db, now), deps.accountsHome);
+  const usageRepo = new UsageRepository(deps.db, now);
   const manager =
     deps.manager ??
     new AgentManager(
@@ -199,6 +211,7 @@ export function buildApp(deps: AppDeps, options: FastifyServerOptions = {}): Fas
       tracker,
       (projectId) => projects.getBashExtras(projectId),
       () => accounts.activeForRun(),
+      usageRepo,
     );
   // Nothing survives a restart: sessions that were running when the server stopped are interrupted
   // and the questions they were waiting on are cancelled (the resumed agent asks again).
@@ -228,7 +241,23 @@ export function buildApp(deps: AppDeps, options: FastifyServerOptions = {}): Fas
     }
     flags.set(CANCELLED_EVENTS_BACKFILL);
   }
+  const envFiles = new EnvFileRepository(deps.db, deps.config.secretKey, now);
+  const projectRepos = new ProjectRepoRepository(deps.db, now);
+  // The single action service (D26): the pilot and the git routes both go through it.
+  const worktreeOps = new WorktreeOps({
+    chats,
+    projects,
+    projectRepos,
+    manager,
+    autopilot: autopilotRuns,
+    state: worktreeState,
+    envFiles,
+    // The injected fakes of the tests only implement what the pilot uses.
+    ...(deps.pilotGit ? { git: deps.pilotGit as PilotGit & MergeGit & RepoGit } : {}),
+    ...(deps.pilotGh ? { gh: deps.pilotGh } : {}),
+  });
   const pilot = new Autopilot({
+    actions: worktreeOps,
     chats,
     runs: autopilotRuns,
     manager,
@@ -236,6 +265,7 @@ export function buildApp(deps: AppDeps, options: FastifyServerOptions = {}): Fas
     tracker,
     questions,
     sessions: agentSessions,
+    usage: usageRepo,
     ...(deps.pilotGit ? { git: deps.pilotGit } : {}),
     projectOf: (chat) => projects.findById(chat.projectId),
     validateTimeoutMs: deps.config.pilotValidateTimeoutMs,
@@ -243,7 +273,6 @@ export function buildApp(deps: AppDeps, options: FastifyServerOptions = {}): Fas
     maxSessionsPerSprint: deps.config.pilotMaxSessionsPerSprint,
     now,
   });
-  const envFiles = new EnvFileRepository(deps.db, deps.config.secretKey, now);
   const chatService = new ChatService({
     chats,
     projects,
@@ -252,6 +281,7 @@ export function buildApp(deps: AppDeps, options: FastifyServerOptions = {}): Fas
     worktreesDir: deps.config.worktreesDir,
     envFiles,
     tracker,
+    states: worktreeState,
     autopilot: autopilotRuns,
     onAutopilotStart: (chatId) => {
       pilot.kick(chatId);
@@ -290,7 +320,13 @@ export function buildApp(deps: AppDeps, options: FastifyServerOptions = {}): Fas
   });
 
   const projectService =
-    deps.projectService ?? new ProjectService({ repo: projects, config: deps.config, kyroLock });
+    deps.projectService ??
+    new ProjectService({
+      repo: projects,
+      config: deps.config,
+      kyroLock,
+      projectRepos,
+    });
   // Clones that were running when the server stopped can never finish: mark them as errors.
   app.addHook('onReady', async () => {
     await projectService.recoverInterrupted();
@@ -302,7 +338,8 @@ export function buildApp(deps: AppDeps, options: FastifyServerOptions = {}): Fas
   });
 
   registerProjectRoutes(app, { projects, service: projectService });
-  registerPullRoutes(app, { service: new PullService({ projects, manager }) });
+  registerRepoRoutes(app, { projects, repos: projectRepos });
+  registerPullRoutes(app, { service: new PullService({ projects, manager, projectRepos }) });
   const reauth = new ReauthVerifier({ users, secondFactor, audit, now });
   // A plugin, like the auth routes, so the per-route rate limit applies.
   const kyroBranch = new KyroBranchService({
@@ -354,6 +391,22 @@ export function buildApp(deps: AppDeps, options: FastifyServerOptions = {}): Fas
     ideas: ideaScanner,
     ideaActions,
   });
+  // A plugin: its own error handler maps the git operation errors without touching the others.
+  void app.register((instance) => {
+    registerChatGitRoutes(instance, { ops: worktreeOps });
+  });
+  void app.register((instance) => {
+    registerStepRoutes(instance, {
+      steps: new StepService({
+        chats,
+        projects,
+        manager,
+        kyro: deps.pilotKyro ?? realKyro,
+        ops: worktreeOps,
+        states: worktreeState,
+      }),
+    });
+  });
   registerAutopilotRoutes(app, {
     service: chatService,
     states: worktreeState,
@@ -404,6 +457,10 @@ export function buildApp(deps: AppDeps, options: FastifyServerOptions = {}): Fas
   });
   registerPushRoutes(app, { push, subscriptions: pushSubscriptions });
   registerAccountRoutes(app, accounts);
+  registerUsageRoutes(app, {
+    usage: new UsageService(usageRepo, deps.usageReader ?? readUsageWithSdk, now),
+    activeAccount: () => accounts.activeForRun(),
+  });
   registerStreamRoute(app, {
     chats,
     bus,

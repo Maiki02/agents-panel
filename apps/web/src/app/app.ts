@@ -17,6 +17,7 @@ import { Button } from './ui/button';
 import { Drawer } from './ui/drawer';
 import { closesOnNavigation } from './ui/drawer-logic';
 import { Icon } from './ui/icon';
+import { UsageIndicator } from './usage/usage-indicator';
 
 /**
  * The shell fills the screen (100dvh): a fixed-height header (menu button, centered title and,
@@ -25,7 +26,7 @@ import { Icon } from './ui/icon';
 @Component({
   selector: 'app-root',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterOutlet, Button, AccountSelector, SideNav, Drawer, Icon],
+  imports: [RouterOutlet, Button, AccountSelector, SideNav, Drawer, Icon, UsageIndicator],
   host: { class: 'flex h-dvh flex-col' },
   template: `
     @if (auth.username(); as name) {
@@ -49,7 +50,8 @@ import { Icon } from './ui/icon';
         >
           {{ title() }}
         </p>
-        <div class="flex min-w-0 items-center justify-end">
+        <div class="flex min-w-0 items-center justify-end gap-2">
+          <app-usage-indicator />
           <div class="hidden lg:block">
             <app-account-selector />
           </div>

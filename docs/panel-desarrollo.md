@@ -388,6 +388,100 @@ Con eso `http://localhost:3000/api/health` responde desde la PC. Los endpoints p
 
 Si se desarrolla el frontend en la PC, alcanza con el túnel del puerto 3000 y levantar `npm run start -w @agents-panel/web` en la PC: el proxy ya apunta a `127.0.0.1:3000`. `PANEL_ORIGIN` sigue siendo `http://localhost:4200`.
 
+## Probar las operaciones git de un trabajo (API)
+
+Recorrido del sprint 1 de `operaciones-worktree` (la misma pestaña Git está en la web: ver «Recorrido manual de la web» más abajo). **Usá un trabajo de prueba** (un Work descartable sobre un repo de prueba con un remoto que no sea el real), nunca `ventas` ni este repo. Con el túnel abierto (sección 4) se maneja con `curl` y una cookie de sesión: `POST /api/auth/login` y el segundo factor dejan la cookie en un archivo, y el token CSRF sale de `GET /api/auth/me`. Las `POST` piden la cookie, el token en el header `X-CSRF-Token` y el header `Origin` igual a `PANEL_ORIGIN`. Ni el token ni la cookie se pegan en docs ni en la bitácora.
+
+| Ruta | Para qué | Cuerpo |
+|---|---|---|
+| `GET /api/chats/:id/git` | Estado por repo: rama, archivos, adelante y atrás | — |
+| `POST /api/chats/:id/git/commit` | Commitea solo los archivos elegidos | `{ "repo": ".", "files": ["README.md"], "message": "docs: ajusta el readme" }` |
+| `POST /api/chats/:id/git/pull-base` | `git pull --no-rebase origin <base del repo>` | `{ "repo": "be-ventas" }` o `{}` para todos |
+| `POST /api/chats/:id/git/pull-branch` | `git pull --no-rebase origin <rama del trabajo>` | ídem |
+| `POST /api/chats/:id/git/push` | `git push -u origin <rama del trabajo>`, sin `--force` | ídem |
+| `POST /api/chats/:id/setup` | Reinstala dependencias (el setup del proyecto) | — |
+
+- `repo` es `.` (la raíz) o una carpeta de primer nivel del trabajo; cualquier otra cosa da 404 (un path con `..` o absoluto, 400).
+- **Sin sesión 401; `POST` sin CSRF 403.** Con el agente del trabajo corriendo o el piloto en `active`, `queued` o `waiting_quota`, 409 con el motivo y el repo no cambia: pausá el piloto o esperá el fin del turno. `files` vacío o `message` vacío dan 400.
+- **422** cuando git rechaza: un push con el remoto adelantado devuelve la salida de git en `error` y no reintenta; cuando conviene traer antes la propia rama (`pull-branch`). Un pull con conflicto se aborta y responde 200 con los archivos en conflicto.
+- Si un pull cambia un lockfile, la respuesta trae `reinstall` con el resultado del setup.
+- Cada operación queda en `GET /api/chats/:id/timeline` con actor `user`.
+
+### Probar Crear PR, cambios, descartar, borrar y los pasos del agente
+
+Sprint `paridad-manual-y-pr`. Mismas reglas: **trabajo de prueba** sobre un repo de prueba con un remoto que no sea el real, túnel abierto, cookie de sesión en un archivo y token CSRF de `GET /api/auth/me` en una variable de la shell (nunca escrito en un archivo del repo ni pegado en docs). Ejemplo, con `$COOKIES` (el archivo de cookies), `$CSRF`, `$ORIGIN` (el `PANEL_ORIGIN`) y `$ID` (el chat de prueba):
+
+```bash
+# Ver cambios sin commitear de la raíz (solo lectura; "base" compara contra la rama base)
+curl -s -b "$COOKIES" "http://localhost:3000/api/chats/$ID/git/diff?repo=.&against=worktree"
+
+# Vista previa de la PR y después crearla (editá título y cuerpo)
+curl -s -b "$COOKIES" "http://localhost:3000/api/chats/$ID/git/pr"
+curl -s -b "$COOKIES" -H "X-CSRF-Token: $CSRF" -H "Origin: $ORIGIN" -H "Content-Type: application/json" \
+  -d '{"repos":[{"repo":".","title":"feat(demo): prueba","body":"- cambio de prueba"}]}' \
+  "http://localhost:3000/api/chats/$ID/git/pr"
+
+# Descartar un archivo
+curl -s -b "$COOKIES" -H "X-CSRF-Token: $CSRF" -H "Origin: $ORIGIN" -H "Content-Type: application/json" \
+  -d '{"repo":".","files":["README.md"]}' "http://localhost:3000/api/chats/$ID/git/discard"
+
+# Pedir un paso del agente (plan, execute, qa, fix, close, merge_dev o complete)
+curl -s -b "$COOKIES" -H "X-CSRF-Token: $CSRF" -H "Origin: $ORIGIN" -H "Content-Type: application/json" \
+  -d '{"step":"plan"}' "http://localhost:3000/api/chats/$ID/steps"
+
+# Borrar: primero qué se perdería, después el borrado (deleteRemote true borra también las ramas de origin)
+curl -s -b "$COOKIES" "http://localhost:3000/api/chats/$ID/work/delete-preview"
+curl -s -b "$COOKIES" -H "X-CSRF-Token: $CSRF" -H "Origin: $ORIGIN" -H "Content-Type: application/json" \
+  -d '{"deleteRemote":false}' "http://localhost:3000/api/chats/$ID/work/delete"
+```
+
+- Qué mirar: la PR de prueba se abre contra la base del repo y repetir la llamada devuelve la misma con `existing: true`; un archivo ignorado (un `.env`) no aparece en el diff y `discard` sobre él da 400; con el piloto en `active` o el agente corriendo, todas dan 409; sin CSRF, 403; sin sesión, 401.
+- Después de borrar, el trabajo queda `archivado`: cualquier `POST` sobre ese chat da 409 («solo lectura») y el Timeline muestra `limpiando` y `archivado` con actor `user`.
+- Con un secreto en los cambios, Crear PR no pushea ni abre nada y el resultado nombra los archivos (no su contenido).
+- El Timeline (`GET /api/chats/:id/timeline`) muestra el actor de cada entrada: `user` para estas llamadas y `pilot` para lo que haga el piloto.
+
+### Probar el indicador de uso (`GET /api/usage`)
+
+Con el túnel abierto y la cookie de sesión en un archivo (sin CSRF: es un `GET` que no muta nada):
+
+```bash
+# Uso de la cuenta activa; con la caché de 60 s puede devolver lo último leído
+curl -s -b "$COOKIES" "http://localhost:3000/api/usage"
+
+# Saltar la caché y leer de nuevo (abre una sesión corta del SDK sin prompt)
+curl -s -b "$COOKIES" "http://localhost:3000/api/usage?refresh=1"
+```
+
+- La respuesta trae `accountId`, `windows` (una por ventana: `five_hour`, `seven_day` y las semanales por modelo si vienen, cada una con `utilization`, `resetsAt`, `observedAt` y `tone`), `source`, `observedAt` y `degraded`. Sin sesión da 401.
+- **Degradado:** si la lectura a pedido falla (la llamada del SDK es experimental), la respuesta sigue siendo 200 con lo último guardado, `degraded: true`, `error` recortado y `observedAt` para ver su antigüedad; sin ningún dato, `windows` vacío. Nunca un 500. Para verlo, probar con una cuenta sin sesión iniciada o con la VM sin red.
+- Cambiar la cuenta activa (Configuración) cambia lo que devuelve: cada cuenta tiene sus ventanas guardadas por separado.
+- El tono sale de `usageTone`: `ok` por debajo de 70 %, `warn` desde 70 %, `danger` desde 90 % o ventana rechazada.
+
+## Recorrido manual de la web: pestaña Git, filtros, Repositorio y uso
+
+Sprint `web-operaciones-y-uso`. Es el recorrido que hace **el usuario** en el navegador antes de completar el scope `operaciones-worktree`: el piloto no tiene navegador, así que **ni este recorrido en `ventas` ni la PR real en `agents-panel` (paso 7) los hace el agente** ni entran en la evidencia de los sprints; quedan para el usuario y se anotan como dice más abajo. Entrá por el túnel (sección 5) o por la URL de Funnel. **Las pruebas destructivas (commit, push, descartar, borrar) van sobre un trabajo descartable**; el único repo real que se toca es este (`agents-panel`) y solo para el paso 7. Ningún valor secreto se anota: ni cookies, ni tokens, ni el contenido de un `.env`.
+
+**Preparación.** En `ventas` (raíz en `main`; `fe-ventas` y `be-ventas` en `dev`) creá un Work descartable. En **Configuración → Repositorio → Detectar repos** tienen que aparecer la raíz y los dos hijos, cada uno con su base.
+
+| # | Dónde | Qué hacer | Qué mirar |
+|---|---|---|---|
+| 1 | Chat del Work → pestaña **Git** | Abrirla con cambios en la raíz y en un hijo | Una tarjeta por repo con rama, base, archivos cambiados y adelante/atrás. Un chat sin worktree no tiene la pestaña. |
+| 2 | **Ver cambios** | Mirar «Sin commitear» y «Contra la base»; en un archivo largo, **Ver más** | El parche por archivo, recortado, y el completo con «Ver más». Un `.env` ignorado no aparece. |
+| 3 | **Commit** | Elegir solo algunos archivos, escribir un mensaje sin formato (`arreglo`) y después uno bueno (`docs(demo): prueba`) | El aviso de Conventional Commits no bloquea; el commit lleva solo los archivos elegidos. |
+| 4 | **Traer base** y **Traer mi rama** | Hacer que haya un cambio nuevo en la base del hijo (en `dev`) y traerla; después provocar un conflicto | Resultado por repo con la salida recortada. Un conflicto se aborta, lista los archivos y ofrece **Pedírselo al agente** (manda el mensaje al chat). Si cambió un lockfile, se informa la reinstalación. |
+| 5 | **Push**, **Reinstalar dependencias** | Pushear la rama del trabajo; reinstalar | Resultado por repo. Nunca `--force`: con el remoto adelantado el push se rechaza con la salida de git. |
+| 6 | **Descartar** | Elegir un archivo y confirmar | La confirmación nombra cada archivo; un archivo ignorado devuelve el error de la API en el diálogo. |
+| 7 | **Crear PR** (real, en `agents-panel`) | Desde la web, en un Work chico de este repo (un ajuste de doc): abrir **Crear PR**, editar título y cuerpo, crearla | La PR sale hacia `main`, el link aparece por repo, repetir la acción actualiza la misma (`existing`). Cerrarla a mano si fue solo prueba. En un proyecto con `merge-dev` propia el botón principal es **Correr merge-dev**. |
+| 8 | **Pasos del agente** | Con el piloto pausado: Planificar, Ejecutar, QA, Corregir, Cerrar, Completar | Solo aparecen los que aplican al tipo de chat (QA solo en un scope). Con el agente corriendo o el piloto `active`, `queued` o `waiting_quota`, los botones están deshabilitados con el motivo. |
+| 9 | **Borrar trabajo** | Con un commit sin pushear en el Work descartable | La vista previa avisa del commit sin pushear; con la casilla se borran también las ramas remotas; después el chat queda `archivado`, en solo lectura. |
+| 10 | Sidebar de **Chats** | Probar **Activos**, **Te toca**, **Terminados** y **Todos** | Cada filtro muestra su cantidad; el elegido se recuerda al recargar; un filtro sin chats dice que está vacío. |
+| 11 | **Configuración → Repositorio** | Cambiar la base de un hijo, **Detectar repos**, **Traer cambios de GitHub**; ensuciar la raíz del clon y repetir | El resultado aparece en la fila de cada repo (actualizado, sin cambios, rechazado); con la raíz rechazada (409) los hijos igual muestran su fila. El clon base no ofrece commit ni instalación. |
+| 12 | **Icono de uso** del header | Abrirlo en distintas pantallas y en el celular; cambiar de cuenta; si se puede, cortar la lectura a pedido | Se ve el % de 5 h con su tono en todas las pantallas; el panel muestra cada ventana con barra, hora de reinicio local y «actualizado hace X». Con la lectura caída muestra el último dato con el aviso de degradado, no un error. Sin datos, estado vacío. |
+
+**Piloto y cupo.** Si el piloto frena por `sin_cupo_de_uso`, el Timeline muestra la hora exacta de retomada (la del reinicio de la ventana más 1 minuto); sin hora conocida reintenta cada 15 minutos.
+
+**Cómo anotar el resultado.** Una línea por paso (`n. ok`, `n. falló: qué pasó`) con la fecha y el trabajo de prueba usado, en el cierre del sprint o en el issue que corresponda. Lo que falle se abre como deuda o tarea; no se corrige a ciegas.
+
 ## Problemas frecuentes
 
 | Síntoma | Causa y arreglo |

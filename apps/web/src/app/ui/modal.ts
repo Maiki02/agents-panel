@@ -38,7 +38,8 @@ const FOCUSABLE =
         role="dialog"
         aria-modal="true"
         [attr.aria-label]="heading()"
-        class="w-full max-w-md rounded-card border border-border bg-surface p-5 shadow-modal"
+        class="max-h-[90vh] w-full overflow-y-auto rounded-card border border-border bg-surface p-5 shadow-modal"
+        [class]="wide() ? 'max-w-3xl' : 'max-w-md'"
       >
         <div class="mb-3 flex items-center justify-between gap-3">
           <h2 class="m-0 text-lg font-semibold">{{ heading() }}</h2>
@@ -58,6 +59,8 @@ const FOCUSABLE =
 })
 export class Modal {
   readonly heading = input.required<string>();
+  /** A wide dialog for long content (a diff, the PR form). */
+  readonly wide = input(false);
   readonly closed = output();
 
   private readonly document = inject(DOCUMENT);

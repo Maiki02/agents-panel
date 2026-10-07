@@ -25,6 +25,7 @@ import type {
 import {
   Autopilot,
   QUOTA_RETRY_MS,
+  QUOTA_RESET_MARGIN_MS,
   usedSkill,
   hitUsageLimit,
   type PilotKyro,
@@ -32,6 +33,8 @@ import {
 import { POLICY_VERSION } from '../src/pilot/policy.js';
 import { AutopilotRunRepository } from '../src/pilot/runs-repo.js';
 import { ProjectRepository } from '../src/projects/repo.js';
+import { UsageRepository } from '../src/usage/repo.js';
+import { WorktreeOps } from '../src/worktrees/ops.js';
 import { WorktreeStateRepository } from '../src/worktrees/state-repo.js';
 import { WorktreeStateTracker } from '../src/worktrees/state-tracker.js';
 import { FakeRunner } from './fake-runner.js';
@@ -349,6 +352,7 @@ async function setup(
     tracker,
   );
   const runs = new AutopilotRunRepository(db);
+  const usage = new UsageRepository(db);
   const fakeGit = fakeGitRef;
   const fakeGh = new FakeGh();
   const scanFindings: SecretFinding[] = [];
@@ -362,8 +366,10 @@ async function setup(
     tracker,
     questions,
     sessions,
+    usage,
     git: fakeGit,
     gh: fakeGh,
+    actions: WorktreeOps.forPilot({ chats, state: states, git: fakeGit, gh: fakeGh }),
     scan: () => Promise.resolve(scanFindings),
     projectOf: () => ({ baseBranch: 'main', validateCommand: null }),
     maxSessionsPerSprint: opts.maxSessions ?? 6,
@@ -393,6 +399,7 @@ async function setup(
     states,
     tracker,
     sessions,
+    usage,
     runner,
     manager,
     runs,
@@ -511,6 +518,23 @@ describe('push after each close (R12)', () => {
     expect(t.states.get(t.chat.id)?.state).toBe('pr_lista');
   });
 
+  it('goes through the action service: push, Kyro commit and PR land in the Timeline as actor pilot, with the git_push event', async () => {
+    const t = await setup({ total: 1 });
+    await t.pilot.drive(t.chat.id);
+    const ops = t.states
+      .timeline(t.chat.id)
+      .filter((e) => (e.data as { op?: string } | null)?.op !== undefined);
+    const byOp = (op: string) => ops.filter((e) => (e.data as { op: string }).op === op);
+    expect(byOp('push').length).toBeGreaterThanOrEqual(3);
+    expect(byOp('commit_kyro')).toHaveLength(1);
+    expect(byOp('open_pr')).toHaveLength(1);
+    expect(ops.every((e) => e.actor === 'pilot')).toBe(true);
+    expect(t.git.commits).toHaveLength(1);
+    expect(t.gh.created).toHaveLength(1);
+    const events = t.chats.allEventsAfter(t.chat.id, 0).filter((e) => e.type === 'git_push');
+    expect(events).toHaveLength(t.git.pushes.length);
+  });
+
   it('stops with git when the closing session left no new commit, and does not push', async () => {
     const t = await setup({ total: 1, noCommit: true });
     await t.pilot.drive(t.chat.id);
@@ -557,7 +581,11 @@ describe('merge phase (R14)', () => {
       phase: 'merge',
       prUrls: ['https://github.com/o/r/pull/1'],
     });
-    const states = t.states.timeline(t.chat.id).map((x) => x.toState);
+    // The actions of the service (push, PR) add their own entries on the same state: not transitions.
+    const states = t.states
+      .timeline(t.chat.id)
+      .filter((x) => (x.data as { op?: string } | null)?.op === undefined)
+      .map((x) => x.toState);
     expect(states.slice(-5)).toEqual([
       'cerrando',
       'trayendo_dev',
@@ -979,6 +1007,73 @@ describe('loop guards, capabilities, queue and usage limit', () => {
     await t.pilot.drive(t.chat.id);
     expect(t.runs.get(t.chat.id)).toMatchObject({ status: 'finished' });
     expect(t.sessions.listByChat(t.chat.id).map((s) => s.step)).toContain('close');
+  });
+
+  const rejected = (resetsAt?: number) =>
+    [
+      {
+        type: 'rate_limit_event',
+        payload: {
+          rate_limit_info: {
+            status: 'rejected',
+            rateLimitType: 'five_hour',
+            ...(resetsAt === undefined ? {} : { resetsAt }),
+          },
+        },
+      },
+    ] satisfies AgentEvent[];
+
+  it('retakes at resetsAt plus a margin when the rejected event brings a future one (S21)', async () => {
+    const t = await setup({ total: 1 });
+    t.runner.script = () => rejected(2000); // epoch seconds: 2_000_000 ms, clock is 1_000_000
+    await t.pilot.drive(t.chat.id);
+    const wait = 2_000_000 + QUOTA_RESET_MARGIN_MS - 1_000_000;
+    expect(t.runs.get(t.chat.id)).toMatchObject({
+      status: 'waiting_quota',
+      retryAt: 1_000_000 + wait,
+    });
+    expect(t.scheduled.map((s) => s.ms)).toEqual([wait]);
+    expect(t.states.get(t.chat.id)?.state).toBe('sin_cupo_de_uso');
+    const entry = t.states.timeline(t.chat.id).find((e) => e.toState === 'sin_cupo_de_uso');
+    expect(entry?.reason).toContain(new Date(1_000_000 + wait).toISOString());
+  });
+
+  it('keeps 15 minutes without resetsAt or with one already past', async () => {
+    for (const events of [rejected(), rejected(500)]) {
+      const t = await setup({ total: 1 });
+      t.runner.script = () => events;
+      await t.pilot.drive(t.chat.id);
+      expect(t.runs.get(t.chat.id)?.retryAt).toBe(1_000_000 + QUOTA_RETRY_MS);
+      expect(t.scheduled.map((s) => s.ms)).toEqual([QUOTA_RETRY_MS]);
+    }
+  });
+
+  it('falls back to the saved window of the run account, never another account', async () => {
+    const t = await setup({ total: 1 });
+    t.db
+      .prepare(
+        "INSERT INTO claude_accounts (name, config_dir, active, created_at) VALUES ('otra', '/x', 0, 0)",
+      )
+      .run();
+    const other = (
+      t.db.prepare("SELECT id FROM claude_accounts WHERE name = 'otra'").get() as { id: number }
+    ).id;
+    const window = (resetsAt: number) => ({
+      window: 'five_hour',
+      utilization: null,
+      status: 'rejected' as const,
+      resetsAt,
+      source: 'event' as const,
+    });
+    // The run's account is the main one (id 1); the other account resets later and must be ignored.
+    t.usage.upsert(1, window(3_000_000));
+    t.usage.upsert(other, window(9_000_000));
+    t.runner.script = () => rejected();
+    const open = t.sessions.open.bind(t.sessions);
+    t.sessions.open = (chatId, role, provider, model, sprintN, pilot) =>
+      open(chatId, role, provider, model, sprintN, pilot, 1);
+    await t.pilot.drive(t.chat.id);
+    expect(t.runs.get(t.chat.id)?.retryAt).toBe(3_000_000 + QUOTA_RESET_MARGIN_MS);
   });
 
   it('pause does not cut the running turn but opens no next step; resume continues', async () => {

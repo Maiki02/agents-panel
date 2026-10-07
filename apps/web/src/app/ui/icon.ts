@@ -10,6 +10,7 @@ import menu from '@material-symbols/svg-400/outlined/menu.svg';
 import notifications from '@material-symbols/svg-400/outlined/notifications.svg';
 import refresh from '@material-symbols/svg-400/outlined/refresh.svg';
 import settings from '@material-symbols/svg-400/outlined/settings.svg';
+import speed from '@material-symbols/svg-400/outlined/speed.svg';
 import update from '@material-symbols/svg-400/outlined/update.svg';
 import { MATERIAL_VIEW_BOX, svgPathData } from './icon-logic';
 
@@ -24,6 +25,7 @@ const ICON_SVGS = {
   chats: forum,
   close,
   folder,
+  gauge: speed,
   logout,
   menu,
   notifications,

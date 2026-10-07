@@ -38,6 +38,7 @@ export function makeApp(
       | 'panelDeploy'
       | 'pushSender'
       | 'accountsHome'
+      | 'usageReader'
     >
   > = {},
 ): {
@@ -79,6 +80,7 @@ export function makeApp(
     },
     ...(extra.pushSender ? { pushSender: extra.pushSender } : {}),
     ...(extra.accountsHome ? { accountsHome: extra.accountsHome } : {}),
+    ...(extra.usageReader ? { usageReader: extra.usageReader } : {}),
   });
   return { app, db, worktreesDir, projectsDir };
 }
@@ -104,6 +106,50 @@ export function makeGitRepo(): string {
   git('add', '.');
   git('commit', '-q', '-m', 'init');
   return dir;
+}
+
+/**
+ * A repo with a bare `origin`, a working clone on a feature branch (one commit, not pushed) and a
+ * second clone to simulate remote changes (`pushFromOther`).
+ */
+export function makeRepoWithRemote(branch = 'feature/x'): {
+  repo: string;
+  remote: string;
+  other: string;
+  git: (dir: string, ...args: string[]) => string;
+  remoteRef: (ref: string) => string;
+  pushFromOther: (file: string, content: string, onBranch?: string) => void;
+} {
+  const git = (dir: string, ...args: string[]) =>
+    execFileSync('git', ['-C', dir, '-c', 'user.name=t', '-c', 'user.email=t@t', ...args], {
+      encoding: 'utf8',
+    });
+  const repo = makeGitRepo();
+  const remote = join(mkdtempSync(join(tmpdir(), 'panel-remote-')), 'origin.git');
+  execFileSync('git', ['init', '-q', '--bare', '-b', 'main', remote]);
+  git(repo, 'remote', 'add', 'origin', remote);
+  git(repo, 'push', '-q', 'origin', 'main');
+  git(repo, 'checkout', '-q', '-b', branch);
+  writeFileSync(join(repo, 'a.txt'), 'a');
+  git(repo, 'add', '.');
+  git(repo, 'commit', '-q', '-m', 'feat: a');
+  const other = mkdtempSync(join(tmpdir(), 'panel-other-'));
+  execFileSync('git', ['clone', '-q', remote, other]);
+  const remoteRef = (ref: string) =>
+    execFileSync('git', ['-C', remote, 'rev-parse', '--verify', '--quiet', ref], {
+      encoding: 'utf8',
+    }).trim();
+  const pushFromOther = (file: string, content: string, onBranch = branch) => {
+    git(other, 'fetch', '-q', 'origin');
+    const exists = git(other, 'branch', '-r', '--list', 'origin/' + onBranch).trim() !== '';
+    if (exists) git(other, 'checkout', '-q', '-B', onBranch, 'origin/' + onBranch);
+    else git(other, 'checkout', '-q', '-B', onBranch);
+    writeFileSync(join(other, file), content);
+    git(other, 'add', '.');
+    git(other, 'commit', '-q', '-m', 'feat: ' + file);
+    git(other, 'push', '-q', 'origin', onBranch);
+  };
+  return { repo, remote, other, git, remoteRef, pushFromOther };
 }
 
 /** A repo that ships `.agents/kyro/`, so the scope and work flows are allowed on it. */

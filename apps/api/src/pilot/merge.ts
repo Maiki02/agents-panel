@@ -36,6 +36,10 @@ export interface MergeDeps {
   scan?: (cwd: string, base: string) => Promise<SecretFinding[]>;
   validate?: (project: ValidateTarget, cwd: string, timeoutMs: number) => Promise<ValidationResult>;
   validateTimeoutMs?: number;
+  /** Pushes the work's branch (never forced); by default straight through `git`. */
+  push?: () => Promise<void>;
+  /** Opens or reuses the PR and returns its URL; by default straight through `gh`. */
+  openPr?: (pr: { base: string; title: string; body: string }) => Promise<string>;
 }
 
 export interface MergeMark {
@@ -114,11 +118,14 @@ export async function runGenericMerge(deps: MergeDeps, input: MergeInput): Promi
     if (secrets.length > 0) return stop('secretos', describeSecrets(secrets));
 
     // 6. Push (never forced) and the PR.
-    await git.push(cwd, branch);
+    await (deps.push ? deps.push() : git.push(cwd, branch));
     deps.mark('abriendo_pr', `Abre la PR de ${branch} hacia ${input.base}`, {
       data: { base: input.base },
     });
-    const url = await openOrReusePr(gh, input);
+    const request = { base: input.base, ...input.pr };
+    const url = await (deps.openPr
+      ? deps.openPr(request)
+      : openOrReusePr(gh, { cwd, branch, ...request }));
     deps.mark('pr_lista', 'La PR está lista para revisar', { data: { prUrl: url }, detail: url });
     return { kind: 'pr', url };
   } catch (error) {
@@ -163,18 +170,27 @@ async function validateMerge(
   return null;
 }
 
-async function openOrReusePr(gh: PilotGh, input: MergeInput): Promise<string> {
-  const cwd = input.chat.worktreePath;
-  const existing = await gh.openPr(cwd, input.chat.branch, input.base);
+/** What opening a PR needs: where the branch is, where it goes and the text. */
+export interface PrRequest {
+  cwd: string;
+  branch: string;
+  base: string;
+  title: string;
+  body: string;
+}
+
+/** The URL of the open PR of `branch`, or of a new one. */
+export async function openOrReusePr(gh: PilotGh, input: PrRequest): Promise<string> {
+  const existing = await gh.openPr(input.cwd, input.branch, input.base);
   if (existing !== null) return existing;
   const dir = await mkdtemp(path.join(tmpdir(), 'panel-pr-'));
   try {
     const bodyFile = path.join(dir, 'body.md');
-    await writeFile(bodyFile, input.pr.body, 'utf8');
-    return await gh.createPr(cwd, {
+    await writeFile(bodyFile, input.body, 'utf8');
+    return await gh.createPr(input.cwd, {
       base: input.base,
-      head: input.chat.branch,
-      title: input.pr.title,
+      head: input.branch,
+      title: input.title,
       bodyFile,
     });
   } finally {

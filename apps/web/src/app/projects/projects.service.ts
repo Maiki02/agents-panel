@@ -6,7 +6,8 @@ import type {
   ModelSelection,
   Project,
   ProjectPermissions,
-  PullResult,
+  ProjectRepo,
+  PullBaseResult,
 } from '@agents-panel/shared';
 import { firstValueFrom } from 'rxjs';
 
@@ -49,8 +50,28 @@ export class ProjectsService {
   }
 
   /** Fast-forward only, so it needs no code. */
-  pull(id: number): Promise<PullResult> {
-    return firstValueFrom(this.http.post<PullResult>(`/api/projects/${String(id)}/pull`, {}));
+  pull(id: number): Promise<PullBaseResult> {
+    return firstValueFrom(this.http.post<PullBaseResult>(`/api/projects/${String(id)}/pull`, {}));
+  }
+
+  /** Repos of the project (root and detected children) with their editable base branch. */
+  repos(id: number): Promise<ProjectRepo[]> {
+    return firstValueFrom(this.http.get<ProjectRepo[]>(`/api/projects/${String(id)}/repos`));
+  }
+
+  /** Looks for child repos in the base clone and saves what it finds; never changes a repo. */
+  detectRepos(id: number): Promise<ProjectRepo[]> {
+    return firstValueFrom(
+      this.http.post<ProjectRepo[]>(`/api/projects/${String(id)}/repos/detect`, {}),
+    );
+  }
+
+  updateRepoBase(id: number, repoId: number, baseBranch: string): Promise<ProjectRepo> {
+    return firstValueFrom(
+      this.http.patch<ProjectRepo>(`/api/projects/${String(id)}/repos/${String(repoId)}`, {
+        baseBranch,
+      }),
+    );
   }
 
   initKyro(id: number, code: string): Promise<KyroBranchResult> {
