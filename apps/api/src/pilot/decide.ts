@@ -57,6 +57,22 @@ export function fingerprint(kyro: KyroScopeState | KyroWorkState): Fingerprint {
   };
 }
 
+/**
+ * True when the session that just ended was an execution that closed a task: Kyro's `tasksDone`
+ * went up between the read at its start (`before`) and now (`after`). That is real progress through
+ * the sprint's finite task list, so it restarts the count of sessions against the cap. Fix
+ * sessions and sessions resumed after a restart never do.
+ */
+export function completedTask(
+  step: string | null | undefined,
+  before: Fingerprint | null,
+  after: Fingerprint,
+): boolean {
+  const was = before?.['tasksDone'];
+  const now = after['tasksDone'];
+  return step === 'execute' && typeof was === 'number' && typeof now === 'number' && now > was;
+}
+
 /** True when the signals changed between two reads of Kyro. */
 export function progressed(before: Fingerprint, after: Fingerprint): boolean {
   const keys = new Set([...Object.keys(before), ...Object.keys(after)]);
@@ -109,7 +125,8 @@ function isNoReadyWork(reason: string): boolean {
  */
 export function decideNextStep(
   kyro: KyroScopeState | KyroWorkState,
-  run: Pick<AutopilotRun, 'sessionsInSprint' | 'lastFingerprint'>,
+  run: Pick<AutopilotRun, 'sessionsInSprint' | 'lastFingerprint'> &
+    Partial<Pick<AutopilotRun, 'step'>>,
   lastSession: LastSession | null,
   options: { maxSessionsPerSprint?: number } = {},
 ): PilotDecision {
@@ -130,7 +147,12 @@ export function decideNextStep(
   }
   // Planning the next sprint starts a new count: the sessions of the one that just closed do not
   // carry over (the cap is per sprint, R11).
-  const sessions = kyro.kind === 'scope' && kyro.sprint.current === null ? 0 : run.sessionsInSprint;
+  // The cap counts sessions in a row that closed no task: an execution that did restarts it.
+  const closedTask = completedTask(run.step, run.lastFingerprint, fingerprint(kyro));
+  const sessions =
+    (kyro.kind === 'scope' && kyro.sprint.current === null) || closedTask
+      ? 0
+      : run.sessionsInSprint;
   if (sessions >= max) {
     return stop(
       'bloqueado',

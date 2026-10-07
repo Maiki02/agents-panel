@@ -47,7 +47,11 @@ import type { UsageRepository } from '../usage/repo.js';
 
 /** Everything the pilot reads from the Kyro CLI. */
 export interface PilotKyro extends KyroStateReader, CapabilityReader {
-  contextPackTask(cwd: string, scope: string): Promise<KyroReadResult<KyroTaskContext>>;
+  contextPackTask(
+    cwd: string,
+    scope: string,
+    taskId?: string | null,
+  ): Promise<KyroReadResult<KyroTaskContext>>;
   workContextPack(cwd: string, work: string): Promise<KyroReadResult<KyroTaskContext>>;
   analyze(cwd: string, scope: string): Promise<KyroReadResult<AnalyzeFinding[]>>;
   /** Title, objective and closed sprints of a scope, for its PR; without it the PR is plain. */
@@ -58,6 +62,13 @@ export interface PilotKyro extends KyroStateReader, CapabilityReader {
     acceptOpenDebt?: { reason: string },
   ): Promise<KyroActionResult>;
   closeWork(cwd: string, work: string, revision: number, reason: string): Promise<KyroActionResult>;
+  /** Unblocks a task of a work when the user resumes the pilot; without it the work stays blocked. */
+  unblockWorkTask?(
+    cwd: string,
+    work: string,
+    task: string,
+    revision: number,
+  ): Promise<KyroActionResult>;
 }
 
 export const QUOTA_RETRY_MS = 15 * 60 * 1000;
@@ -139,10 +150,16 @@ function toolUses(events: ChatEvent[]): { name: string; input: Record<string, un
   return uses;
 }
 
-/** True when the session loaded the skill (an `assistant` tool_use of Skill with that name). */
+/**
+ * True when the session loaded the skill: the Skill tool with that name, or a Read of its
+ * `skills/<skill>/SKILL.md`, which is how the pilot's prompts tell the agent to use a skill.
+ */
 export function usedSkill(events: ChatEvent[], skill: string): boolean {
+  const skillFile = `/skills/${skill}/SKILL.md`;
   return toolUses(events).some(
-    (use) => use.name === 'Skill' && text(use.input['skill']).includes(skill),
+    (use) =>
+      (use.name === 'Skill' && text(use.input['skill']).includes(skill)) ||
+      (use.name === 'Read' && text(use.input['file_path']).endsWith(skillFile)),
   );
 }
 
@@ -195,6 +212,11 @@ export class Autopilot {
   private readonly actions: PilotActions;
   /** Steps interrupted by a restart, to reopen in their SDK session on the next pass of the loop. */
   private readonly pendingResume = new Map<number, PendingResume>();
+  /**
+   * Chats whose pilot the user just resumed or switched on: that is the signal they solved what
+   * stopped it, so a task Kyro holds as blocked is unblocked once, at the next decision.
+   */
+  private readonly resumedByUser = new Set<number>();
   private readonly max: number;
   private readonly now: () => number;
   private readonly schedule: (fn: () => void, ms: number) => void;
@@ -214,6 +236,12 @@ export class Autopilot {
       ((fn, ms) => {
         setTimeout(fn, ms).unref();
       });
+  }
+
+  /** The user resumed or switched on the pilot: like kick, and a blocked task gets unblocked once. */
+  resumeByUser(chatId: number): void {
+    this.resumedByUser.add(chatId);
+    this.kick(chatId);
   }
 
   /** Starts (or continues) the loop of a chat in the background. */
@@ -253,6 +281,8 @@ export class Autopilot {
     let last: LastSession | null = null;
     let afterClose: AfterClose | null = null;
     let busy = 0;
+    /** Why the task was blocked before the user resumed it; goes into the next prompt once. */
+    let unblockedNote: string | null = null;
     for (;;) {
       let run = runs.get(chatId);
       const chat = chats.findById(chatId);
@@ -353,17 +383,30 @@ export class Autopilot {
       }
 
       const decision = decideNextStep(state, run, last, { maxSessionsPerSprint: this.max });
+      const userResumed = this.resumedByUser.delete(chatId);
+      if (
+        userResumed &&
+        decision.kind === 'stop' &&
+        decision.blockedReason === 'tarea_bloqueada' &&
+        state.kind === 'work' &&
+        state.nextTaskId !== null
+      ) {
+        const note = await this.unblock(chat, state);
+        if (note === null) return;
+        unblockedNote = note;
+        continue;
+      }
       if (decision.kind === 'complete') {
         if (!(await this.complete(chat, state))) return;
         last = { result: 'idle', answeredQuestion: false };
         continue;
       }
       if (decision.kind === 'finished') {
-        runs.finish(chatId);
-        this.deps.tracker.pilotMark(chat, {
-          state: 'terminado',
-          reason: 'El piloto terminó el trabajo',
-        });
+        // The agent closed it by itself: nobody committed, pushed or opened the PR yet, so the
+        // merge phase still runs (it is what ends in `pr_lista` and the notification). A run
+        // already in the merge phase returned above.
+        runs.setPhase(chatId, 'merge');
+        await this.mergePhase(chat, state);
         return;
       }
       if (decision.kind === 'stop') {
@@ -402,7 +445,12 @@ export class Autopilot {
         return;
       }
       const role = stepRole(step);
-      const prompt = buildStepPrompt(step, { task: task.state, findings });
+      const prompt = buildStepPrompt(step, {
+        task: task.state,
+        findings,
+        ...(unblockedNote !== null ? { unblocked: unblockedNote } : {}),
+      });
+      unblockedNote = null;
       const sprintN = state.kind === 'scope' ? state.sprint.current : null;
       const fromSeq = chats.lastSeq(chatId);
       const answeredBefore = questions.listByChat(chatId, 'answered').length;
@@ -889,12 +937,43 @@ export class Autopilot {
     return Math.max(0, (started.at(-2)?.seq ?? 1) - 1);
   }
 
+  /**
+   * Takes the blocked task of a work out of `blocked` because the user resumed the pilot. Returns
+   * the old blocker for the next prompt, or null when Kyro refused (the pilot stopped).
+   */
+  private async unblock(chat: Chat, state: KyroWorkState): Promise<string | null> {
+    const task = state.nextTaskId ?? '';
+    const reason = state.blockedReason ?? 'sin motivo';
+    const done = this.deps.kyro.unblockWorkTask
+      ? await this.deps.kyro.unblockWorkTask(chat.worktreePath, state.work, task, state.revision)
+      : {
+          ok: false as const,
+          error: { kind: 'cli_failed' as const, message: 'unblock no disponible' },
+        };
+    if (!done.ok) {
+      this.stop(chat, {
+        state: 'bloqueado',
+        blockedReason: 'kyro_bloqueado',
+        detail: `No se pudo desbloquear ${task}: ${done.error.message}`,
+      });
+      return null;
+    }
+    this.deps.tracker.pilotMark(chat, {
+      state: 'escribiendo_codigo',
+      reason: `Reanudado por el usuario: el piloto desbloqueó ${task} en Kyro`,
+      detail: reason,
+      data: { unblocked: task },
+      record: true,
+    });
+    return `Task ${task} was blocked with: "${reason}". The user resumed the pilot, which means they solved it, and the panel unblocked the task in Kyro. Retry it now. If it still cannot be done, say exactly what is missing before blocking it again.`;
+  }
+
   private taskContext(
     chat: Chat,
     state: KyroScopeState | KyroWorkState,
   ): Promise<KyroReadResult<KyroTaskContext>> {
     return state.kind === 'scope'
-      ? this.deps.kyro.contextPackTask(chat.worktreePath, state.scope)
+      ? this.deps.kyro.contextPackTask(chat.worktreePath, state.scope, state.nextTaskId)
       : this.deps.kyro.workContextPack(chat.worktreePath, state.work);
   }
 
@@ -909,6 +988,8 @@ export class Autopilot {
     },
   ): undefined {
     const reason = stop.detail ?? stop.blockedReason ?? stop.state;
+    // A resume is consumed by the first decision; a stop before it must not unblock anything later.
+    this.resumedByUser.delete(chat.id);
     this.deps.tracker.pilotMark(chat, {
       state: stop.state,
       reason: `El piloto frenó: ${reason}`,

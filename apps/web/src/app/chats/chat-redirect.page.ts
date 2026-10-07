@@ -11,7 +11,7 @@ import { chatsPath } from '../projects/last-chat';
   template: `
     @if (error(); as message) {
       <p class="error" role="alert">{{ message }}</p>
-      <a routerLink="/">Volver a Proyectos</a>
+      <a class="link" routerLink="/">Ir a Proyectos</a>
     } @else {
       <p class="hint">Abriendo el chat…</p>
     }

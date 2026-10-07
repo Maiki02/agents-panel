@@ -80,7 +80,14 @@ class FakeKyro implements PilotKyro {
   capabilities(): Promise<KyroReadResult<string[]>> {
     return Promise.resolve({ ok: true, state: this.capabilities_ });
   }
-  contextPackTask(): Promise<KyroReadResult<KyroTaskContext>> {
+  /** The task id each context-pack asked for (null: no --task). */
+  packTasks: (string | null | undefined)[] = [];
+  contextPackTask(
+    _cwd: string,
+    _scope: string,
+    taskId?: string | null,
+  ): Promise<KyroReadResult<KyroTaskContext>> {
+    this.packTasks.push(taskId);
     return Promise.resolve({
       ok: true,
       state: {
@@ -427,6 +434,8 @@ describe('Autopilot over a 2-sprint scope (S7)', () => {
       ]),
     );
     expect(t.kyro.analyzeCalls).toBe(2);
+    // Plan and close have no next task: asking `--task` there makes Kyro fail ("No next task").
+    expect(t.kyro.packTasks).toEqual([null, 'T1.1', null, null, 'T2.1', null]);
     expect(t.runs.get(t.chat.id)).toMatchObject({ status: 'finished' });
     expect(t.states.get(t.chat.id)?.state).toBe('pr_lista');
     expect(t.kyro.completed).toEqual(['scope demo']);
@@ -889,7 +898,39 @@ describe('loop guards, capabilities, queue and usage limit', () => {
       blockedReason: 'tope_de_sesiones',
     });
     expect(t.runs.get(t.chat.id)?.sessionsInSprint).toBe(2);
-    expect(t.sessions.listByChat(t.chat.id).map((s) => s.step)).toEqual(['plan', 'execute', 'fix']);
+    // The execution closed a task, which restarted the count: the fixes are what the cap counts.
+    expect(t.sessions.listByChat(t.chat.id).map((s) => s.step)).toEqual([
+      'plan',
+      'execute',
+      'fix',
+      'fix',
+    ]);
+  });
+
+  it('a sprint with more tasks than the cap runs to its close, because every execution closes a task', async () => {
+    const t = await setup({ total: 1, maxSessions: 2 });
+    // Five tasks in the sprint: each execution session closes one and Kyro keeps routing execute.
+    let left = 4;
+    const apply = t.kyro.apply.bind(t.kyro);
+    t.kyro.apply = (step: string) => {
+      apply(step);
+      if (step === 'execute' && left > 0) {
+        left--;
+        t.kyro.state.nextAction = 'execute_task';
+        t.kyro.state.nextTaskId = `T1.${String(5 - left)}`;
+      }
+    };
+    await t.pilot.drive(t.chat.id);
+    expect(t.sessions.listByChat(t.chat.id).map((s) => s.step)).toEqual([
+      'plan',
+      'execute',
+      'execute',
+      'execute',
+      'execute',
+      'execute',
+      'close',
+    ]);
+    expect(t.runs.get(t.chat.id)).toMatchObject({ status: 'finished' });
   });
 
   it('a sprint that used the whole cap and closed does not stop the next one from being planned', async () => {
@@ -1097,6 +1138,20 @@ describe('event readers', () => {
     expect(usedSkill([event('assistant', qaEvent.payload)], 'kyro-forge')).toBe(false);
     expect(usedSkill([event('assistant', { text: 'corrí kyro-qa' })], 'kyro-qa')).toBe(false);
     expect(usedSkill([event('user_prompt', { text: 'kyro-qa' })], 'kyro-qa')).toBe(false);
+  });
+
+  it('usedSkill also counts reading the SKILL.md, as the pilot prompts ask', () => {
+    const read = (file_path: string) =>
+      event('assistant', {
+        message: { content: [{ type: 'tool_use', name: 'Read', input: { file_path } }] },
+      });
+    const qaFile = '/home/ubuntu/.agents/skills/kyro-qa/SKILL.md';
+    expect(usedSkill([read(qaFile)], 'kyro-qa')).toBe(true);
+    expect(usedSkill([read(qaFile)], 'kyro-forge')).toBe(false);
+    expect(usedSkill([read('/home/ubuntu/.agents/skills/kyro-qa/README.md')], 'kyro-qa')).toBe(
+      false,
+    );
+    expect(usedSkill([read('/wt/docs/kyro-qa.md')], 'kyro-qa')).toBe(false);
   });
 
   it('hitUsageLimit detects a rejected rate limit and a limit error, not a warning', () => {

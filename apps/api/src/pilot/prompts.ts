@@ -58,6 +58,8 @@ export interface StepPromptContext {
   findings?: readonly string[];
   /** Where the skills live; the user's home by default. */
   home?: string;
+  /** The blocked task the user resumed: why it was blocked and what to do now. */
+  unblocked?: string;
 }
 
 function skillPath(home: string, skill: string): string {
@@ -129,6 +131,7 @@ export function buildStepPrompt(step: PromptStep, ctx: StepPromptContext): strin
     'Conventions:',
     ...list(task.conventions),
   );
+  if (ctx.unblocked !== undefined) lines.push('', `Resumed by the user: ${ctx.unblocked}`);
   if (step === 'fix') {
     lines.push('', 'Analyze findings to fix:', ...list(ctx.findings ?? []));
   }

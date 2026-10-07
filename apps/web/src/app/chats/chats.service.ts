@@ -118,6 +118,11 @@ export class ChatsService {
     return firstValueFrom(this.http.get<AutopilotInfo>(`/api/chats/${String(id)}/autopilot`));
   }
 
+  /** PRs of the work: the ones the pilot kept or, for a finished work, the ones GitHub has. */
+  prs(id: number): Promise<{ urls: string[] }> {
+    return firstValueFrom(this.http.get<{ urls: string[] }>(`/api/chats/${String(id)}/pr`));
+  }
+
   /** Switch the pilot on or off, pause or resume it; 409 with a readable reason when it does not apply. */
   autopilotAction(id: number, action: 'on' | 'off' | 'pause' | 'resume'): Promise<AutopilotInfo> {
     return firstValueFrom(

@@ -164,7 +164,7 @@ describe('KyroReader task context and capabilities', () => {
     const { calls, reader } = fake({
       'context-pack': fixture('context-pack-task.execute_task.json'),
     });
-    const read = await reader.contextPackTask('/wt', 'demo');
+    const read = await reader.contextPackTask('/wt', 'demo', 'T1.1');
     expect(read).toMatchObject({ ok: true, state: { taskId: 'T1.1', name: 'demo' } });
     expect(calls).toEqual([
       {
@@ -175,11 +175,45 @@ describe('KyroReader task context and capabilities', () => {
           '--kyro-scope',
           'demo',
           '--task',
+          'T1.1',
           '--verbosity',
           'detailed',
           '--json',
         ],
       },
+    ]);
+  });
+
+  it('asks without --task when Kyro has no next task (close step), which would fail otherwise', async () => {
+    const { calls, reader } = fake({
+      'context-pack': fixture('context-pack-task.execute_task.json'),
+    });
+    await reader.contextPackTask('/wt', 'demo', null);
+    expect(calls[0]?.args).toEqual([
+      'context-pack',
+      '--kyro-scope',
+      'demo',
+      '--verbosity',
+      'detailed',
+      '--json',
+    ]);
+  });
+
+  it('unblocks a task of a work with the expected revision, as the user', async () => {
+    const { calls, reader } = fake({ 'work unblock': '{"schemaVersion":1,"ok":true,"data":{}}' });
+    expect(await reader.unblockWorkTask('/wt', 'demo-work', 'W7', 12)).toMatchObject({ ok: true });
+    expect(calls[0]?.args).toEqual([
+      'work',
+      'unblock',
+      '--work',
+      'demo-work',
+      '--task',
+      'W7',
+      '--expect-revision',
+      '12',
+      '--by',
+      'user',
+      '--json',
     ]);
   });
 

@@ -12,7 +12,8 @@ import { KyroLock } from './maintenance/lock.js';
 import { registerMaintenanceRoutes } from './maintenance/routes.js';
 import { MaintenanceRunRepository } from './maintenance/runs.js';
 import { KyroUpdater, type ScriptRunner } from './maintenance/updater.js';
-import { KyroVersions } from './maintenance/versions.js';
+import { PanelDeployer, RESTART_EXIT_CODE } from './maintenance/deployer.js';
+import { KyroVersions, type Exec } from './maintenance/versions.js';
 import type { AgentRunner } from './agent/runner.js';
 import { SdkRunner } from './agent/sdk-runner.js';
 import { AgentSessionRepository } from './chats/sessions-repo.js';
@@ -39,6 +40,7 @@ import { IdeaActions } from './chats/idea-actions.js';
 import { DebtAcceptance } from './pilot/accept-debt.js';
 import type { MergeGit, PilotGit, RepoGit } from './pilot/git-ops.js';
 import type { PilotGh } from './pilot/github-cli.js';
+import { PrLookup, type BranchPrs } from './pilot/pr-lookup.js';
 import { registerChatRoutes } from './chats/routes.js';
 import { registerChatGitRoutes } from './chats/git-routes.js';
 import { registerStepRoutes, StepService } from './chats/step-routes.js';
@@ -109,6 +111,8 @@ export interface AppDeps {
   kyroVersions?: KyroVersions;
   /** Runs the Kyro update script; tests inject a fake instead of touching the VM. */
   kyroScriptRunner?: ScriptRunner;
+  /** The panel deploy: script, git reads and the restart; tests replace them. */
+  panelDeploy?: { runner?: ScriptRunner; exec?: Exec; restart?: () => void };
   /** Replaces `kyro install` for the Kyro init branch (tests). */
   kyroInstaller?: KyroInitializer;
   /** Clones and registers projects; tests inject one with a fake cloner and wait on whenIdle(). */
@@ -121,6 +125,8 @@ export interface AppDeps {
   pilotGit?: PilotGit & MergeGit;
   /** `gh` of the merge phase; tests replace it so nothing calls GitHub. */
   pilotGh?: PilotGh;
+  /** Lookup of the PRs of a finished work's branch; tests never call GitHub. */
+  branchPrs?: BranchPrs;
   /** Sends Web Push messages; tests inject a fake, production uses the VAPID keys of the config. */
   pushSender?: PushSender;
   /** Runs `kyro work create` when an idea is approved as a work; tests replace it. */
@@ -294,6 +300,25 @@ export function buildApp(deps: AppDeps, options: FastifyServerOptions = {}): Fas
     ...(deps.kyroScriptRunner ? { runner: deps.kyroScriptRunner } : {}),
   });
 
+  const panelDeployer = new PanelDeployer({
+    manager,
+    runs,
+    pilots: autopilotRuns,
+    repoPath: deps.config.panelRepo,
+    scriptPath: deps.config.panelDeployScript,
+    selfDeploy: deps.config.selfDeploy,
+    restart:
+      deps.panelDeploy?.restart ??
+      (() => {
+        // systemd starts the new build (Restart=on-failure); closing first ends streams cleanly.
+        app.log.info('Deploy listo: el panel se reinicia');
+        void app.close().finally(() => process.exit(RESTART_EXIT_CODE));
+      }),
+    now,
+    ...(deps.panelDeploy?.runner ? { runner: deps.panelDeploy.runner } : {}),
+    ...(deps.panelDeploy?.exec ? { exec: deps.panelDeploy.exec } : {}),
+  });
+
   const projectService =
     deps.projectService ??
     new ProjectService({
@@ -309,6 +334,7 @@ export function buildApp(deps: AppDeps, options: FastifyServerOptions = {}): Fas
     pilot.resumeAll();
     // Same for Kyro updates: a run left 'running' by a restart can never finish.
     runs.failInterrupted();
+    await panelDeployer.init();
   });
 
   registerProjectRoutes(app, { projects, service: projectService });
@@ -341,7 +367,9 @@ export function buildApp(deps: AppDeps, options: FastifyServerOptions = {}): Fas
       updater: kyroUpdater,
       runs,
       reauth,
-      isUpdating: () => manager.inMaintenance,
+      // The lock is shared: a panel deploy is not a Kyro update.
+      isUpdating: () => manager.inMaintenance && !panelDeployer.deployRunning,
+      deployer: panelDeployer,
     });
   });
   const ideaActions = new IdeaActions({
@@ -384,8 +412,15 @@ export function buildApp(deps: AppDeps, options: FastifyServerOptions = {}): Fas
     states: worktreeState,
     runs: autopilotRuns,
     maxSessionsPerSprint: deps.config.pilotMaxSessionsPerSprint,
+    prs: new PrLookup({
+      runs: autopilotRuns,
+      states: worktreeState,
+      projects,
+      ...(deps.branchPrs ? { prsOf: deps.branchPrs } : {}),
+    }),
     onResume: (chatId) => {
-      pilot.kick(chatId);
+      // The user resumed or switched it on: a task Kyro holds as blocked is unblocked once.
+      pilot.resumeByUser(chatId);
     },
     debt: new DebtAcceptance({
       service: chatService,

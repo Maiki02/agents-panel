@@ -6,7 +6,8 @@ const BASE = 'inline-block rounded-pill border px-2 py-px text-xs font-medium wh
 
 const TONES: Record<BadgeTone, string> = {
   neutral: 'border-border text-muted',
-  accent: 'border-accent text-accent',
+  // The primary color marks the state (border) only; the text stays white/gray like every text.
+  accent: 'border-accent text-text',
   ok: 'border-ok text-ok',
   warn: 'border-warn text-warn',
   danger: 'border-danger text-danger',

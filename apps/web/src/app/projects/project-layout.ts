@@ -3,16 +3,21 @@ import {
   ChangeDetectionStrategy,
   Component,
   DestroyRef,
+  computed,
   effect,
   inject,
   input,
   signal,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { NavigationEnd, Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
+import { NavigationEnd, Router, RouterOutlet } from '@angular/router';
 import { filter } from 'rxjs';
 import { apiErrorMessage } from '../chats/chats.service';
+import { currentUrl } from '../shell/current-url';
+import { projectSection } from '../shell/nav-logic';
+import { PageTitleStore } from '../shell/page-title.store';
 import { Badge } from '../ui/badge';
+import { Tabs, type TabItem } from '../ui/tabs';
 import { LastChatStore } from './last-chat.store';
 import { selectionFromUrl } from './last-chat';
 import { ProjectContext } from './project-context';
@@ -25,47 +30,41 @@ import {
 import { ProjectsService } from './projects.service';
 
 /**
- * /projects/:id: a side rail with "Chats" and "Configuración" and the child route next to it.
- * It also remembers the selected chat per project, so coming back reopens it (R30).
+ * /projects/:id: "Chats" and "Configuración" tabs with the project status, and the child route
+ * below filling the rest of the height. The project name goes to the header title. It also
+ * remembers the selected chat per project, so coming back reopens it (R30).
  */
 @Component({
   selector: 'app-project-layout',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink, RouterLinkActive, RouterOutlet, Badge],
+  imports: [RouterOutlet, Badge, Tabs],
   providers: [ProjectContext],
+  host: { class: 'flex min-h-0 flex-1 flex-col' },
   template: `
-    <p><a routerLink="/">← Proyectos</a></p>
     @if (notFound()) {
       <p class="error" role="alert">Proyecto no encontrado.</p>
-      <a routerLink="/">Volver a Proyectos</a>
+      <p class="hint">Elegí otro desde Proyectos, en el menú.</p>
     } @else {
       @if (error(); as message) {
         <p class="error" role="alert">{{ message }}</p>
       }
       @if (context.project(); as p) {
-        <header class="chat-head mb-4">
-          <h1>{{ label(p) }}</h1>
-          <app-badge [tone]="tone(p)">{{ statusText(p) }}</app-badge>
-        </header>
-        @if (pendingNotice(p); as notice) {
-          <p class="hint" role="status">{{ notice }}</p>
-        }
-        <div class="grid gap-4 md:grid-cols-[11rem_minmax(0,1fr)]">
-          <nav class="flex gap-1 md:flex-col" aria-label="Secciones del proyecto">
-            @for (item of sections; track item.path) {
-              <a
-                [routerLink]="['/projects', p.id, item.path]"
-                routerLinkActive="!bg-surface-raised !text-text font-semibold"
-                class="rounded-control px-3 py-2 text-sm text-muted hover:bg-surface-raised hover:text-text hover:no-underline"
-              >
-                {{ item.label }}
-              </a>
-            }
-          </nav>
-          <section class="min-w-0">
-            <router-outlet />
-          </section>
+        <h1 class="sr-only">{{ label(p) }}</h1>
+        <div class="flex shrink-0 items-center gap-3">
+          <app-tabs
+            class="min-w-0 flex-1"
+            [tabs]="sections"
+            [active]="section()"
+            (selected)="open(p.id, $event)"
+          />
+          <app-badge class="shrink-0" [tone]="tone(p)">{{ statusText(p) }}</app-badge>
         </div>
+        @if (pendingNotice(p); as notice) {
+          <p class="hint mt-2 shrink-0" role="status">{{ notice }}</p>
+        }
+        <section class="mt-3 flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto">
+          <router-outlet />
+        </section>
       }
     }
   `,
@@ -78,10 +77,14 @@ export class ProjectLayout {
   /** Route param `:id` (bound by withComponentInputBinding). */
   readonly id = input.required<string>();
 
-  protected readonly sections = [
-    { path: 'chats', label: 'Chats' },
-    { path: 'settings', label: 'Configuración' },
-  ] as const;
+  protected readonly sections: readonly TabItem[] = [
+    { id: 'chats', label: 'Chats' },
+    { id: 'settings', label: 'Configuración' },
+  ];
+  private readonly router = inject(Router);
+  private readonly pageTitle = inject(PageTitleStore);
+  private readonly url = currentUrl();
+  protected readonly section = computed(() => projectSection(this.url()));
   protected readonly notFound = signal(false);
   protected readonly error = signal<string | null>(null);
   private timer: ReturnType<typeof setInterval> | undefined;
@@ -89,12 +92,13 @@ export class ProjectLayout {
   constructor() {
     inject(DestroyRef).onDestroy(() => {
       this.stopPolling();
+      this.pageTitle.projectName.set(null);
     });
     effect(() => {
       void this.load(Number(this.id()));
     });
-    inject(Router)
-      .events.pipe(
+    this.router.events
+      .pipe(
         filter((event): event is NavigationEnd => event instanceof NavigationEnd),
         takeUntilDestroyed(),
       )
@@ -117,21 +121,30 @@ export class ProjectLayout {
     return projectStatusTone(project.status);
   }
 
+  /** A tab is a route: Chats reopens the last chat (lastChatGuard), Configuración its first tab. */
+  protected open(projectId: number, section: string): void {
+    void this.router.navigate(['/projects', projectId, section]);
+  }
+
   private async load(id: number): Promise<void> {
     this.notFound.set(false);
     if (!Number.isInteger(id) || id < 1) {
       this.notFound.set(true);
+      this.pageTitle.projectName.set(null);
       return;
     }
     try {
       const project = await this.service.get(id);
       if (id !== Number(this.id())) return;
       this.context.project.set(project);
+      this.pageTitle.projectName.set(projectLabel(project));
       this.error.set(null);
       this.syncPolling(id, project.status === 'cloning');
     } catch (cause) {
-      if (cause instanceof HttpErrorResponse && cause.status === 404) this.notFound.set(true);
-      else this.error.set(apiErrorMessage(cause));
+      if (cause instanceof HttpErrorResponse && cause.status === 404) {
+        this.notFound.set(true);
+        this.pageTitle.projectName.set(null);
+      } else this.error.set(apiErrorMessage(cause));
     }
   }
 

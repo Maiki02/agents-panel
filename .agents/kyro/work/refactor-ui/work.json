@@ -1,0 +1,547 @@
+{
+  "schemaVersion": 1,
+  "kind": "organic-work",
+  "id": "refactor-ui",
+  "title": "Refactor de la UI: menú hamburguesa, layout a pantalla completa y chat con scroll propio",
+  "objective": "Que el panel se use cómodo en desktop y en el celular: navegación en un menú lateral con íconos, el título del proyecto en el centro del encabezado, textos en blanco o grises, el layout ocupando toda la pantalla y el chat con su propio scroll, sin que cada novedad de la IA arrastre la página entera al final.",
+  "brief": {
+    "path": "brief.md",
+    "digest": "792d06d3530da68cc2a210c6124430fe42d8e620b60ed1224518f469b6f86b52",
+    "sourceIdea": null
+  },
+  "state": "closed",
+  "revision": 15,
+  "createdAt": "2026-10-06T02:43:09.316Z",
+  "updatedAt": "2026-10-06T03:02:42.547Z",
+  "handoff": {
+    "nextAction": "done",
+    "nextTaskId": null,
+    "blockedReason": null
+  },
+  "tasks": [
+    {
+      "id": "W1",
+      "title": "Material Symbols, ícono y drawer en ui/",
+      "description": "Instalar Google Material Symbols (variante Outlined) como dependencia npm de apps/web e importarlo en styles.css. El componente app-icon pasa a renderizar Material Symbols por nombre (los íconos actuales refresh, close y plus siguen funcionando con su equivalente Material) y suma menu, folder, update, account_circle, notifications, chat y settings. Nuevo componente app-drawer en ui/: panel lateral izquierdo que entra con transición de desplazamiento (translate-x), fondo que cierra con un clic, Esc y X cierran, foco adentro al abrir y devuelto al cerrar, inert/aria-hidden cuando está cerrado. Lógica pura en un archivo -logic con spec.",
+      "context": "Decisión propia (sin ADR posible: kyro adr exige un scope y el Work no debe tocar estado de Forge): fuente self-hosted vía npm como Inter (@fontsource), sin CDN de Google. Tests de la web solo cubren lógica pura (vitest, entorno node). Reusar modal-logic donde aplique.",
+      "filesToTouch": [
+        "apps/web/package.json",
+        "package-lock.json",
+        "apps/web/src/styles.css",
+        "apps/web/src/app/ui/icon.ts",
+        "apps/web/src/app/ui/drawer.ts",
+        "apps/web/src/app/ui/drawer-logic.ts",
+        "apps/web/src/app/ui/drawer.spec.ts"
+      ],
+      "acceptanceCriteria": [
+        "Material Symbols Outlined está instalado como dependencia de apps/web y se sirve desde el build del panel, sin pedidos a fonts.googleapis.com",
+        "app-icon muestra cualquier nombre de su lista con Material Symbols y los usos existentes (refresh, close, plus, spin) siguen funcionando",
+        "app-drawer abre y cierra con transición de desplazamiento desde la izquierda; Esc, la X y un clic en el fondo emiten closed; cerrado no es enfocable",
+        "Spec de la lógica del drawer en verde"
+      ],
+      "dependsOn": [],
+      "definitionRevision": 1,
+      "status": "verified",
+      "blocker": null,
+      "evidence": {
+        "summary": "Google Material Symbols instalado como @material-symbols/svg-400 (Outlined, peso 400) en apps/web. El build carga .svg como texto (angular.json loader) y app-icon toma solo el path de cada SVG importado (icon-logic.svgPathData) y lo dibuja con fill currentColor y viewBox 0 -960 960 960; solo los íconos importados entran al bundle. Íconos: account, chat, chats, close, folder, logout, menu, notifications, plus, refresh, settings, update; los usos existentes (plus, close, refresh con spin) siguen igual. Nuevo app-drawer en ui/: panel izquierdo que siempre está en el DOM y se desplaza con translate-x (transition-transform 200 ms, sin animación con prefers-reduced-motion), fondo con fade que cierra con un clic, Esc y X emiten closed, foco al abrir ([data-autofocus] o el primer enfocable) y devuelto al cerrar, trampa de Tab, inert cuando está cerrado, slot drawerFooter. drawer-logic reusa modal-logic y suma panelTranslate, backdropState y closesOnNavigation.",
+        "validations": [
+          {
+            "command": "npm run test -w @agents-panel/web",
+            "result": "passed",
+            "note": "29 archivos, 265 tests; drawer.spec.ts cubre desplazamiento, fondo, Esc/fondo, cierre al navegar y extracción del path de Material"
+          },
+          {
+            "command": "npm run build -w @agents-panel/web",
+            "result": "passed",
+            "note": "bundle generado; el path de menu.svg está en el chunk y no hay referencias a googleapis"
+          },
+          {
+            "command": "npm run lint && npm run format:check",
+            "result": "passed",
+            "note": "limpios tras prettier sobre drawer.ts"
+          }
+        ],
+        "filesChanged": [
+          "apps/web/package.json",
+          "package-lock.json",
+          "apps/web/angular.json",
+          "apps/web/src/svg.d.ts",
+          "apps/web/src/app/ui/icon.ts",
+          "apps/web/src/app/ui/icon-logic.ts",
+          "apps/web/src/app/ui/drawer.ts",
+          "apps/web/src/app/ui/drawer-logic.ts",
+          "apps/web/src/app/ui/drawer.spec.ts"
+        ],
+        "notes": "Decisión propia: se probó el paquete material-symbols (fuente woff2), pero el archivo Outlined pesa 4 MB y con font-display block los íconos no se ven hasta bajarlo; se cambió al paquete oficial de SVG (mismo diseño, mismos nombres) para mandar solo los íconos usados. styles.css no cambia (no hay fuente que importar). No se registró ADR: kyro adr exige un scope de Forge y el Work no debe tocar estado de Forge.",
+        "by": "claude-maker",
+        "recordedAt": "2026-10-06T02:49:46.986Z",
+        "definitionRevision": 1,
+        "materialDigest": "42764b1e5e890e1cfde2906d789deffb903edb968d952c5cfc352bbb4ad8b39c"
+      },
+      "verdict": {
+        "result": "pass",
+        "checkedCriteria": [
+          "Material Symbols Outlined está instalado como dependencia de apps/web y se sirve desde el build del panel, sin pedidos a fonts.googleapis.com",
+          "app-icon muestra cualquier nombre de su lista con Material Symbols y los usos existentes (refresh, close, plus, spin) siguen funcionando",
+          "app-drawer abre y cierra con transición de desplazamiento desde la izquierda; Esc, la X y un clic en el fondo emiten closed; cerrado no es enfocable",
+          "Spec de la lógica del drawer en verde"
+        ],
+        "findings": [
+          {
+            "severity": "suggestion",
+            "detail": "La descripción decía importar la fuente en styles.css; con el paquete de SVG no hace falta (los íconos van dentro del JS). La desviación está justificada en la evidencia (4 MB de woff2 con font-display block)."
+          },
+          {
+            "severity": "suggestion",
+            "detail": "IconName pasa a ser keyof ICON_SVGS: un nombre que no está importado falla en compilación, que es lo deseado. El spec no puede importar icon.ts (vitest no tiene el loader de .svg); por eso la lógica vive en icon-logic.ts."
+          },
+          {
+            "severity": "suggestion",
+            "detail": "El drawer no se probó en un navegador todavía; se usa por primera vez en W2."
+          }
+        ],
+        "by": "claude-checker",
+        "reviewedAt": "2026-10-06T02:49:55.567Z",
+        "definitionRevision": 1,
+        "evidenceDigest": "11d5111e7d490ac4a288362014214f75769f86554c48258db4f6cf183786766d",
+        "reviewedMaterialDigest": "42764b1e5e890e1cfde2906d789deffb903edb968d952c5cfc352bbb4ad8b39c"
+      },
+      "disposition": null
+    },
+    {
+      "id": "W2",
+      "title": "Shell: encabezado con hamburguesa, título centrado, sidebar y layout a pantalla completa",
+      "description": "app.ts: encabezado de alto fijo con botón hamburguesa (ícono menu) a la izquierda, título centrado y a la derecha el selector de cuenta en desktop. El título lo da un store raíz (PageTitle): ProjectLayout lo fija con el nombre del proyecto y lo limpia al destruirse; fuera de un proyecto se muestra el nombre de la sección según la ruta. El drawer lista Proyectos, Versiones, Cuentas y Notificaciones con su ícono; la activa tiene fondo, peso y una marca del color primario; Proyectos queda activa dentro de /projects/:id. Al pie: selector de cuenta (en mobile), usuario y Salir. Se cierra al navegar. Layout: body/app a 100dvh en columna, main ocupa el resto del alto y todo el ancho (sin max-width). ProjectLayout: sin flecha ni link 'Volver a Proyectos' (el no encontrado queda como mensaje), la columna Chats/Configuración pasa a pestañas con routerLink bajo el título, y el layout del proyecto llena el alto.",
+      "context": "Decisiones del usuario: pestañas bajo el título para el menú del proyecto. Decisiones propias: fuera de un proyecto el título es el nombre de la sección; el selector de cuenta sigue a un clic en el encabezado en desktop (lo pidió el work cuentas-claude) y en mobile pasa al pie del drawer. Lógica pura (título por ruta, opción activa) con spec.",
+      "filesToTouch": [
+        "apps/web/src/app/app.ts",
+        "apps/web/src/app/shell/page-title.store.ts",
+        "apps/web/src/app/shell/nav-logic.ts",
+        "apps/web/src/app/shell/nav.spec.ts",
+        "apps/web/src/app/shell/side-nav.ts",
+        "apps/web/src/app/projects/project-layout.ts",
+        "apps/web/src/styles/base.css",
+        "apps/web/src/index.html"
+      ],
+      "acceptanceCriteria": [
+        "El encabezado muestra el botón hamburguesa y, centrado, el nombre del proyecto dentro de un proyecto o el de la sección fuera de él",
+        "El botón hamburguesa abre el drawer con las cuatro opciones con ícono Material; la opción de la ruta actual se distingue y Proyectos queda activa dentro de un proyecto; navegar cierra el drawer",
+        "Dentro de un proyecto no hay flecha ni link para volver a Proyectos, y Chats/Configuración son pestañas bajo el título",
+        "El layout ocupa todo el ancho y el alto de la pantalla (100dvh) sin scroll del documento en la vista de chat",
+        "Selector de cuenta, usuario y Salir siguen accesibles en desktop y en mobile",
+        "Build, lint y tests de la web en verde"
+      ],
+      "dependsOn": [
+        "W1"
+      ],
+      "definitionRevision": 1,
+      "status": "verified",
+      "blocker": null,
+      "evidence": {
+        "summary": "Shell nuevo en app.ts: app-root es una columna de 100dvh; encabezado de 56 px en grilla de tres columnas con el botón hamburguesa (ícono menu, aria-expanded) a la izquierda, el título centrado y truncado, y el selector de cuenta a la derecha desde lg. El título sale de headerTitle(url, PageTitleStore.projectName): el nombre del proyecto dentro de /projects/:id, si no el nombre de la sección, si no 'Panel de agentes'. El menú es un app-drawer con app-side-nav: Proyectos, Versiones, Cuentas y Notificaciones con su ícono Material; la activa (activeNavPath: Proyectos también dentro de un proyecto y en /chats/:id) lleva fondo elevado, texto principal, semibold, aria-current y una barra del color primario a la izquierda; las demás en gris. Al pie del drawer: selector de cuenta (debajo de lg), usuario y Salir con ícono. Cualquier cambio de ruta cierra el drawer. main ocupa el resto del alto y todo el ancho (sin max-width) con scroll propio. ProjectLayout: sin flecha ni link para volver a Proyectos; Chats/Configuración son app-tabs bajo el encabezado (navegan por ruta, activa según la URL) con la insignia de estado al lado; h1 del proyecto solo para lectores de pantalla; llena el alto y su sección tiene scroll propio; fija y limpia el nombre del proyecto en PageTitleStore.",
+        "validations": [
+          {
+            "command": "npm run test -w @agents-panel/web",
+            "result": "passed",
+            "note": "30 archivos, 272 tests; nav.spec.ts cubre las cuatro opciones con su ícono, la opción activa (lista, dentro de un proyecto, prefijos, query y fragmento), el título y la pestaña del proyecto"
+          },
+          {
+            "command": "npm run build -w @agents-panel/web",
+            "result": "passed",
+            "note": "bundle generado sin errores ni advertencias de presupuesto"
+          },
+          {
+            "command": "npm run lint && npm run format:check",
+            "result": "passed",
+            "note": "limpios"
+          }
+        ],
+        "filesChanged": [
+          "apps/web/src/app/app.ts",
+          "apps/web/src/app/shell/current-url.ts",
+          "apps/web/src/app/shell/nav-logic.ts",
+          "apps/web/src/app/shell/nav.spec.ts",
+          "apps/web/src/app/shell/page-title.store.ts",
+          "apps/web/src/app/shell/side-nav.ts",
+          "apps/web/src/app/projects/project-layout.ts",
+          "apps/web/src/styles/base.css"
+        ],
+        "notes": "index.html no necesitó cambios. Decisiones propias: fuera de un proyecto el título es el nombre de la sección; el selector de cuenta sigue en el encabezado desde lg (un clic, como pidió el work cuentas-claude) y debajo de lg pasa al pie del drawer; main conserva 16 px de margen. No se probó en un navegador: la VM no tiene navegador headless y el servicio corre el build anterior.",
+        "by": "claude-maker",
+        "recordedAt": "2026-10-06T02:55:48.413Z",
+        "definitionRevision": 1,
+        "materialDigest": "6c322633d24864838d7e5614374755f30439539d84e293c47feb890be48d400d"
+      },
+      "verdict": {
+        "result": "pass",
+        "checkedCriteria": [
+          "El encabezado muestra el botón hamburguesa y, centrado, el nombre del proyecto dentro de un proyecto o el de la sección fuera de él",
+          "El botón hamburguesa abre el drawer con las cuatro opciones con ícono Material; la opción de la ruta actual se distingue y Proyectos queda activa dentro de un proyecto; navegar cierra el drawer",
+          "Dentro de un proyecto no hay flecha ni link para volver a Proyectos, y Chats/Configuración son pestañas bajo el título",
+          "El layout ocupa todo el ancho y el alto de la pantalla (100dvh) sin scroll del documento en la vista de chat",
+          "Selector de cuenta, usuario y Salir siguen accesibles en desktop y en mobile",
+          "Build, lint y tests de la web en verde"
+        ],
+        "findings": [
+          {
+            "severity": "warning",
+            "detail": "El selector de cuenta se monta dos veces (encabezado y pie del drawer, uno oculto por CSS): cada instancia llama a refresh() al crearse, dos GET /api/accounts al entrar. Aceptable; se podría montar uno solo según el ancho."
+          },
+          {
+            "severity": "suggestion",
+            "detail": "El alto completo del chat depende de que la cadena main → project-layout → sección → chats-section → chat tenga alto acotado; el shell y el proyecto ya lo dan (h-dvh, flex-1, min-h-0), el resto es W3."
+          },
+          {
+            "severity": "suggestion",
+            "detail": "Mientras carga el proyecto el título muestra 'Proyectos' hasta que llega el nombre; no hubo prueba en navegador."
+          }
+        ],
+        "by": "claude-checker",
+        "reviewedAt": "2026-10-06T02:55:58.626Z",
+        "definitionRevision": 1,
+        "evidenceDigest": "09b85a195e481d03bdd72f81e535bb1f947f7304516ba0a83c67eb24ddcfd4eb",
+        "reviewedMaterialDigest": "6c322633d24864838d7e5614374755f30439539d84e293c47feb890be48d400d"
+      },
+      "disposition": null
+    },
+    {
+      "id": "W3",
+      "title": "Chat a pantalla completa: novedades con scroll propio y lista de chats como panel en mobile",
+      "description": "ChatsSection llena el alto: en desktop la lista de chats a la izquierda con scroll propio y el chat al lado; en mobile el chat ocupa todo y un botón 'Chats' arriba abre la lista en un app-drawer (se cierra al elegir un chat). ChatPage en columna de alto completo: cabecera (título, insignia, stepper, autopiloto, pestañas, banners y tarjetas) con alto máximo y scroll propio si crece, el feed con flex-1, min-h-0 y overflow-y-auto, y la caja de escribir fija abajo. El auto-scroll mueve solo el contenedor del feed y solo si el usuario estaba cerca del final (umbral en lógica pura con spec); al abrir o cambiar de chat arranca al final. La Timeline usa el mismo contenedor con scroll.",
+      "context": "Decisión del usuario: en mobile la lista de chats como panel deslizable abierto con un botón. Decisión propia: el auto-scroll respeta la posición del usuario (el pedido se queja de que cada actualización lleva al final). Hoy .composer es sticky y el effect hace scrollIntoView (mueve la ventana).",
+      "filesToTouch": [
+        "apps/web/src/app/chats/chats-section.ts",
+        "apps/web/src/app/chats/chat.page.ts",
+        "apps/web/src/app/chats/chat-sidebar.ts",
+        "apps/web/src/app/chats/scroll-logic.ts",
+        "apps/web/src/app/chats/scroll.spec.ts",
+        "apps/web/src/app/chats/new-chat.page.ts",
+        "apps/web/src/styles/components.css"
+      ],
+      "acceptanceCriteria": [
+        "El feed del chat tiene alto acotado y scroll propio; la página no scrollea mientras llegan novedades",
+        "Si el usuario scrolleó hacia arriba, una novedad no lo lleva al final; si estaba al final, lo sigue; al abrir un chat se ve el final",
+        "La caja de escribir queda siempre visible abajo, en desktop y en mobile",
+        "En mobile la lista de chats se abre con un botón 'Chats' como panel deslizable y se cierra al elegir un chat",
+        "Spec de la lógica de scroll en verde; build, lint y tests de la web en verde"
+      ],
+      "dependsOn": [
+        "W2"
+      ],
+      "definitionRevision": 1,
+      "status": "verified",
+      "blocker": null,
+      "evidence": {
+        "summary": "Cadena de alto acotado de punta a punta: main es columna flex con scroll propio, ProjectLayout y su sección (flex-1, min-h-0), ChatsSection (flex-1) y ChatPage (flex-1, columna). ChatPage: .chat-top (título, insignia, stepper, autopiloto, pestañas, banners, tarjetas y error) con max-h 40dvh y scroll propio si crece; .chat-scroll (el feed o la Timeline) con flex-1, min-h-0, overflow-y-auto y overscroll-contain; .composer abajo con shrink-0 (ya no sticky), etiqueta solo para lectores de pantalla y placeholder. Auto-scroll: afterRenderEffect sobre items() mueve solo el scrollTop del feed (ya no scrollIntoView, que movía la ventana) y solo si follow está activo; follow se recalcula en cada scroll del feed con isNearBottom (umbral 80 px) y vuelve a true al abrir o cambiar de chat, al volver a la pestaña Chat y al enviar un mensaje. ChatsSection: desde md la lista a la izquierda (w-64, scroll propio) y el chat al lado; debajo de md el chat ocupa todo y un botón secundario 'Chats' (ícono forum) abre la lista en un app-drawer que se cierra al navegar (elegir un chat o Nuevo chat). Se monta una sola lista según mediaMatches('(min-width: 48rem)'), así no hay dos sondeos.",
+        "validations": [
+          {
+            "command": "npm run test -w @agents-panel/web",
+            "result": "passed",
+            "note": "31 archivos, 277 tests; scroll.spec.ts cubre seguir al final, umbral, no mover si el usuario subió, feed más corto que la caja y umbral propio"
+          },
+          {
+            "command": "npm run build -w @agents-panel/web",
+            "result": "passed",
+            "note": "bundle generado"
+          },
+          {
+            "command": "npm run lint && npm run format",
+            "result": "passed",
+            "note": "eslint limpio; prettier reindentó chat.page.ts"
+          }
+        ],
+        "filesChanged": [
+          "apps/web/src/app/app.ts",
+          "apps/web/src/app/projects/project-layout.ts",
+          "apps/web/src/app/shell/media.ts",
+          "apps/web/src/app/chats/chats-section.ts",
+          "apps/web/src/app/chats/chat.page.ts",
+          "apps/web/src/app/chats/scroll-logic.ts",
+          "apps/web/src/app/chats/scroll.spec.ts",
+          "apps/web/src/styles/components.css"
+        ],
+        "notes": "chat-sidebar.ts y new-chat.page.ts no necesitaron cambios (el formulario de nuevo chat scrollea dentro del contenedor del outlet). Decisión propia: el auto-scroll respeta la posición del usuario. No se probó en un navegador (no hay navegador headless en la VM).",
+        "by": "claude-maker",
+        "recordedAt": "2026-10-06T02:58:54.878Z",
+        "definitionRevision": 1,
+        "materialDigest": "9913d4b3e775364f1cbc202a5e528aacad55efc6bdc0c31a383c906da21c5069"
+      },
+      "verdict": {
+        "result": "pass",
+        "checkedCriteria": [
+          "El feed del chat tiene alto acotado y scroll propio; la página no scrollea mientras llegan novedades",
+          "Si el usuario scrolleó hacia arriba, una novedad no lo lleva al final; si estaba al final, lo sigue; al abrir un chat se ve el final",
+          "La caja de escribir queda siempre visible abajo, en desktop y en mobile",
+          "En mobile la lista de chats se abre con un botón 'Chats' como panel deslizable y se cierra al elegir un chat",
+          "Spec de la lógica de scroll en verde; build, lint y tests de la web en verde"
+        ],
+        "findings": [
+          {
+            "severity": "warning",
+            "detail": "La tarjeta de aprobación de idea (plan largo) vive en .chat-top, acotado a 40dvh: en un celular puede quedar con poco alto y scroll anidado (el plan ya tenía max-h-96). Aceptable; si molesta, la tarjeta podría ir dentro del feed."
+          },
+          {
+            "severity": "suggestion",
+            "detail": "follow es un campo común (no signal): solo se lee dentro del afterRenderEffect, que se dispara por items() y por el viewChild del feed; está bien así."
+          },
+          {
+            "severity": "suggestion",
+            "detail": "Sin prueba en navegador: el alto de 100dvh y el teclado virtual en iOS/Android quedan por verificar a mano tras reiniciar el servicio."
+          }
+        ],
+        "by": "claude-checker",
+        "reviewedAt": "2026-10-06T02:59:02.667Z",
+        "definitionRevision": 1,
+        "evidenceDigest": "29d0a0e0c3daeb973a64a934c39ea8fdc237e778be30a2d48dd8d4e45a93cd22",
+        "reviewedMaterialDigest": "9913d4b3e775364f1cbc202a5e528aacad55efc6bdc0c31a383c906da21c5069"
+      },
+      "disposition": null
+    },
+    {
+      "id": "W4",
+      "title": "Textos en escala de grises y documentación de la identidad",
+      "description": "tokens.css: --ui-link apunta al color de texto en ambos temas (los links se distinguen por subrayado al pasar el mouse). Badge accent con texto neutro (borde del color primario). Revisar los textos que hoy salen azules (nombre y URL en Proyectos, Abrir la PR, Inicializar Kyro, PR del chat, redirect) para que queden en blanco o grises. El color primario queda para botones, foco, la marca de la opción activa, el paso actual y bordes puntuales. docs/identidad-visual.md: links en grises, Material Symbols, drawer, shell a pantalla completa y comportamiento en mobile del chat.",
+      "context": "Decisión propia: la insignia accent conserva el borde primario (es una cosa puntual de estado) pero su texto pasa a neutro. Regla del repo: si una decisión cambia, se actualiza el doc en el mismo cambio. Docs en español.",
+      "filesToTouch": [
+        "apps/web/src/styles/tokens.css",
+        "apps/web/src/app/ui/badge.ts",
+        "apps/web/src/app/projects/projects.page.ts",
+        "apps/web/src/app/projects/repo-actions.section.ts",
+        "apps/web/src/app/chats/new-chat.form.ts",
+        "apps/web/src/app/chats/chat-redirect.page.ts",
+        "docs/identidad-visual.md"
+      ],
+      "acceptanceCriteria": [
+        "Ningún texto usa el color primario salvo el de los botones primarios (texto sobre fondo primario); links e insignias quedan en blanco o grises en tema oscuro y en grises en tema claro",
+        "El grep de la regla de identidad (sin hex/rgb/px fuera de tokens.css) sigue limpio",
+        "docs/identidad-visual.md describe links en grises, Material Symbols, drawer, layout a pantalla completa y el chat en mobile",
+        "Build, lint y tests de la web en verde"
+      ],
+      "dependsOn": [
+        "W2",
+        "W3"
+      ],
+      "definitionRevision": 1,
+      "status": "verified",
+      "blocker": null,
+      "evidence": {
+        "summary": "tokens.css: --ui-link apunta a --ui-text (se resuelve por tema, así que en oscuro es el blanco del texto) y se quitan los overrides azules del tema oscuro. Badge accent: borde primario y texto en el color del texto. Nueva primitiva .link (texto en el color del texto, subrayado gris que se aclara al pasar el mouse) para links sueltos: Abrir la PR en GitHub (repo-actions), Inicializar Kyro (new-chat.form), la URL de la PR en el chat y el link de chat-redirect (ahora 'Ir a Proyectos'). La URL del repo en Proyectos pasa a gris (text-muted, blanco al pasar el mouse) y el nombre del proyecto queda en el color del texto. Quedan con primario solo: fondo del botón primario, foco, barra de la opción activa del menú, paso actual del stepper (texto blanco sobre primario) y bordes (pestaña activa, chat elegido, insignia accent). tabs.spec suma un test: ninguna insignia ni el botón secundario usa text-accent. docs/identidad-visual.md: regla de textos en blanco/grises, links con --ui-text y .link, Material Symbols (paquete SVG, por qué no la fuente), Drawer, sección nueva 'Estructura de la app (shell)' (pantalla completa, encabezado, menú, proyecto con pestañas, chat con scroll propio y auto-scroll) y Celular (lista de chats como panel).",
+        "validations": [
+          {
+            "command": "npm run test -w @agents-panel/web",
+            "result": "passed",
+            "note": "31 archivos, 278 tests"
+          },
+          {
+            "command": "npm run build -w @agents-panel/web",
+            "result": "passed",
+            "note": "bundle generado"
+          },
+          {
+            "command": "npm run lint && npm run format",
+            "result": "passed",
+            "note": "limpios"
+          },
+          {
+            "command": "grep de text-accent/text-link/ui-link en apps/web/src y de px/rgb/# en los archivos tocados",
+            "result": "passed",
+            "note": "ningún texto con text-accent; ningún valor literal nuevo fuera de tokens.css (los de base.css ya existían)"
+          }
+        ],
+        "filesChanged": [
+          "apps/web/src/styles/tokens.css",
+          "apps/web/src/styles/components.css",
+          "apps/web/src/app/ui/badge.ts",
+          "apps/web/src/app/ui/tabs.spec.ts",
+          "apps/web/src/app/projects/projects.page.ts",
+          "apps/web/src/app/projects/repo-actions.section.ts",
+          "apps/web/src/app/chats/new-chat.form.ts",
+          "apps/web/src/app/chats/chat-redirect.page.ts",
+          "apps/web/src/app/chats/chat.page.ts",
+          "docs/identidad-visual.md"
+        ],
+        "notes": "Decisión propia: la insignia accent conserva el borde primario (marca puntual de 'el agente trabaja') con texto neutro; el fondo tenue de los mensajes del usuario (--ui-user-msg, 12% de primario) se mantiene porque no es texto. No se probó en un navegador.",
+        "by": "claude-maker",
+        "recordedAt": "2026-10-06T03:02:29.548Z",
+        "definitionRevision": 1,
+        "materialDigest": "23d98a9034eb83f2cf9292c00aadda863094815d4a7648fb2f0b4dfa52a1cb98"
+      },
+      "verdict": {
+        "result": "pass",
+        "checkedCriteria": [
+          "Ningún texto usa el color primario salvo el de los botones primarios (texto sobre fondo primario); links e insignias quedan en blanco o grises en tema oscuro y en grises en tema claro",
+          "El grep de la regla de identidad (sin hex/rgb/px fuera de tokens.css) sigue limpio",
+          "docs/identidad-visual.md describe links en grises, Material Symbols, drawer, layout a pantalla completa y el chat en mobile",
+          "Build, lint y tests de la web en verde"
+        ],
+        "findings": [
+          {
+            "severity": "suggestion",
+            "detail": "El paso actual del stepper usa fondo primario con texto blanco (accent-fg): es texto blanco sobre una píldora primaria, consistente con 'cosas puntuales'."
+          },
+          {
+            "severity": "suggestion",
+            "detail": "--ui-link: var(--ui-text) se resuelve en :root, donde también viven los overrides del tema oscuro, así que sigue al tema; si algún día se pone data-theme en un elemento que no sea <html>, habría que redefinirlo ahí."
+          },
+          {
+            "severity": "suggestion",
+            "detail": "Los links de una frase sin la clase .link quedan sin subrayado hasta el hover; los cinco que había se marcaron. Un link nuevo en texto corrido debe llevar .link (documentado)."
+          }
+        ],
+        "by": "claude-checker",
+        "reviewedAt": "2026-10-06T03:02:38.735Z",
+        "definitionRevision": 1,
+        "evidenceDigest": "63484e230c90d4e40c110616ee68f49b25c513bde483a58357bb179e1a94ea6c",
+        "reviewedMaterialDigest": "23d98a9034eb83f2cf9292c00aadda863094815d4a7648fb2f0b4dfa52a1cb98"
+      },
+      "disposition": null
+    }
+  ],
+  "activity": [
+    {
+      "seq": 1,
+      "at": "2026-10-06T02:43:09.316Z",
+      "event": "created",
+      "taskId": null,
+      "by": "claude",
+      "reason": "Created through the Work CLI.",
+      "revision": 1
+    },
+    {
+      "seq": 2,
+      "at": "2026-10-06T02:43:45.224Z",
+      "event": "tasks_planned",
+      "taskId": null,
+      "by": "claude",
+      "reason": "Planned 4 Work tasks.",
+      "revision": 2
+    },
+    {
+      "seq": 3,
+      "at": "2026-10-06T02:43:45.459Z",
+      "event": "task_started",
+      "taskId": "W1",
+      "by": "claude-maker",
+      "reason": "Task started through the Work CLI.",
+      "revision": 3
+    },
+    {
+      "seq": 4,
+      "at": "2026-10-06T02:49:46.986Z",
+      "event": "evidence_recorded",
+      "taskId": "W1",
+      "by": "claude-maker",
+      "reason": "Evidence recorded with 3 validation results.",
+      "revision": 4
+    },
+    {
+      "seq": 5,
+      "at": "2026-10-06T02:49:55.567Z",
+      "event": "review_recorded",
+      "taskId": "W1",
+      "by": "claude-checker",
+      "reason": "Task review recorded with pass.",
+      "revision": 5
+    },
+    {
+      "seq": 6,
+      "at": "2026-10-06T02:49:56.077Z",
+      "event": "task_started",
+      "taskId": "W2",
+      "by": "claude-maker",
+      "reason": "Task started through the Work CLI.",
+      "revision": 6
+    },
+    {
+      "seq": 7,
+      "at": "2026-10-06T02:55:48.413Z",
+      "event": "evidence_recorded",
+      "taskId": "W2",
+      "by": "claude-maker",
+      "reason": "Evidence recorded with 3 validation results.",
+      "revision": 7
+    },
+    {
+      "seq": 8,
+      "at": "2026-10-06T02:55:58.626Z",
+      "event": "review_recorded",
+      "taskId": "W2",
+      "by": "claude-checker",
+      "reason": "Task review recorded with pass.",
+      "revision": 8
+    },
+    {
+      "seq": 9,
+      "at": "2026-10-06T02:55:58.897Z",
+      "event": "task_started",
+      "taskId": "W3",
+      "by": "claude-maker",
+      "reason": "Task started through the Work CLI.",
+      "revision": 9
+    },
+    {
+      "seq": 10,
+      "at": "2026-10-06T02:58:54.878Z",
+      "event": "evidence_recorded",
+      "taskId": "W3",
+      "by": "claude-maker",
+      "reason": "Evidence recorded with 3 validation results.",
+      "revision": 10
+    },
+    {
+      "seq": 11,
+      "at": "2026-10-06T02:59:02.667Z",
+      "event": "review_recorded",
+      "taskId": "W3",
+      "by": "claude-checker",
+      "reason": "Task review recorded with pass.",
+      "revision": 11
+    },
+    {
+      "seq": 12,
+      "at": "2026-10-06T02:59:02.887Z",
+      "event": "task_started",
+      "taskId": "W4",
+      "by": "claude-maker",
+      "reason": "Task started through the Work CLI.",
+      "revision": 12
+    },
+    {
+      "seq": 13,
+      "at": "2026-10-06T03:02:29.548Z",
+      "event": "evidence_recorded",
+      "taskId": "W4",
+      "by": "claude-maker",
+      "reason": "Evidence recorded with 4 validation results.",
+      "revision": 13
+    },
+    {
+      "seq": 14,
+      "at": "2026-10-06T03:02:38.735Z",
+      "event": "review_recorded",
+      "taskId": "W4",
+      "by": "claude-checker",
+      "reason": "Task review recorded with pass.",
+      "revision": 14
+    },
+    {
+      "seq": 15,
+      "at": "2026-10-06T03:02:42.547Z",
+      "event": "work_closed",
+      "taskId": null,
+      "by": "claude",
+      "reason": "Refactor de la UI: Material Symbols, drawer, shell a pantalla completa con título centrado, pestañas del proyecto, chat con scroll propio y lista en panel en mobile, textos en grises y docs verificados",
+      "revision": 15
+    }
+  ],
+  "closure": {
+    "outcome": "completed",
+    "reason": "Refactor de la UI: Material Symbols, drawer, shell a pantalla completa con título centrado, pestañas del proyecto, chat con scroll propio y lista en panel en mobile, textos en grises y docs verificados",
+    "by": "claude",
+    "closedAt": "2026-10-06T03:02:42.547Z",
+    "briefDigest": "792d06d3530da68cc2a210c6124430fe42d8e620b60ed1224518f469b6f86b52",
+    "finalRevision": 15
+  },
+  "promotion": null
+}

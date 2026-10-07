@@ -31,6 +31,8 @@ El objetivo: poder rehacer la VM desde cero siguiendo solo el runbook.
 
 **Excepción: actualizar Kyro desde el panel.** Cada corrida del botón Actualizar de Versiones corre `scripts/vm/08-kyro-update.sh` (ya documentado en el paso 14 de `docs/vm-setup.md`) y queda registrada en la tabla `maintenance_runs` de la base del panel (versión anterior, versión nueva, resultado y salida recortada): esas corridas **no** suman línea a la bitácora. La bitácora sí registra la creación del script, sus cambios de procedimiento y las corridas hechas a mano.
 
+Lo mismo vale para **desplegar el panel desde la web**: cada corrida del botón Desplegar de Versiones corre `scripts/vm/12-panel-deploy.sh` (paso 18 de `docs/vm-setup.md`), reinicia el servicio y queda en `maintenance_runs` con `kind = 'panel-deploy'`; no suma línea a la bitácora.
+
 ## Regla de costos
 
 **Cualquier cambio en la VM o en la cuenta de Oracle que pueda modificar lo que se paga se avisa al usuario antes de hacerlo**, con el costo estimado y la alternativa gratis si existe. Sin su OK explícito, no se hace.

@@ -45,4 +45,12 @@ describe('variant classes use tokens only', () => {
     ].join(' ');
     expect(all).not.toMatch(/#[0-9a-f]{3,8}|\[\d+px\]|\[#/i);
   });
+
+  it('never paints a text with the primary color (only borders and primary buttons)', () => {
+    const tones = ['neutral', 'accent', 'ok', 'warn', 'danger'] as const;
+    for (const tone of tones) expect(badgeClasses(tone)).not.toMatch(/\btext-accent\b/);
+    expect(badgeClasses('accent')).toContain('border-accent');
+    expect(badgeClasses('accent')).toContain('text-text');
+    expect(buttonClasses('secondary')).not.toMatch(/\btext-accent\b/);
+  });
 });

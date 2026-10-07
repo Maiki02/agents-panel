@@ -50,7 +50,12 @@ const POLL_MS = 3000;
             <div class="meta">
               @if (repo(project); as r) {
                 @if (r.url) {
-                  <a [href]="r.url" target="_blank" rel="noopener noreferrer" class="break-all">
+                  <a
+                    [href]="r.url"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="break-all text-muted hover:text-text"
+                  >
                     {{ r.text }}
                   </a>
                 } @else {

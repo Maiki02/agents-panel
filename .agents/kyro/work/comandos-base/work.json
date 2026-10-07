@@ -1,0 +1,152 @@
+{
+  "schemaVersion": 1,
+  "kind": "organic-work",
+  "id": "comandos-base",
+  "title": "du, df y free en la base de comandos",
+  "objective": "Todos los proyectos pueden correr du, df y free sin configurar nada: son de solo lectura y los works de medición de disco y RAM los necesitan.",
+  "brief": {
+    "path": "brief.md",
+    "digest": "8abd1635d8f4a7d156dff2e1c91b5a7eb58471c30b7b13c54c18f08586ed15fd",
+    "sourceIdea": null
+  },
+  "state": "closed",
+  "revision": 6,
+  "createdAt": "2026-10-06T20:06:30.070Z",
+  "updatedAt": "2026-10-06T20:09:49.630Z",
+  "handoff": {
+    "nextAction": "done",
+    "nextTaskId": null,
+    "blockedReason": null
+  },
+  "tasks": [
+    {
+      "id": "W1",
+      "title": "du, df y free en la base",
+      "description": "ALLOWED_BASH_COMMANDS suma du, df y free; getBashExtras no devuelve comandos de la base ni de la lista fija.",
+      "context": "El agente del chat 4 los necesitó; el usuario pidió habilitarlos en todos los proyectos.",
+      "filesToTouch": [
+        "apps/api/src/agent/permissions.ts",
+        "apps/api/src/projects/repo.ts",
+        "apps/api/test/permissions.test.ts",
+        "apps/api/test/projects-permissions.test.ts",
+        "docs/plan.md"
+      ],
+      "acceptanceCriteria": [
+        "du -sh, df -B1 / y free -b se permiten sin extras",
+        "Un proyecto con du guardado no lo ve como extra y puede guardar su lista",
+        "Los comandos de la lista fija siguen negados"
+      ],
+      "dependsOn": [],
+      "definitionRevision": 1,
+      "status": "verified",
+      "blocker": null,
+      "evidence": {
+        "summary": "ALLOWED_BASH_COMMANDS suma du, df y free (todos los proyectos, cualquier argumento). ProjectRepository.getBashExtras no devuelve nombres de NOT_CONFIGURABLE, así un proyecto con du guardado puede seguir guardando su lista. docs/plan.md actualizado.",
+        "validations": [
+          {
+            "command": "npx vitest run test/permissions.test.ts test/projects-permissions.test.ts",
+            "result": "passed",
+            "note": "du/df/free sin extras; proyecto con du guardado guarda su lista (200)"
+          },
+          {
+            "command": "npx vitest run (apps/api) + lint + prettier",
+            "result": "passed",
+            "note": "1105 tests"
+          }
+        ],
+        "filesChanged": [
+          "apps/api/src/agent/permissions.ts",
+          "apps/api/src/projects/repo.ts",
+          "apps/api/test/permissions.test.ts",
+          "apps/api/test/projects-permissions.test.ts",
+          "docs/plan.md"
+        ],
+        "notes": null,
+        "by": "claude-maker",
+        "recordedAt": "2026-10-06T20:09:49.186Z",
+        "definitionRevision": 1,
+        "materialDigest": "8180cda0e48a2f9d27f60237e2d930dc72102415a6a7c7e1f860e9797a9bf545"
+      },
+      "verdict": {
+        "result": "pass",
+        "checkedCriteria": [
+          "du -sh, df -B1 / y free -b se permiten sin extras",
+          "Un proyecto con du guardado no lo ve como extra y puede guardar su lista",
+          "Los comandos de la lista fija siguen negados"
+        ],
+        "findings": [],
+        "by": "claude-checker",
+        "reviewedAt": "2026-10-06T20:09:49.410Z",
+        "definitionRevision": 1,
+        "evidenceDigest": "8e31536e20aef8309e3f9c624b044b461aec76a6ba05c604c099557a2f8231a1",
+        "reviewedMaterialDigest": "8180cda0e48a2f9d27f60237e2d930dc72102415a6a7c7e1f860e9797a9bf545"
+      },
+      "disposition": null
+    }
+  ],
+  "activity": [
+    {
+      "seq": 1,
+      "at": "2026-10-06T20:06:30.070Z",
+      "event": "created",
+      "taskId": null,
+      "by": "claude",
+      "reason": "Created through the Work CLI.",
+      "revision": 1
+    },
+    {
+      "seq": 2,
+      "at": "2026-10-06T20:06:30.315Z",
+      "event": "tasks_planned",
+      "taskId": null,
+      "by": "claude",
+      "reason": "Planned 1 Work task.",
+      "revision": 2
+    },
+    {
+      "seq": 3,
+      "at": "2026-10-06T20:06:30.541Z",
+      "event": "task_started",
+      "taskId": "W1",
+      "by": "claude",
+      "reason": "Task started through the Work CLI.",
+      "revision": 3
+    },
+    {
+      "seq": 4,
+      "at": "2026-10-06T20:09:49.186Z",
+      "event": "evidence_recorded",
+      "taskId": "W1",
+      "by": "claude-maker",
+      "reason": "Evidence recorded with 2 validation results.",
+      "revision": 4
+    },
+    {
+      "seq": 5,
+      "at": "2026-10-06T20:09:49.410Z",
+      "event": "review_recorded",
+      "taskId": "W1",
+      "by": "claude-checker",
+      "reason": "Task review recorded with pass.",
+      "revision": 5
+    },
+    {
+      "seq": 6,
+      "at": "2026-10-06T20:09:49.630Z",
+      "event": "work_closed",
+      "taskId": null,
+      "by": "claude",
+      "reason": "Tarea verificada",
+      "revision": 6
+    }
+  ],
+  "closure": {
+    "outcome": "completed",
+    "reason": "Tarea verificada",
+    "by": "claude",
+    "closedAt": "2026-10-06T20:09:49.630Z",
+    "briefDigest": "8abd1635d8f4a7d156dff2e1c91b5a7eb58471c30b7b13c54c18f08586ed15fd",
+    "finalRevision": 6
+  },
+  "promotion": null
+}

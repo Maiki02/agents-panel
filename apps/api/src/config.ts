@@ -20,6 +20,12 @@ export interface Config {
   readonly minFreeDiskGb: number;
   /** Script run by the Kyro update (scripts/vm/08-kyro-update.sh of this repo by default). */
   readonly kyroUpdateScript: string;
+  /** The panel's own repo, the one the Deploy button brings `main` into. */
+  readonly panelRepo: string;
+  /** Script run by the panel deploy (scripts/vm/12-panel-deploy.sh of this repo by default). */
+  readonly panelDeployScript: string;
+  /** Running under systemd (INVOCATION_ID): only then can the panel restart itself after a deploy. */
+  readonly selfDeploy: boolean;
   readonly origin: string;
   /** Every origin the browser may send on a state-changing request: `origin` plus the extras. */
   readonly allowedOrigins: readonly string[];
@@ -134,12 +140,21 @@ export function loadConfig(env: Env = process.env): Config {
       ? fileURLToPath(new URL('../../../scripts/vm/08-kyro-update.sh', import.meta.url))
       : expandHome(rawScript);
 
+  const rawDeploy = env['PANEL_DEPLOY_SCRIPT'];
+  const panelDeployScript =
+    rawDeploy === undefined || rawDeploy === ''
+      ? fileURLToPath(new URL('../../../scripts/vm/12-panel-deploy.sh', import.meta.url))
+      : expandHome(rawDeploy);
+
   return {
     dataDir,
     worktreesDir,
     projectsDir,
     minFreeDiskGb: positiveInt(env, 'PANEL_MIN_FREE_DISK_GB', 10),
     kyroUpdateScript,
+    panelRepo: fileURLToPath(new URL('../../../', import.meta.url)),
+    panelDeployScript,
+    selfDeploy: (env['INVOCATION_ID'] ?? '') !== '',
     webDir,
     origin,
     allowedOrigins: [...new Set([origin, ...extraOrigins])],

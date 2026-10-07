@@ -71,7 +71,9 @@ import { ProjectsService } from './projects.service';
           </button>
         }
         @if (kyro().state === 'pending' && prLink(); as link) {
-          <a [href]="link" target="_blank" rel="noopener noreferrer">Abrir la PR en GitHub</a>
+          <a class="link" [href]="link" target="_blank" rel="noopener noreferrer"
+            >Abrir la PR en GitHub</a
+          >
         }
         @if (kyro().state === 'pending') {
           <button appButton variant="secondary" type="button" (click)="refresh.emit()">

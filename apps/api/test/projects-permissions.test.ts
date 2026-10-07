@@ -199,3 +199,15 @@ describe('project permissions', () => {
     expect(routes.every((r) => !r.public)).toBe(true);
   });
 });
+
+describe('commands that joined the base', () => {
+  it('a project that had du, df and free saved does not see them as extras and can save its list', async () => {
+    const { projects, project, get, put, totp } = await setup();
+    projects.setBashExtras(project.id, { commands: ['du', 'df', 'free', 'uv'], hosts: [] });
+    expect(projects.getBashExtras(project.id).commands).toEqual(['uv']);
+    const body = (await get()).json<ProjectPermissions>();
+    expect(body.commands).toEqual(['uv']);
+    expect(body.base).toEqual(expect.arrayContaining(['du', 'df', 'free']));
+    expect((await put({ commands: body.commands, hosts: [], totp: totp() })).statusCode).toBe(200);
+  });
+});

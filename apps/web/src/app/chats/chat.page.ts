@@ -4,6 +4,7 @@ import {
   Component,
   DestroyRef,
   ElementRef,
+  afterRenderEffect,
   effect,
   computed,
   inject,
@@ -21,6 +22,7 @@ import type {
 import { ChatStreamService, type StreamHandle } from './chat-stream.service';
 import { ChatsService, apiErrorMessage } from './chats.service';
 import { endsTurn, pendingQuestionIds, toViewItems, type ViewItem } from './event-view';
+import { isNearBottom } from './scroll-logic';
 import { QuestionCard } from './question-card';
 import { DebtApprovalCard } from './debt-approval.card';
 import { IdeaApprovalCard } from './idea-approval.card';
@@ -29,6 +31,7 @@ import {
   debtFromTimeline,
   movesState,
   prLinks,
+  showPrCard,
   type DebtView,
 } from './approval-logic';
 import { chatBadge } from './status';
@@ -56,77 +59,88 @@ import { Badge } from '../ui/badge';
     IdeaApprovalCard,
     DebtApprovalCard,
   ],
+  host: { class: 'flex min-h-0 flex-1 flex-col' },
   template: `
-    @if (chat(); as c) {
-      <header class="chat-head">
-        <h1>{{ c.title }}</h1>
-        <app-badge [tone]="badge().tone">{{ badge().label }}</app-badge>
-        @if (c.status === 'running') {
-          <button appButton variant="danger" type="button" (click)="cancel()">Cancelar</button>
+    <div class="chat-top">
+      @if (chat(); as c) {
+        <header class="chat-head">
+          <h1>{{ c.title }}</h1>
+          <app-badge [tone]="badge().tone">{{ badge().label }}</app-badge>
+          @if (c.status === 'running') {
+            <button appButton variant="danger" type="button" (click)="cancel()">Cancelar</button>
+          }
+        </header>
+        <p class="hint">{{ c.projectName }} · {{ c.branch }}</p>
+        @if (c.kind !== 'direct') {
+          <p class="hint" data-testid="chat-models">
+            Pensante: {{ c.models.thinker }} · Ejecutor: {{ c.models.executor }}
+          </p>
         }
-      </header>
-      <p class="hint">{{ c.projectName }} · {{ c.branch }}</p>
-      @if (c.kind !== 'direct') {
-        <p class="hint" data-testid="chat-models">
-          Pensante: {{ c.models.thinker }} · Ejecutor: {{ c.models.executor }}
-        </p>
-      }
-      @if (hasWork()) {
-        <app-phase-stepper [state]="workState()" />
-        <app-autopilot-bar
-          [chatId]="c.id"
-          [kind]="c.kind"
-          [workState]="c.workState ?? null"
-          (changed)="refreshWorkState()"
-        />
-      }
-      @if (tabs().length > 1) {
-        <app-tabs
-          class="mt-3 block"
-          [tabs]="tabs()"
-          [active]="tab()"
-          (selected)="tab.set($event)"
-        />
-      }
-      @if (c.status === 'interrupted') {
-        <p class="banner">
-          La sesión se interrumpió (el servidor se reinició). Mandá un mensaje para retomarla.
-        </p>
-      }
-      @if (!connected() && c.status === 'running') {
-        <p class="hint">Reconectando…</p>
-      }
-      @switch (card()) {
-        @case ('idea') {
-          <app-idea-approval-card [chatId]="c.id" (decided)="refreshAfterDecision()" />
-        }
-        @case ('debt') {
-          <app-debt-approval-card
+        @if (hasWork()) {
+          <app-phase-stepper [state]="workState()" />
+          <app-autopilot-bar
             [chatId]="c.id"
-            [debt]="debt()"
-            (accepted)="refreshAfterDecision()"
+            [kind]="c.kind"
+            [workState]="c.workState ?? null"
+            (changed)="refreshWorkState()"
           />
         }
-        @case ('pr') {
-          <section class="card approval" aria-label="Pull request">
-            <h2>La PR está lista para revisar</h2>
-            @for (url of prUrls(); track url) {
-              <p>
-                <a [href]="url" target="_blank" rel="noopener noreferrer">{{ url }}</a>
-              </p>
-            } @empty {
-              <p class="hint">Todavía no hay un link de la PR para mostrar.</p>
+        @if (tabs().length > 1) {
+          <app-tabs
+            class="mt-3 block"
+            [tabs]="tabs()"
+            [active]="tab()"
+            (selected)="tab.set($event)"
+          />
+        }
+        @if (c.status === 'interrupted') {
+          <p class="banner">
+            La sesión se interrumpió (el servidor se reinició). Mandá un mensaje para retomarla.
+          </p>
+        }
+        @if (!connected() && c.status === 'running') {
+          <p class="hint">Reconectando…</p>
+        }
+        @switch (card()) {
+          @case ('idea') {
+            <app-idea-approval-card [chatId]="c.id" (decided)="refreshAfterDecision()" />
+          }
+          @case ('debt') {
+            <app-debt-approval-card
+              [chatId]="c.id"
+              [debt]="debt()"
+              (accepted)="refreshAfterDecision()"
+            />
+          }
+          @case ('pr') {
+            @if (prCardVisible()) {
+              <section class="card approval" aria-label="Pull request">
+                <h2>La PR está lista para revisar</h2>
+                @for (url of prUrls(); track url) {
+                  <p>
+                    <a
+                      class="link break-all"
+                      [href]="url"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      >{{ url }}</a
+                    >
+                  </p>
+                } @empty {
+                  <p class="hint">Todavía no hay un link de la PR para mostrar.</p>
+                }
+              </section>
             }
-          </section>
+          }
         }
       }
-    }
-    @if (error(); as message) {
-      <p class="error" role="alert">{{ message }}</p>
-    }
+      @if (error(); as message) {
+        <p class="error" role="alert">{{ message }}</p>
+      }
+    </div>
 
     @if (tab() === 'timeline' && hasWork()) {
-      <section class="my-3" aria-label="Timeline">
+      <section class="chat-scroll" aria-label="Timeline">
         <app-timeline [transitions]="timeline()" />
       </section>
     } @else if (tab() === 'git' && chat(); as g) {
@@ -140,7 +154,13 @@ import { Badge } from '../ui/badge';
         (workChanged)="refreshAfterDecision()"
       />
     } @else {
-      <section class="feed" aria-live="polite">
+      <section
+        #feed
+        class="feed chat-scroll"
+        aria-label="Conversación"
+        aria-live="polite"
+        (scroll)="onFeedScroll()"
+      >
         @for (item of items(); track $index) {
           @switch (item.kind) {
             @case ('user') {
@@ -205,20 +225,20 @@ import { Badge } from '../ui/badge';
             }
           }
         }
-        <div #bottom></div>
       </section>
     }
 
     @if (chat(); as c) {
       @if (tab() === 'chat' || tabs().length < 2) {
         <form class="composer" (submit)="send($event)">
-          <label for="message">Mensaje</label>
+          <label for="message" class="sr-only">Mensaje</label>
           @if (c.workState === 'archivado') {
             <p class="hint">El trabajo está archivado: es de solo lectura.</p>
           }
           <textarea
             id="message"
             rows="3"
+            placeholder="Escribí un mensaje"
             [disabled]="c.status === 'running' || c.workState === 'archivado'"
             [value]="draft()"
             (input)="draft.set(text($event))"
@@ -243,7 +263,13 @@ import { Badge } from '../ui/badge';
 export class ChatPage {
   private readonly service = inject(ChatsService);
   private readonly stream = inject(ChatStreamService);
-  private readonly bottom = viewChild<ElementRef<HTMLElement>>('bottom');
+  private readonly feed = viewChild<ElementRef<HTMLElement>>('feed');
+  /**
+   * Whether the feed follows new events: true while the user is at (or near) the end, false
+   * once they scroll up to read. Opening a chat, going back to the Chat tab or sending a
+   * message turns it back on.
+   */
+  private follow = true;
 
   /** Route param `:chatId` (bound by withComponentInputBinding); switching chats reuses the page. */
   readonly chatId = input.required<string>();
@@ -272,6 +298,9 @@ export class ChatPage {
     const chat = this.chat();
     return chat ? approvalCard(chat.kind, chat.workState) : null;
   });
+  protected readonly prCardVisible = computed(() =>
+    showPrCard(this.chat()?.workState, this.prUrls()),
+  );
   /** The one badge: the fine state of a scope, work or idea; the session status otherwise. */
   protected readonly badge = computed(() => {
     const chat = this.chat();
@@ -301,13 +330,23 @@ export class ChatPage {
     inject(DestroyRef).onDestroy(() => {
       this.handle?.close();
     });
-    effect(() => {
+    // After the DOM has the new events: keep the feed at its end, moving only the feed box.
+    afterRenderEffect(() => {
       this.items();
-      this.bottom()?.nativeElement.scrollIntoView({ block: 'end' });
+      const feed = this.feed()?.nativeElement;
+      if (feed && this.follow) feed.scrollTop = feed.scrollHeight;
+    });
+    effect(() => {
+      if (this.tab() === 'chat') this.follow = true;
     });
     effect(() => {
       void this.restart(Number(this.chatId()));
     });
+  }
+
+  protected onFeedScroll(): void {
+    const feed = this.feed()?.nativeElement;
+    if (feed) this.follow = isNearBottom(feed);
   }
 
   protected text(event: Event): string {
@@ -321,6 +360,7 @@ export class ChatPage {
     const generation = ++this.generation;
     this.current = id;
     this.lastSeq = 0;
+    this.follow = true;
     this.chat.set(null);
     this.items.set([]);
     this.error.set(null);
@@ -394,8 +434,8 @@ export class ChatPage {
       const card = approvalCard(fresh.kind, fresh.workState);
       if (card === 'debt') this.debt.set(debtFromTimeline(this.timeline()));
       if (card === 'pr') {
-        const info = await this.service.autopilot(id);
-        this.prUrls.set(prLinks(info.run?.prUrls ?? []));
+        const { urls } = await this.service.prs(id);
+        if (id === this.current) this.prUrls.set(prLinks(urls));
       }
     } catch {
       // The state is a view: the next event reads it again.
@@ -434,6 +474,7 @@ export class ChatPage {
     if (text === '' || this.sending()) return;
     this.sending.set(true);
     this.error.set(null);
+    this.follow = true;
     try {
       await this.service.send(this.current, text);
       this.draft.set('');

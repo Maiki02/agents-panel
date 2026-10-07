@@ -1,8 +1,9 @@
 import type { FastifyInstance } from 'fastify';
-import type { KyroVersionInfo, MaintenanceRun } from '@agents-panel/shared';
+import type { KyroVersionInfo, MaintenanceRun, PanelDeployInfo } from '@agents-panel/shared';
 import type { ReauthVerifier } from '../auth/reauth.js';
 import { AUTH_RATE_LIMIT } from '../auth/routes.js';
 import { onlyKeys } from '../http/only-keys.js';
+import type { PanelDeployer } from './deployer.js';
 import type { MaintenanceRunRepository } from './runs.js';
 import { UpdateBlockedError, type KyroUpdater } from './updater.js';
 import type { KyroVersions } from './versions.js';
@@ -19,7 +20,7 @@ const updateBody = {
 const runsQuery = {
   type: 'object',
   additionalProperties: false,
-  properties: { kind: { type: 'string', enum: ['kyro-update'] } },
+  properties: { kind: { type: 'string', enum: ['kyro-update', 'panel-deploy'] } },
 } as const;
 
 export interface MaintenanceRouteDeps {
@@ -29,20 +30,28 @@ export interface MaintenanceRouteDeps {
   reauth: ReauthVerifier;
   /** True while a Kyro update holds the maintenance lock. */
   isUpdating: () => boolean;
+  deployer: Pick<PanelDeployer, 'info' | 'start'>;
 }
 
 /**
- * Kyro versions and updates. The update needs a fresh TOTP (checked first, so a 401 reveals
- * nothing else) and is refused while sessions run or another update is in progress.
+ * Kyro versions and updates, and the panel's own deploy. Both need a fresh TOTP (checked first, so
+ * a 401 reveals nothing else) and are refused while sessions run or another one is in progress.
  */
 export function registerMaintenanceRoutes(app: FastifyInstance, deps: MaintenanceRouteDeps): void {
-  const { versions, updater, runs, reauth, isUpdating } = deps;
+  const { versions, updater, runs, reauth, isUpdating, deployer } = deps;
 
   app.get(
     '/api/versions',
-    async (): Promise<{ kyro: KyroVersionInfo & { updateRunning: boolean } }> => {
-      const [installed, latest] = await Promise.all([versions.installed(), versions.latest()]);
-      return { kyro: { installed, latest, updateRunning: isUpdating() } };
+    async (): Promise<{
+      kyro: KyroVersionInfo & { updateRunning: boolean };
+      panel: PanelDeployInfo;
+    }> => {
+      const [installed, latest, panel] = await Promise.all([
+        versions.installed(),
+        versions.latest(),
+        deployer.info(),
+      ]);
+      return { kyro: { installed, latest, updateRunning: isUpdating() }, panel };
     },
   );
 
@@ -57,6 +66,27 @@ export function registerMaintenanceRoutes(app: FastifyInstance, deps: Maintenanc
       if (!reauth.verify(request, reply, request.body.code)) return reply;
       try {
         const runId = await updater.start();
+        return await reply.code(202).send({ runId });
+      } catch (error) {
+        if (error instanceof UpdateBlockedError) {
+          return reply.code(error.status).send({ error: error.message, running: error.running });
+        }
+        throw error;
+      }
+    },
+  );
+
+  app.post<{ Body: { code?: string } }>(
+    '/api/versions/panel/deploy',
+    {
+      config: { rateLimit: AUTH_RATE_LIMIT },
+      schema: { body: updateBody },
+      preValidation: onlyKeys(Object.keys(updateBody.properties)),
+    },
+    async (request, reply) => {
+      if (!reauth.verify(request, reply, request.body.code)) return reply;
+      try {
+        const runId = deployer.start();
         return await reply.code(202).send({ runId });
       } catch (error) {
         if (error instanceof UpdateBlockedError) {
