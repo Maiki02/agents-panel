@@ -41,6 +41,7 @@ import { DebtAcceptance } from './pilot/accept-debt.js';
 import type { MergeGit, PilotGit, RepoGit } from './pilot/git-ops.js';
 import type { PilotGh } from './pilot/github-cli.js';
 import { PrLookup, type BranchPrs } from './pilot/pr-lookup.js';
+import { PrWatcher, type PrStateReader } from './pilot/pr-watcher.js';
 import { registerChatRoutes } from './chats/routes.js';
 import { registerChatGitRoutes } from './chats/git-routes.js';
 import { registerStepRoutes, StepService } from './chats/step-routes.js';
@@ -127,6 +128,8 @@ export interface AppDeps {
   pilotGh?: PilotGh;
   /** Lookup of the PRs of a finished work's branch; tests never call GitHub. */
   branchPrs?: BranchPrs;
+  /** State of a PR in GitHub for the PR watcher; tests never call GitHub. */
+  prState?: PrStateReader;
   /** Sends Web Push messages; tests inject a fake, production uses the VAPID keys of the config. */
   pushSender?: PushSender;
   /** Runs `kyro work create` when an idea is approved as a work; tests replace it. */
@@ -407,17 +410,37 @@ export function buildApp(deps: AppDeps, options: FastifyServerOptions = {}): Fas
       }),
     });
   });
+  const prLookup = new PrLookup({
+    runs: autopilotRuns,
+    states: worktreeState,
+    projects,
+    ...(deps.branchPrs ? { prsOf: deps.branchPrs } : {}),
+  });
+  // Follows the open PRs of the finished works until GitHub reports them merged (or closed).
+  const prWatcher = new PrWatcher({
+    chats,
+    states: worktreeState,
+    projects,
+    prs: prLookup,
+    ...(deps.prState ? { prState: deps.prState } : {}),
+    log: (message) => {
+      app.log.warn(message);
+    },
+  });
+  app.addHook('onReady', () => {
+    prWatcher.start(deps.config.pilotPrPollMs);
+    return Promise.resolve();
+  });
+  app.addHook('onClose', () => {
+    prWatcher.stop();
+  });
   registerAutopilotRoutes(app, {
     service: chatService,
     states: worktreeState,
     runs: autopilotRuns,
     maxSessionsPerSprint: deps.config.pilotMaxSessionsPerSprint,
-    prs: new PrLookup({
-      runs: autopilotRuns,
-      states: worktreeState,
-      projects,
-      ...(deps.branchPrs ? { prsOf: deps.branchPrs } : {}),
-    }),
+    prs: prLookup,
+    prWatcher,
     onResume: (chatId) => {
       // The user resumed or switched it on: a task Kyro holds as blocked is unblocked once.
       pilot.resumeByUser(chatId);

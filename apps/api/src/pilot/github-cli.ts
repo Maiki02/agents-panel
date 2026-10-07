@@ -94,3 +94,20 @@ export const realGh: PilotGh = {
 export async function allPrsOf(cwd: string, head: string): Promise<string[]> {
   return urlsOf(await gh(cwd, ['pr', 'list', '--head', head, '--state', 'all', '--json', 'url']));
 }
+
+/** What GitHub says about one PR. */
+export type PrState = 'OPEN' | 'MERGED' | 'CLOSED';
+
+/** State of a PR by its URL (`gh pr view <url> --json state`); `cwd` only hosts the process. */
+export async function prStateOf(cwd: string, url: string): Promise<PrState> {
+  // Only a PR URL reaches argv: never something gh could read as a flag.
+  if (!/^https:\/\/github\.com\/[^/\s]+\/[^/\s]+\/pull\/\d+$/.test(url)) {
+    throw new Error(`No es la URL de una PR de GitHub: ${url}`);
+  }
+  const parsed = JSON.parse(await gh(cwd, ['pr', 'view', url, '--json', 'state'])) as {
+    state?: unknown;
+  };
+  const state = parsed.state;
+  if (state === 'OPEN' || state === 'MERGED' || state === 'CLOSED') return state;
+  throw new Error(`gh pr view devolvió un estado desconocido para ${url}`);
+}

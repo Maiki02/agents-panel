@@ -37,6 +37,8 @@ export interface Config {
   readonly pilotMaxSessionsPerSprint: number;
   /** Longest a project's validate_command may run before the pilot stops it. */
   readonly pilotValidateTimeoutMs: number;
+  /** How often the PRs of the finished works are checked in GitHub; 0 turns the polling off. */
+  readonly pilotPrPollMs: number;
   /** Folder with the compiled web the API serves; null serves nothing (PANEL_WEB_DIR). */
   readonly webDir: string | null;
   /** null when the VAPID keys are not set: Web Push stays off and nothing is sent. */
@@ -57,6 +59,16 @@ function positiveInt(env: Env, name: string, fallback: number): number {
   const value = Number(raw);
   if (!Number.isInteger(value) || value <= 0) {
     throw new ConfigError(`${name} must be a positive integer`);
+  }
+  return value;
+}
+
+function nonNegativeInt(env: Env, name: string, fallback: number): number {
+  const raw = env[name];
+  if (raw === undefined || raw === '') return fallback;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 0) {
+    throw new ConfigError(`${name} must be a non-negative integer`);
   }
   return value;
 }
@@ -163,6 +175,7 @@ export function loadConfig(env: Env = process.env): Config {
     sessionAbsoluteTtlSeconds: positiveInt(env, 'PANEL_SESSION_ABSOLUTE_TTL_SECONDS', 12 * 60 * 60),
     pilotMaxSessionsPerSprint: positiveInt(env, 'PILOT_MAX_SESSIONS_PER_SPRINT', 6),
     pilotValidateTimeoutMs: positiveInt(env, 'PILOT_VALIDATE_TIMEOUT_MINUTES', 15) * 60 * 1000,
+    pilotPrPollMs: nonNegativeInt(env, 'PILOT_PR_POLL_MINUTES', 5) * 60 * 1000,
     pushVapid: loadVapid(env),
   };
 }

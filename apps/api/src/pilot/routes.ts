@@ -4,6 +4,7 @@ import { onlyKeys } from '../http/only-keys.js';
 import { ChatError, type ChatService } from '../chats/service.js';
 import type { DebtAcceptance } from './accept-debt.js';
 import type { PrLookup } from './pr-lookup.js';
+import type { PrWatcher } from './pr-watcher.js';
 import type { WorktreeStateRepository } from '../worktrees/state-repo.js';
 import { AutopilotTransitionError, type AutopilotRunRepository } from './runs-repo.js';
 
@@ -41,9 +42,11 @@ export function registerAutopilotRoutes(
     states?: WorktreeStateRepository;
     /** PRs of a finished work, looked up in GitHub when the pilot kept none. */
     prs?: PrLookup;
+    /** Checks the work's PRs in GitHub when its chat is opened (mergeada or revisar). */
+    prWatcher?: Pick<PrWatcher, 'check'>;
   },
 ): void {
-  const { service, runs, maxSessionsPerSprint, onResume, debt, states, prs } = deps;
+  const { service, runs, maxSessionsPerSprint, onResume, debt, states, prs, prWatcher } = deps;
 
   const info = (chatId: number): AutopilotInfo => ({
     run: runs.get(chatId) ?? null,
@@ -96,7 +99,15 @@ export function registerAutopilotRoutes(
     async (request): Promise<{ urls: string[] }> => {
       const chat = service.requireChat(request.params.id);
       if (chat.kind === 'direct' || chat.kind === 'idea' || prs === undefined) return { urls: [] };
-      return { urls: await prs.urls(chat) };
+      const urls = await prs.urls(chat);
+      // Opening the chat does not wait for the next polling round to see a merge.
+      try {
+        await prWatcher?.check(chat, urls);
+      } catch (error) {
+        // The links still show: the next polling round tries the check again.
+        request.log.warn(error, 'PR check failed');
+      }
+      return { urls };
     },
   );
 

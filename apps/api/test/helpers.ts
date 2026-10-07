@@ -13,6 +13,8 @@ export const TEST_ENV = {
   PANEL_SECRET_KEY: 'test-secret-key-test-secret-key-0000',
   PANEL_ORIGIN: 'http://localhost:4200',
   PANEL_DATA_DIR: '/tmp/unused',
+  // Tests never poll GitHub: the PR checks run only when a test asks for them.
+  PILOT_PR_POLL_MINUTES: '0',
 };
 
 export function makeApp(
@@ -35,6 +37,7 @@ export function makeApp(
       | 'pilotGit'
       | 'pilotGh'
       | 'branchPrs'
+      | 'prState'
       | 'panelDeploy'
       | 'pushSender'
       | 'accountsHome'
@@ -73,6 +76,8 @@ export function makeApp(
     ...(extra.pilotGit ? { pilotGit: extra.pilotGit } : {}),
     ...(extra.pilotGh ? { pilotGh: extra.pilotGh } : {}),
     ...(extra.branchPrs ? { branchPrs: extra.branchPrs } : {}),
+    // Never GitHub from a test: the PR state is a fake unless the test brings its own.
+    prState: extra.prState ?? (() => Promise.reject(new Error('gh is not called in tests'))),
     // Never git (fetch) nor a restart from a test unless the test asks for it.
     panelDeploy: extra.panelDeploy ?? {
       exec: () => Promise.reject(new Error('git is not called in tests')),

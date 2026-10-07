@@ -1,0 +1,358 @@
+{
+  "schemaVersion": 1,
+  "kind": "organic-work",
+  "id": "sondeo-prs",
+  "title": "Sondeo de PRs: mergeada al mergear en GitHub",
+  "objective": "Cuando las PRs de un trabajo se mergean en GitHub, el panel lo detecta solo y el trabajo pasa a `mergeada`, sin que nadie toque nada en el panel.",
+  "brief": {
+    "path": "brief.md",
+    "digest": "798cddd0081afddecd42c43fde565c9e52c6a151580249923a4c6d930a9756f4",
+    "sourceIdea": null
+  },
+  "state": "closed",
+  "revision": 12,
+  "createdAt": "2026-10-07T20:17:20.919Z",
+  "updatedAt": "2026-10-07T20:30:08.930Z",
+  "handoff": {
+    "nextAction": "done",
+    "nextTaskId": null,
+    "blockedReason": null
+  },
+  "tasks": [
+    {
+      "id": "W1",
+      "title": "PrWatcher: estado de las PR y transición a mergeada o revisar",
+      "description": "Agregar la lectura del estado de una PR con gh (gh pr view <url> --json state) y la clase PrWatcher que, para un chat en pr_lista o terminado, junta sus URLs con PrLookup, lee el estado de cada una y transiciona a mergeada (todas MERGED) o revisar (ninguna abierta y alguna CLOSED), con actor pilot y conservando el progreso. checkChat(chat) y checkAll(); evita vueltas superpuestas y saltea chats running.",
+      "context": "El estado se escribe con WorktreeStateRepository.transition; no pasa por WorktreeOps porque es detección de un estado, como la fase de merge. Un error de gh no cambia el estado.",
+      "filesToTouch": [
+        "apps/api/src/pilot/github-cli.ts",
+        "apps/api/src/pilot/pr-watcher.ts",
+        "apps/api/test/pr-watcher.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "Con todas las PR MERGED un trabajo en pr_lista o terminado pasa a mergeada con actor pilot y las URLs en data.prUrls.",
+        "Con alguna PR OPEN el estado no cambia; sin ninguna abierta y alguna CLOSED pasa a revisar con las PR cerradas en el detalle.",
+        "Un error de gh, un chat sin PRs, un chat running o un estado distinto de pr_lista y terminado no cambian el estado.",
+        "Los tests inyectan el estado de las PR y no llaman a GitHub."
+      ],
+      "dependsOn": [],
+      "definitionRevision": 1,
+      "status": "verified",
+      "blocker": null,
+      "evidence": {
+        "summary": "prStateOf (gh pr view --json state), PrWatcher con check/checkAll/start/stop y WorktreeStateRepository.chatIdsIn. mergeada si todas MERGED, revisar si ninguna abierta y alguna CLOSED, sin cambios ante OPEN, error de gh, sin PRs, running u otro estado. Conserva el progreso.",
+        "validations": [
+          {
+            "command": "npx vitest run test/pr-watcher.test.ts",
+            "result": "passed",
+            "note": "9 tests"
+          },
+          {
+            "command": "tsc -p apps/api/tsconfig.json --noEmit",
+            "result": "passed",
+            "note": null
+          },
+          {
+            "command": "eslint + prettier --check sobre los archivos tocados",
+            "result": "passed",
+            "note": null
+          }
+        ],
+        "filesChanged": [
+          "apps/api/src/pilot/github-cli.ts",
+          "apps/api/src/pilot/pr-watcher.ts",
+          "apps/api/src/worktrees/state-repo.ts",
+          "apps/api/test/pr-watcher.test.ts"
+        ],
+        "notes": "Sumé chatIdsIn al repositorio de estados (no estaba en filesToTouch).",
+        "by": "claude-maker",
+        "recordedAt": "2026-10-07T20:18:53.184Z",
+        "definitionRevision": 1,
+        "materialDigest": "854fa027563c4d973ebba9d6aa4e41d1edadcd0f30b6c9aa6a2f04abe1c95c66"
+      },
+      "verdict": {
+        "result": "pass",
+        "checkedCriteria": [
+          "Con todas las PR MERGED un trabajo en pr_lista o terminado pasa a mergeada con actor pilot y las URLs en data.prUrls.",
+          "Con alguna PR OPEN el estado no cambia; sin ninguna abierta y alguna CLOSED pasa a revisar con las PR cerradas en el detalle.",
+          "Un error de gh, un chat sin PRs, un chat running o un estado distinto de pr_lista y terminado no cambian el estado.",
+          "Los tests inyectan el estado de las PR y no llaman a GitHub."
+        ],
+        "findings": [
+          {
+            "severity": "warning",
+            "detail": "checkAll no atrapaba errores fuera de gh (transition, urls): rechazo sin manejar en el timer. Corregido en W2 con try/catch por chat y test."
+          },
+          {
+            "severity": "suggestion",
+            "detail": "Conservar blockedReason, comparar since antes y después de gh y validar que la URL sea de una PR de GitHub antes de pasarla a argv. Aplicado en W2."
+          }
+        ],
+        "by": "claude-reviewer-w1",
+        "reviewedAt": "2026-10-07T20:27:08.503Z",
+        "definitionRevision": 1,
+        "evidenceDigest": "79e65a724ccd9be0d46a4d54f246203bc9d5f275601cad0a80585b652801b693",
+        "reviewedMaterialDigest": "854fa027563c4d973ebba9d6aa4e41d1edadcd0f30b6c9aa6a2f04abe1c95c66"
+      },
+      "disposition": null
+    },
+    {
+      "id": "W2",
+      "title": "Sondeo periódico y chequeo al abrir el chat",
+      "description": "Configurar PILOT_PR_POLL_MINUTES (5 por defecto, 0 apaga), arrancar el sondeo en onReady y pararlo en onClose, y forzar checkChat en GET /api/chats/:id/pr antes de devolver las URLs. Inyectar el estado de las PR en AppDeps y apagar el sondeo en los tests.",
+      "context": "El timer usa unref para no frenar el cierre. La web ya llama a /pr al mostrar la tarjeta de PR y se actualiza con el evento state_changed.",
+      "filesToTouch": [
+        "apps/api/src/config.ts",
+        "apps/api/src/app.ts",
+        "apps/api/src/pilot/routes.ts",
+        "apps/api/test/helpers.ts",
+        "apps/api/test/pr-watcher.test.ts",
+        ".env.example"
+      ],
+      "acceptanceCriteria": [
+        "PILOT_PR_POLL_MINUTES vale 5 por defecto y 0 apaga el sondeo periódico.",
+        "GET /api/chats/:id/pr de un trabajo en pr_lista con todas sus PR mergeadas lo deja en mergeada.",
+        "Los tests del API no llaman a GitHub y npm run build, lint y test pasan."
+      ],
+      "dependsOn": [
+        "W1"
+      ],
+      "definitionRevision": 1,
+      "status": "verified",
+      "blocker": null,
+      "evidence": {
+        "summary": "PILOT_PR_POLL_MINUTES (5 por defecto, 0 apaga; en .env.example) en config. PrLookup y PrWatcher se crean una vez en app.ts; el sondeo arranca en onReady y para en onClose; GET /api/chats/:id/pr busca las URLs una vez y fuerza check(chat, urls). helpers apaga el sondeo e inyecta un prState que falla, así ningún test llama a gh. Además, lo que pidió la revisión de W1: try/catch por chat en checkAll, blockedReason conservado, chequeo de since después de gh y validación de URL en prStateOf.",
+        "validations": [
+          {
+            "command": "cd apps/api && npx vitest run",
+            "result": "passed",
+            "note": "77 archivos, 1252 tests"
+          },
+          {
+            "command": "npm run typecheck && npm run build",
+            "result": "passed",
+            "note": null
+          },
+          {
+            "command": "npx eslint apps/api && npx prettier --check apps/api docs",
+            "result": "passed",
+            "note": null
+          }
+        ],
+        "filesChanged": [
+          "apps/api/src/config.ts",
+          "apps/api/src/app.ts",
+          "apps/api/src/pilot/routes.ts",
+          "apps/api/src/pilot/pr-watcher.ts",
+          "apps/api/src/pilot/github-cli.ts",
+          "apps/api/test/helpers.ts",
+          "apps/api/test/pr-watcher.test.ts",
+          "apps/api/.env.example"
+        ],
+        "notes": ".env.example está en apps/api, no en la raíz.",
+        "by": "claude-maker",
+        "recordedAt": "2026-10-07T20:27:16.348Z",
+        "definitionRevision": 1,
+        "materialDigest": "12fac8acece9d0baab76dc6cabbbf6eb9c86c78889adc2a85428ff491764b4af"
+      },
+      "verdict": {
+        "result": "pass",
+        "checkedCriteria": [
+          "PILOT_PR_POLL_MINUTES vale 5 por defecto y 0 apaga el sondeo periódico.",
+          "GET /api/chats/:id/pr de un trabajo en pr_lista con todas sus PR mergeadas lo deja en mergeada.",
+          "Los tests del API no llaman a GitHub y npm run build, lint y test pasan."
+        ],
+        "findings": [
+          {
+            "severity": "suggestion",
+            "detail": "chatIdsIn fuera del try de checkAll, gh pr view en serie al abrir el chat y un error del check que daba 500 en GET /pr: corregidos (try en toda la vuelta, Promise.all, try/catch en la ruta), 221 tests de pilot y pr pasan."
+          },
+          {
+            "severity": "suggestion",
+            "detail": "Pendiente: un terminado sin PR se consulta con gh pr list en cada vuelta, y un terminado que pasa a mergeada sin pr_urls guardadas deja de mostrar el link (LOOKUP_STATES no incluye mergeada; la web tampoco muestra la tarjeta en mergeada)."
+          }
+        ],
+        "by": "claude-reviewer-w2",
+        "reviewedAt": "2026-10-07T20:30:05.670Z",
+        "definitionRevision": 1,
+        "evidenceDigest": "d0cd678d837527c25e96aabfcd949c9cd085c063880fa6ec397fb9565617b618",
+        "reviewedMaterialDigest": "12fac8acece9d0baab76dc6cabbbf6eb9c86c78889adc2a85428ff491764b4af"
+      },
+      "disposition": null
+    },
+    {
+      "id": "W3",
+      "title": "Documentar el sondeo de PRs",
+      "description": "Actualizar docs/estados.md (señales de mergeada y revisar por el sondeo, sacar mergeada y la PR después de abierta de lo no detectado en lo que corresponda), docs/plan.md y la variable en docs/panel-desarrollo.md o donde estén las variables del piloto.",
+      "context": "Los docs en español.",
+      "filesToTouch": [
+        "docs/estados.md",
+        "docs/plan.md",
+        "docs/panel-desarrollo.md"
+      ],
+      "acceptanceCriteria": [
+        "docs/estados.md describe cuándo el sondeo escribe mergeada y revisar y qué sigue sin detectarse.",
+        "PILOT_PR_POLL_MINUTES está documentada junto a las demás variables del piloto."
+      ],
+      "dependsOn": [
+        "W2"
+      ],
+      "definitionRevision": 1,
+      "status": "verified",
+      "blocker": null,
+      "evidence": {
+        "summary": "docs/estados.md: filas de mergeada y revisar por el sondeo, párrafo Sondeo de PRs y lo que sigue sin detectarse. docs/plan.md: entrada del work con las alternativas descartadas. docs/panel-desarrollo.md: paso 8 con PILOT_PR_POLL_MINUTES.",
+        "validations": [
+          {
+            "command": "npx prettier --check docs",
+            "result": "passed",
+            "note": null
+          }
+        ],
+        "filesChanged": [
+          "docs/estados.md",
+          "docs/plan.md",
+          "docs/panel-desarrollo.md"
+        ],
+        "notes": null,
+        "by": "claude-maker",
+        "recordedAt": "2026-10-07T20:30:06.117Z",
+        "definitionRevision": 1,
+        "materialDigest": "d84a965f64153ede0ee5da21e61df03b105479ee94aee5bb304799452f283f22"
+      },
+      "verdict": {
+        "result": "pass",
+        "checkedCriteria": [
+          "docs/estados.md describe cuándo el sondeo escribe mergeada y revisar y qué sigue sin detectarse.",
+          "PILOT_PR_POLL_MINUTES está documentada junto a las demás variables del piloto."
+        ],
+        "findings": [],
+        "by": "claude-reviewer-w2",
+        "reviewedAt": "2026-10-07T20:30:06.345Z",
+        "definitionRevision": 1,
+        "evidenceDigest": "da56cdaa65567c1579c91b51329f612ff485ae6ddf8e016508ead214b4d2f3fa",
+        "reviewedMaterialDigest": "d84a965f64153ede0ee5da21e61df03b105479ee94aee5bb304799452f283f22"
+      },
+      "disposition": null
+    }
+  ],
+  "activity": [
+    {
+      "seq": 1,
+      "at": "2026-10-07T20:17:20.919Z",
+      "event": "created",
+      "taskId": null,
+      "by": "claude-maker",
+      "reason": "Created through the Work CLI.",
+      "revision": 1
+    },
+    {
+      "seq": 2,
+      "at": "2026-10-07T20:17:23.897Z",
+      "event": "tasks_planned",
+      "taskId": null,
+      "by": "claude-maker",
+      "reason": "Planned 3 Work tasks.",
+      "revision": 2
+    },
+    {
+      "seq": 3,
+      "at": "2026-10-07T20:17:24.114Z",
+      "event": "task_started",
+      "taskId": "W1",
+      "by": "claude-maker",
+      "reason": "Task started through the Work CLI.",
+      "revision": 3
+    },
+    {
+      "seq": 4,
+      "at": "2026-10-07T20:18:53.184Z",
+      "event": "evidence_recorded",
+      "taskId": "W1",
+      "by": "claude-maker",
+      "reason": "Evidence recorded with 3 validation results.",
+      "revision": 4
+    },
+    {
+      "seq": 5,
+      "at": "2026-10-07T20:27:08.503Z",
+      "event": "review_recorded",
+      "taskId": "W1",
+      "by": "claude-reviewer-w1",
+      "reason": "Task review recorded with pass.",
+      "revision": 5
+    },
+    {
+      "seq": 6,
+      "at": "2026-10-07T20:27:08.737Z",
+      "event": "task_started",
+      "taskId": "W2",
+      "by": "claude-maker",
+      "reason": "Task started through the Work CLI.",
+      "revision": 6
+    },
+    {
+      "seq": 7,
+      "at": "2026-10-07T20:27:16.348Z",
+      "event": "evidence_recorded",
+      "taskId": "W2",
+      "by": "claude-maker",
+      "reason": "Evidence recorded with 3 validation results.",
+      "revision": 7
+    },
+    {
+      "seq": 8,
+      "at": "2026-10-07T20:30:05.670Z",
+      "event": "review_recorded",
+      "taskId": "W2",
+      "by": "claude-reviewer-w2",
+      "reason": "Task review recorded with pass.",
+      "revision": 8
+    },
+    {
+      "seq": 9,
+      "at": "2026-10-07T20:30:05.896Z",
+      "event": "task_started",
+      "taskId": "W3",
+      "by": "claude-maker",
+      "reason": "Task started through the Work CLI.",
+      "revision": 9
+    },
+    {
+      "seq": 10,
+      "at": "2026-10-07T20:30:06.117Z",
+      "event": "evidence_recorded",
+      "taskId": "W3",
+      "by": "claude-maker",
+      "reason": "Evidence recorded with 1 validation result.",
+      "revision": 10
+    },
+    {
+      "seq": 11,
+      "at": "2026-10-07T20:30:06.345Z",
+      "event": "review_recorded",
+      "taskId": "W3",
+      "by": "claude-reviewer-w2",
+      "reason": "Task review recorded with pass.",
+      "revision": 11
+    },
+    {
+      "seq": 12,
+      "at": "2026-10-07T20:30:08.930Z",
+      "event": "work_closed",
+      "taskId": null,
+      "by": "claude-maker",
+      "reason": "W1-W3 verificadas",
+      "revision": 12
+    }
+  ],
+  "closure": {
+    "outcome": "completed",
+    "reason": "W1-W3 verificadas",
+    "by": "claude-maker",
+    "closedAt": "2026-10-07T20:30:08.930Z",
+    "briefDigest": "798cddd0081afddecd42c43fde565c9e52c6a151580249923a4c6d930a9756f4",
+    "finalRevision": 12
+  },
+  "promotion": null
+}

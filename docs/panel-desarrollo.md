@@ -244,6 +244,7 @@ Recorrido del sprint 3 de `autopiloto-kyro`. Se puede seguir por la API, con la 
 5. **Frenos:** el piloto se detiene con el motivo en `run.stopReason` (por ejemplo, deuda abierta, un conflicto o un build roto; el cierre y el merge se prueban en la sección siguiente). Si frena por `sin_avance` o `tope_de_sesiones`, resolvelo y mandá `resume`.
 6. **Reinicio:** con el piloto a mitad de un paso, matá la API y levantala de nuevo: retoma solo el mismo paso con `resume` de su sesión (sin mensaje tuyo). Un run pausado o apagado no se retoma.
 7. El tope de sesiones sale de `PILOT_MAX_SESSIONS_PER_SPRINT` en el `.env` de la API (6 por defecto) y cuenta las sesiones seguidas del sprint **sin cerrar una tarea**: cada ejecución que cierra una tarea reinicia la cuenta, así un sprint largo no frena; un bucle de correcciones o de reinicios sí.
+8. **Después de la PR:** el panel no mergea. Al mergear la PR en GitHub, el trabajo pasa solo a `mergeada` en la vuelta siguiente del sondeo (`PILOT_PR_POLL_MINUTES` en el `.env` de la API, 5 por defecto; 0 lo apaga) o al abrir el chat en la web. Si la PR se cierra sin mergear, pasa a `revisar`.
 
 **Importante:** hasta tener el servicio systemd (etapa 6), cerrar la terminal donde corre la API la corta y con ella el piloto. Levantala dentro de `tmux` (`tmux new -s panel`, y desconectate con `Ctrl-b d`) para que sobreviva a cerrar la conexión SSH; si la VM se reinicia, al levantar la API los pilotos activos se retoman solos.
 
