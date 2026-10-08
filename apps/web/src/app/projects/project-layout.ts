@@ -9,17 +9,13 @@ import {
   input,
   signal,
 } from '@angular/core';
-import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { NavigationEnd, Router, RouterOutlet } from '@angular/router';
-import { filter } from 'rxjs';
+import { Router, RouterOutlet } from '@angular/router';
 import { apiErrorMessage } from '../chats/chats.service';
 import { currentUrl } from '../shell/current-url';
 import { projectSection } from '../shell/nav-logic';
 import { PageTitleStore } from '../shell/page-title.store';
 import { Badge } from '../ui/badge';
 import { Tabs, type TabItem } from '../ui/tabs';
-import { LastChatStore } from './last-chat.store';
-import { selectionFromUrl } from './last-chat';
 import { ProjectContext } from './project-context';
 import {
   kyroPendingNotice,
@@ -31,8 +27,8 @@ import { ProjectsService } from './projects.service';
 
 /**
  * /projects/:id: "Chats" and "Configuración" tabs with the project status, and the child route
- * below filling the rest of the height. The project name goes to the header title. It also
- * remembers the selected chat per project, so coming back reopens it (R30).
+ * below filling the rest of the height. The project name goes to the header title. Entering a
+ * project or the Chats tab always shows the chat grid.
  */
 @Component({
   selector: 'app-project-layout',
@@ -71,7 +67,6 @@ import { ProjectsService } from './projects.service';
 })
 export class ProjectLayout {
   private readonly service = inject(ProjectsService);
-  private readonly lastChat = inject(LastChatStore);
   protected readonly context = inject(ProjectContext);
 
   /** Route param `:id` (bound by withComponentInputBinding). */
@@ -97,17 +92,6 @@ export class ProjectLayout {
     effect(() => {
       void this.load(Number(this.id()));
     });
-    this.router.events
-      .pipe(
-        filter((event): event is NavigationEnd => event instanceof NavigationEnd),
-        takeUntilDestroyed(),
-      )
-      .subscribe((event) => {
-        const selection = selectionFromUrl(event.urlAfterRedirects);
-        if (selection) {
-          this.lastChat.set(selection.projectId, selection.chat === 'new' ? null : selection.chat);
-        }
-      });
   }
 
   protected label = projectLabel;
@@ -121,7 +105,7 @@ export class ProjectLayout {
     return projectStatusTone(project.status);
   }
 
-  /** A tab is a route: Chats reopens the last chat (lastChatGuard), Configuración its first tab. */
+  /** A tab is a route: Chats is the grid, Configuración its first tab. */
   protected open(projectId: number, section: string): void {
     void this.router.navigate(['/projects', projectId, section]);
   }

@@ -1,5 +1,14 @@
-import { ChangeDetectionStrategy, Component, computed, input, output } from '@angular/core';
-import { moveTab, resolveTab, type TabItem } from './tabs-logic';
+import {
+  afterRenderEffect,
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  ElementRef,
+  input,
+  output,
+  viewChild,
+} from '@angular/core';
+import { moveTab, resolveTab, REVEAL_OPTIONS, type TabItem } from './tabs-logic';
 
 export type { TabItem };
 
@@ -10,13 +19,18 @@ export type { TabItem };
 @Component({
   selector: 'app-tabs',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { class: 'block min-w-0 max-w-full' },
   template: `
-    <div role="tablist" class="flex gap-1 border-b border-border">
+    <div
+      #strip
+      role="tablist"
+      class="scrollbar-none flex gap-1 overflow-x-auto overscroll-x-contain border-b border-border"
+    >
       @for (tab of tabs(); track tab.id) {
         <button
           type="button"
           role="tab"
-          class="-mb-px border-b-2 px-3 py-2 text-sm font-medium transition-colors"
+          class="-mb-px shrink-0 whitespace-nowrap border-b-2 px-3 py-2 text-sm font-medium transition-colors"
           [class]="
             tab.id === current()
               ? 'border-accent text-text'
@@ -35,6 +49,19 @@ export type { TabItem };
   `,
 })
 export class Tabs {
+  private readonly strip = viewChild.required<ElementRef<HTMLElement>>('strip');
+
+  constructor() {
+    // Hidden scrollbar = no hint that there is more: keep the active tab visible (on load and on change).
+    afterRenderEffect(() => {
+      const id = this.current();
+      const button = this.strip().nativeElement.querySelector<HTMLElement>(
+        `[data-tab="${CSS.escape(id)}"]`,
+      );
+      button?.scrollIntoView(REVEAL_OPTIONS);
+    });
+  }
+
   readonly tabs = input.required<readonly TabItem[]>();
   readonly active = input<string | null>(null);
   readonly selected = output<string>();

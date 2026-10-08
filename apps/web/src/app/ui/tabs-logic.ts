@@ -9,6 +9,9 @@ export function resolveTab(ids: readonly string[], requested: string | null | un
   return ids[0] ?? '';
 }
 
+/** Options to bring the active tab into view with the least scrolling, in both axes. */
+export const REVEAL_OPTIONS = { block: 'nearest', inline: 'nearest' } as const;
+
 /** Arrow/Home/End navigation between tabs; null when the key is not a tab key. */
 export function moveTab(ids: readonly string[], current: string, key: string): string | null {
   if (ids.length === 0) return null;

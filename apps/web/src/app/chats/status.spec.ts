@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { chatBadge, chatSubtitle, hasRunning, sidebarBadge, statusTone } from './status';
+import {
+  chatBadge,
+  chatSubtitle,
+  hasRunning,
+  kindChipLabel,
+  sidebarBadge,
+  statusTone,
+} from './status';
 
 describe('chat status helpers', () => {
   it('polls only while some chat is running', () => {
@@ -8,14 +15,16 @@ describe('chat status helpers', () => {
     expect(hasRunning([])).toBe(false);
   });
 
-  it('identifies a chat by kind and branch', () => {
-    expect(chatSubtitle({ kind: 'work', branch: 'feature/fix-login' })).toBe(
-      'work · feature/fix-login',
-    );
-    expect(chatSubtitle({ kind: 'scope', branch: 'feature/panel' })).toBe('scope · feature/panel');
-    expect(chatSubtitle({ kind: 'direct', branch: 'feature/ajuste' })).toBe(
-      'directo · feature/ajuste',
-    );
+  it('shows only the branch as subtitle (the kind is a chip)', () => {
+    expect(chatSubtitle({ branch: 'feature/fix-login' })).toBe('feature/fix-login');
+    expect(chatSubtitle({ branch: 'feature/panel' })).toBe('feature/panel');
+  });
+
+  it('labels the kind chip', () => {
+    expect(kindChipLabel('scope')).toBe('Scope');
+    expect(kindChipLabel('work')).toBe('Work');
+    expect(kindChipLabel('idea')).toBe('Idea');
+    expect(kindChipLabel('direct')).toBe('Directo');
   });
 
   it('maps each status to a badge tone', () => {

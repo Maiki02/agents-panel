@@ -1,0 +1,481 @@
+{
+  "schemaVersion": 1,
+  "kind": "organic-work",
+  "id": "ui-chats",
+  "title": "Chats como cards, Nuevo chat en modal, stepper verde al mergear y pestañas con scroll",
+  "objective": "Que la sección Chats de un proyecto sea una grilla de cards (una por chat, es decir, por worktree) en la que se entiende de un vistazo qué es cada trabajo, que crear un chat sea un modal, que el stepper muestre la PR mergeada en verde y que las pestañas no rompan el ancho en el celular.",
+  "brief": {
+    "path": "brief.md",
+    "digest": "86855a50c268507d1d0959c26b76da1737f0c23903424bf4b811c7e28addc9f1",
+    "sourceIdea": null
+  },
+  "state": "closed",
+  "revision": 15,
+  "createdAt": "2026-10-08T21:38:42.279Z",
+  "updatedAt": "2026-10-08T21:53:35.107Z",
+  "handoff": {
+    "nextAction": "done",
+    "nextTaskId": null,
+    "blockedReason": null
+  },
+  "tasks": [
+    {
+      "id": "W1",
+      "title": "Pestañas con scroll horizontal oculto en el celular",
+      "description": "app-tabs: el contenedor role=tablist pasa a overflow-x-auto con la barra de scroll oculta (utilidad .scrollbar-none en components.css: scrollbar-width none y ::-webkit-scrollbar display none) y overscroll-x-contain; cada pestaña lleva shrink-0 y whitespace-nowrap para no partirse ni encogerse. Al cambiar de pestaña con el teclado o al cargar, la activa se lleva a la vista (scrollIntoView con block nearest, inline nearest) para que no quede escondida. El cambio vive en el componente, así cubre los tres usos (project-layout, settings.page y chat.page) sin tocarlos; se revisa que ninguno envuelva las pestañas en un contenedor que fuerce ancho.",
+      "context": "Pedido 6. Hoy tabs.ts usa flex gap-1 sin overflow, y en mobile con muchas opciones (Configuración) la tira se sale del 100% del ancho. Decisión propia: traer la pestaña activa a la vista, porque con la barra oculta no hay pista visual de que hay más. Tests de la web solo cubren lógica pura (vitest, entorno node); si hace falta lógica nueva va en tabs-logic.ts con spec.",
+      "filesToTouch": [
+        "apps/web/src/app/ui/tabs.ts",
+        "apps/web/src/app/ui/tabs-logic.ts",
+        "apps/web/src/app/ui/tabs.spec.ts",
+        "apps/web/src/styles/components.css"
+      ],
+      "acceptanceCriteria": [
+        "En un ancho de celular, la tira de app-tabs nunca supera el 100% del ancho: las pestañas que no entran se alcanzan con scroll horizontal",
+        "La barra de scroll horizontal no se ve en Chrome, Safari ni Firefox",
+        "Las pestañas no se parten en dos líneas ni se encogen; la activa queda visible al cambiar de pestaña",
+        "Los tres usos de app-tabs (proyecto, configuración y chat) heredan el cambio sin perder el teclado (flechas, Home, End)",
+        "Build, lint y tests de la web en verde"
+      ],
+      "dependsOn": [],
+      "definitionRevision": 1,
+      "status": "verified",
+      "blocker": null,
+      "evidence": {
+        "summary": "app-tabs now scrolls horizontally with a hidden scrollbar and keeps the active tab in view.",
+        "validations": [
+          {
+            "command": "npm run build -w @agents-panel/web",
+            "result": "passed",
+            "note": "Application bundle generation complete"
+          },
+          {
+            "command": "npm run lint",
+            "result": "passed",
+            "note": "eslint clean after removing an unnecessary optional chain"
+          },
+          {
+            "command": "npm run test -w @agents-panel/web",
+            "result": "passed",
+            "note": "37 files, 347 tests"
+          }
+        ],
+        "filesChanged": [
+          "apps/web/src/app/ui/tabs.ts",
+          "apps/web/src/app/ui/tabs-logic.ts",
+          "apps/web/src/app/ui/tabs.spec.ts",
+          "apps/web/src/styles/components.css"
+        ],
+        "notes": "Tablist: scrollbar-none overflow-x-auto overscroll-x-contain; tabs shrink-0 whitespace-nowrap; active tab scrollIntoView nearest/nearest via afterRenderEffect; host block min-w-0 max-w-full. The three usages are untouched and keep keyboard navigation.",
+        "by": "maker-agent",
+        "recordedAt": "2026-10-08T21:43:25.796Z",
+        "definitionRevision": 1,
+        "materialDigest": "a5bc9d933953fb947f8af423e1653611046bdd103a87035eb8bd8339be44ba4d"
+      },
+      "verdict": {
+        "result": "pass",
+        "checkedCriteria": [
+          "En un ancho de celular, la tira de app-tabs nunca supera el 100% del ancho: las pestañas que no entran se alcanzan con scroll horizontal",
+          "La barra de scroll horizontal no se ve en Chrome, Safari ni Firefox",
+          "Las pestañas no se parten en dos líneas ni se encogen; la activa queda visible al cambiar de pestaña",
+          "Los tres usos de app-tabs (proyecto, configuración y chat) heredan el cambio sin perder el teclado (flechas, Home, End)",
+          "Build, lint y tests de la web en verde"
+        ],
+        "findings": [],
+        "by": "checker-agent",
+        "reviewedAt": "2026-10-08T21:43:31.346Z",
+        "definitionRevision": 1,
+        "evidenceDigest": "9db88ef38734ed592c8e85a6c1c18f5ab7b5958038e9ea45bbba0b27c5a4c984",
+        "reviewedMaterialDigest": "a5bc9d933953fb947f8af423e1653611046bdd103a87035eb8bd8339be44ba4d"
+      },
+      "disposition": null
+    },
+    {
+      "id": "W2",
+      "title": "Stepper en verde cuando la PR está mergeada",
+      "description": "phase-logic.stepperView: si el estado del trabajo es mergeada (o limpiando, que lo sigue en docs/estados.md), todos los pasos quedan en done, PR incluido, y current es null o 'PR' según lo que muestre la etiqueta; el stepper los pinta con el tono ok (verde) que ya usa para los pasos hechos. Los demás estados de la fase PR (pr_lista, pr_checks_fallidos, pr_cambios_pedidos) siguen con PR como paso actual. Se actualiza docs/estados.md si describe cómo se ve el stepper.",
+      "context": "Pedido 4: con el chat en mergeada el stepper debe mostrar Idea › Plan › Ejecución › QA › Cierre › Merge › PR todos en verde. Hoy mergeada mapea a la fase pr como current (píldora primaria). Decisión propia: limpiando también cuenta como mergeada porque solo llega después del merge; archivado y terminado no, porque pueden llegar sin merge. Confirmar contra docs/estados.md antes de cerrar la lista.",
+      "filesToTouch": [
+        "apps/web/src/app/chats/phase-logic.ts",
+        "apps/web/src/app/chats/phase-logic.spec.ts",
+        "apps/web/src/app/chats/phase-stepper.ts",
+        "docs/estados.md"
+      ],
+      "acceptanceCriteria": [
+        "Con el estado mergeada los siete pasos del stepper se ven en verde (tono ok) y ninguno con el color primario",
+        "pr_lista, pr_checks_fallidos y pr_cambios_pedidos siguen mostrando PR como paso actual",
+        "Spec de phase-logic cubre mergeada y los estados vecinos; build, lint y tests de la web en verde"
+      ],
+      "dependsOn": [],
+      "definitionRevision": 1,
+      "status": "verified",
+      "blocker": null,
+      "evidence": {
+        "summary": "stepperView paints all seven steps done when the state is mergeada; PR stays current for the other PR states.",
+        "validations": [
+          {
+            "command": "npm run build -w @agents-panel/web",
+            "result": "passed",
+            "note": "Application bundle generation complete"
+          },
+          {
+            "command": "npm run lint",
+            "result": "passed",
+            "note": "eslint clean"
+          },
+          {
+            "command": "npm run test -w @agents-panel/web",
+            "result": "passed",
+            "note": "37 files, 350 tests"
+          }
+        ],
+        "filesChanged": [
+          "apps/web/src/app/chats/phase-logic.ts",
+          "apps/web/src/app/chats/phase-logic.spec.ts",
+          "docs/estados.md"
+        ],
+        "notes": "Decision: limpiando is NOT treated as merged, contrary to the brief, because docs/estados.md (Borrado manual D28) says Borrar trabajo reaches limpiando without passing through mergeada. current is null for mergeada. phase-stepper.ts needed no change: it already paints done steps with border-ok text-ok. kyro adr could not record the decision (needs a Forge scope); it is documented here and in docs/estados.md.",
+        "by": "maker-agent",
+        "recordedAt": "2026-10-08T21:45:29.213Z",
+        "definitionRevision": 1,
+        "materialDigest": "216107ad3f60f0e275dcf270f1e4ae91a5a660a633de9535b0287dd04749cfcb"
+      },
+      "verdict": {
+        "result": "pass",
+        "checkedCriteria": [
+          "Con el estado mergeada los siete pasos del stepper se ven en verde (tono ok) y ninguno con el color primario",
+          "pr_lista, pr_checks_fallidos y pr_cambios_pedidos siguen mostrando PR como paso actual",
+          "Spec de phase-logic cubre mergeada y los estados vecinos; build, lint y tests de la web en verde"
+        ],
+        "findings": [],
+        "by": "checker-agent",
+        "reviewedAt": "2026-10-08T21:45:33.340Z",
+        "definitionRevision": 1,
+        "evidenceDigest": "50a877c15378504d4e73f77d4ff5477c50c1c09986debd6fbb5b7671bba12a2d",
+        "reviewedMaterialDigest": "216107ad3f60f0e275dcf270f1e4ae91a5a660a633de9535b0287dd04749cfcb"
+      },
+      "disposition": null
+    },
+    {
+      "id": "W3",
+      "title": "Card de chat (worktree): nombre corto como título y el tipo como chip",
+      "description": "Nuevo componente app-chat-card en chats/: toda la card es un routerLink al chat; arriba el título = chat.slug con las clases min-w-0 break-words text-sm font-medium y a la derecha el único badge de estado (sidebarBadge); debajo un chip con el tipo (Scope, Work, Idea, Directo) y la rama en text-muted. El chip es una píldora neutra distinta del badge de estado (sin tono de estado) y su texto sale de una función pura (kindChipLabel) con spec. chatSubtitle deja de llevar el tipo (solo la rama). El chat.title (primera línea del pedido) ya no se muestra en la lista. En chat.page la cabecera h1 también muestra el slug en vez de chat.title.",
+      "context": "Pedidos 1, 2 y 3. No existe una card de worktree en la web (docs/plan.md la pide en «Worktrees activos»; la lista es chat-sidebar.ts con links y solo hay repo-card.ts en la pestaña Git): este componente es esa card. Decisión propia: la cabecera del chat también usa el nombre corto, para que el chat se llame igual en la grilla y adentro. Anatomía de tarjeta y un solo badge de estado por entidad según docs/identidad-visual.md; el chip del tipo no es un estado. Sin cambios de API: chat.title sigue guardándose.",
+      "filesToTouch": [
+        "apps/web/src/app/chats/chat-card.ts",
+        "apps/web/src/app/chats/status.ts",
+        "apps/web/src/app/chats/status.spec.ts",
+        "apps/web/src/app/chats/chat.page.ts",
+        "apps/web/src/styles/components.css"
+      ],
+      "acceptanceCriteria": [
+        "La card muestra como título el nombre corto (slug) con min-w-0 break-words text-sm font-medium; el título derivado del pedido no aparece",
+        "El tipo (Scope, Work, Idea, Directo) se ve como chip, separado del único badge de estado de la card",
+        "Toda la card es un link al chat y se marca cuando es el chat abierto o tiene foco",
+        "La cabecera del chat muestra el nombre corto",
+        "Spec de la etiqueta del chip y del subtítulo en verde; build, lint y tests de la web en verde"
+      ],
+      "dependsOn": [],
+      "definitionRevision": 1,
+      "status": "verified",
+      "blocker": null,
+      "evidence": {
+        "summary": "New app-chat-card (slug title, single sidebarBadge, neutral kind chip + branch), used by the sidebar; chat header shows the slug.",
+        "validations": [
+          {
+            "command": "npm run build -w @agents-panel/web",
+            "result": "passed",
+            "note": "Application bundle generation complete"
+          },
+          {
+            "command": "npm run lint",
+            "result": "passed",
+            "note": "eslint clean"
+          },
+          {
+            "command": "npm run test -w @agents-panel/web",
+            "result": "passed",
+            "note": "37 files, 351 tests"
+          }
+        ],
+        "filesChanged": [
+          "apps/web/src/app/chats/chat-card.ts",
+          "apps/web/src/app/chats/chat-sidebar.ts",
+          "apps/web/src/app/chats/status.ts",
+          "apps/web/src/app/chats/status.spec.ts",
+          "apps/web/src/app/chats/chat.page.ts",
+          "apps/web/src/styles/components.css"
+        ],
+        "notes": "kindChipLabel pure fn with spec; chatSubtitle returns only the branch; .kind-chip neutral pill in components.css; whole card is a routerLink with routerLinkActive and focus-visible styling; chat.title no longer shown.",
+        "by": "maker-agent",
+        "recordedAt": "2026-10-08T21:47:49.184Z",
+        "definitionRevision": 1,
+        "materialDigest": "f08c33a29d582766952dfcd957dd6cb2f574ab6bdd80c84fa18289a1b400c827"
+      },
+      "verdict": {
+        "result": "pass",
+        "checkedCriteria": [
+          "La card muestra como título el nombre corto (slug) con min-w-0 break-words text-sm font-medium; el título derivado del pedido no aparece",
+          "El tipo (Scope, Work, Idea, Directo) se ve como chip, separado del único badge de estado de la card",
+          "Toda la card es un link al chat y se marca cuando es el chat abierto o tiene foco",
+          "La cabecera del chat muestra el nombre corto",
+          "Spec de la etiqueta del chip y del subtítulo en verde; build, lint y tests de la web en verde"
+        ],
+        "findings": [],
+        "by": "checker-agent",
+        "reviewedAt": "2026-10-08T21:47:54.158Z",
+        "definitionRevision": 1,
+        "evidenceDigest": "92a7cc7e3169bed1fd86d5956cffe136caaf9c7c4233957cc686ca43082f7f84",
+        "reviewedMaterialDigest": "f08c33a29d582766952dfcd957dd6cb2f574ab6bdd80c84fa18289a1b400c827"
+      },
+      "disposition": null
+    },
+    {
+      "id": "W4",
+      "title": "Grilla de chats, Nuevo chat en modal y chat a ancho completo",
+      "description": "ChatsSection pasa a ser la grilla: arriba el botón primario «Nuevo chat» y los filtros actuales (chat-filter-logic), debajo las app-chat-card en grid (una columna en el celular, sm:2, xl:3) con su estado vacío y el sondeo mientras corre un agente (lo que hoy hace chat-sidebar). «Nuevo chat» abre un app-modal con NewChatForm (tipo, nombre corto, pedido, piloto, modelos); crear cierra el modal y navega al chat; cerrar el modal conserva lo escrito mientras no se recargue. Rutas: chats '' muestra la grilla; chats/new abre la grilla con el modal abierto (los links viejos siguen andando); chats/:chatId muestra el chat a todo el ancho con un botón secundario «Chats» (ícono chats) que vuelve a la grilla. Se quitan la columna lateral, el drawer de chats y el lastChatGuard: entrar a un proyecto o a la pestaña Chats lleva siempre a la grilla; LastChatStore y last-chat.ts se borran o reducen a lo que siga en uso (chat-redirect). new-chat.page.ts y chat-sidebar.ts se borran si quedan sin uso.",
+      "context": "Pedido 5 y decisiones del usuario: al abrir un chat ocupa todo el ancho con un botón «Chats» para volver (también en el celular); al entrar siempre se ve la grilla, ya no el último chat ni Nuevo chat. Decisión propia: el modal conserva el formulario completo (el nombre corto es el título de la card y la API lo exige; piloto y modelos quedan en Opciones) y chats/new sigue existiendo como grilla con el modal abierto. Se reusan app-modal (ui/modal.ts) y NewChatForm; el form hoy navega al crear, el modal solo se cierra. Mantener la cadena de alto acotado (flex-1, min-h-0) del chat del work refactor-ui. Docs a actualizar en el mismo cambio: docs/plan.md (Chats y Worktrees activos) y docs/identidad-visual.md (estructura de la app, celular, card de chat, chip de tipo, modal de Nuevo chat y pestañas con scroll).",
+      "filesToTouch": [
+        "apps/web/src/app/app.routes.ts",
+        "apps/web/src/app/chats/chats-section.ts",
+        "apps/web/src/app/chats/chat-list.ts",
+        "apps/web/src/app/chats/new-chat.form.ts",
+        "apps/web/src/app/chats/new-chat.page.ts",
+        "apps/web/src/app/chats/chat-sidebar.ts",
+        "apps/web/src/app/chats/chat.page.ts",
+        "apps/web/src/app/projects/project-layout.ts",
+        "apps/web/src/app/projects/last-chat.ts",
+        "apps/web/src/app/projects/last-chat.store.ts",
+        "apps/web/src/app/projects/last-chat.spec.ts",
+        "apps/web/src/app/chats/chat-redirect.page.ts",
+        "docs/plan.md",
+        "docs/identidad-visual.md"
+      ],
+      "acceptanceCriteria": [
+        "Entrar a un proyecto o a la pestaña Chats muestra la grilla de cards (una columna en el celular, varias en pantallas anchas), con los filtros y un estado vacío con texto",
+        "«Nuevo chat» abre un modal con tipo, nombre corto y pedido; Crear crea el worktree, cierra el modal y abre el chat; Esc, la X y el fondo cierran sin crear",
+        "La URL chats/new sigue funcionando y abre la grilla con el modal",
+        "Un chat abierto ocupa todo el ancho, con un botón «Chats» que vuelve a la grilla; ya no hay lista lateral ni panel deslizable de chats",
+        "La grilla se refresca mientras algún agente corre y deja de sondear cuando ninguno corre",
+        "docs/plan.md y docs/identidad-visual.md describen la grilla, la card, el chip de tipo, el modal y las pestañas con scroll",
+        "Build, lint y tests de la web en verde"
+      ],
+      "dependsOn": [
+        "W3"
+      ],
+      "definitionRevision": 1,
+      "status": "verified",
+      "blocker": null,
+      "evidence": {
+        "summary": "ChatsSection es la grilla (Nuevo chat + filtros + app-chat-card); Nuevo chat abre un app-modal con NewChatForm en chats/new (el borrador vive en NewChatDraft); chats/:chatId a todo el ancho con botón Chats. Se quitan la columna, el drawer, lastChatGuard, LastChatStore, last-chat.ts y new-chat.page.ts; chat-sidebar pasa a chat-list (sondeo solo con agente corriendo). Docs actualizados.",
+        "validations": [
+          {
+            "command": "npm run build -w @agents-panel/web",
+            "result": "passed",
+            "note": "sin errores"
+          },
+          {
+            "command": "npm run lint",
+            "result": "passed",
+            "note": "eslint . sin avisos"
+          },
+          {
+            "command": "npm run test -w @agents-panel/web",
+            "result": "passed",
+            "note": "37 archivos, 339 tests"
+          }
+        ],
+        "filesChanged": [
+          "apps/web/src/app/app.routes.ts",
+          "apps/web/src/app/chats/chats-section.ts",
+          "apps/web/src/app/chats/chat-list.ts",
+          "apps/web/src/app/chats/chat-sidebar.ts",
+          "apps/web/src/app/chats/new-chat.form.ts",
+          "apps/web/src/app/chats/new-chat.draft.ts",
+          "apps/web/src/app/chats/new-chat.draft.spec.ts",
+          "apps/web/src/app/chats/new-chat.page.ts",
+          "apps/web/src/app/chats/chat.page.ts",
+          "apps/web/src/app/chats/chat-card.ts",
+          "apps/web/src/app/chats/chat-redirect.page.ts",
+          "apps/web/src/app/projects/project-layout.ts",
+          "apps/web/src/app/projects/last-chat.ts",
+          "apps/web/src/app/projects/last-chat.store.ts",
+          "apps/web/src/app/projects/last-chat.spec.ts",
+          "docs/plan.md",
+          "docs/identidad-visual.md",
+          "docs/panel-desarrollo.md"
+        ],
+        "notes": "Decisiones propias: el borrador del modal es un servicio raíz (NewChatDraft) porque app-modal se destruye al cerrar; last-chat.ts y LastChatStore se borraron enteros y chat-redirect arma la ruta con router.navigate. prettier --check marca apps/api/test/panel-deploy-script.test.ts, ajeno a este cambio (ya estaba así).",
+        "by": "maker-agent",
+        "recordedAt": "2026-10-08T21:53:21.105Z",
+        "definitionRevision": 1,
+        "materialDigest": "efb5037d4a1fe88f35d6bb31cdbc92f11e77a6a0ea8dadbfb97762de75a9ab76"
+      },
+      "verdict": {
+        "result": "pass",
+        "checkedCriteria": [
+          "Entrar a un proyecto o a la pestaña Chats muestra la grilla de cards (una columna en el celular, varias en pantallas anchas), con los filtros y un estado vacío con texto",
+          "«Nuevo chat» abre un modal con tipo, nombre corto y pedido; Crear crea el worktree, cierra el modal y abre el chat; Esc, la X y el fondo cierran sin crear",
+          "La URL chats/new sigue funcionando y abre la grilla con el modal",
+          "Un chat abierto ocupa todo el ancho, con un botón «Chats» que vuelve a la grilla; ya no hay lista lateral ni panel deslizable de chats",
+          "La grilla se refresca mientras algún agente corre y deja de sondear cuando ninguno corre",
+          "docs/plan.md y docs/identidad-visual.md describen la grilla, la card, el chip de tipo, el modal y las pestañas con scroll",
+          "Build, lint y tests de la web en verde"
+        ],
+        "findings": [],
+        "by": "checker-agent",
+        "reviewedAt": "2026-10-08T21:53:26.243Z",
+        "definitionRevision": 1,
+        "evidenceDigest": "f11c9cc22560c14884b92e08b211189598646e60c767d2a145d504166ebd4bed",
+        "reviewedMaterialDigest": "efb5037d4a1fe88f35d6bb31cdbc92f11e77a6a0ea8dadbfb97762de75a9ab76"
+      },
+      "disposition": null
+    }
+  ],
+  "activity": [
+    {
+      "seq": 1,
+      "at": "2026-10-08T21:38:42.279Z",
+      "event": "created",
+      "taskId": null,
+      "by": "claude",
+      "reason": "Created through the Work CLI.",
+      "revision": 1
+    },
+    {
+      "seq": 2,
+      "at": "2026-10-08T21:39:23.882Z",
+      "event": "tasks_planned",
+      "taskId": null,
+      "by": "claude",
+      "reason": "Planned 4 Work tasks.",
+      "revision": 2
+    },
+    {
+      "seq": 3,
+      "at": "2026-10-08T21:39:45.469Z",
+      "event": "task_started",
+      "taskId": "W1",
+      "by": "cli",
+      "reason": "Task started through the Work CLI.",
+      "revision": 3
+    },
+    {
+      "seq": 4,
+      "at": "2026-10-08T21:43:25.796Z",
+      "event": "evidence_recorded",
+      "taskId": "W1",
+      "by": "maker-agent",
+      "reason": "Evidence recorded with 3 validation results.",
+      "revision": 4
+    },
+    {
+      "seq": 5,
+      "at": "2026-10-08T21:43:31.346Z",
+      "event": "review_recorded",
+      "taskId": "W1",
+      "by": "checker-agent",
+      "reason": "Task review recorded with pass.",
+      "revision": 5
+    },
+    {
+      "seq": 6,
+      "at": "2026-10-08T21:43:50.763Z",
+      "event": "task_started",
+      "taskId": "W2",
+      "by": "cli",
+      "reason": "Task started through the Work CLI.",
+      "revision": 6
+    },
+    {
+      "seq": 7,
+      "at": "2026-10-08T21:45:29.213Z",
+      "event": "evidence_recorded",
+      "taskId": "W2",
+      "by": "maker-agent",
+      "reason": "Evidence recorded with 3 validation results.",
+      "revision": 7
+    },
+    {
+      "seq": 8,
+      "at": "2026-10-08T21:45:33.340Z",
+      "event": "review_recorded",
+      "taskId": "W2",
+      "by": "checker-agent",
+      "reason": "Task review recorded with pass.",
+      "revision": 8
+    },
+    {
+      "seq": 9,
+      "at": "2026-10-08T21:45:53.434Z",
+      "event": "task_started",
+      "taskId": "W3",
+      "by": "cli",
+      "reason": "Task started through the Work CLI.",
+      "revision": 9
+    },
+    {
+      "seq": 10,
+      "at": "2026-10-08T21:47:49.184Z",
+      "event": "evidence_recorded",
+      "taskId": "W3",
+      "by": "maker-agent",
+      "reason": "Evidence recorded with 3 validation results.",
+      "revision": 10
+    },
+    {
+      "seq": 11,
+      "at": "2026-10-08T21:47:54.158Z",
+      "event": "review_recorded",
+      "taskId": "W3",
+      "by": "checker-agent",
+      "reason": "Task review recorded with pass.",
+      "revision": 11
+    },
+    {
+      "seq": 12,
+      "at": "2026-10-08T21:48:10.426Z",
+      "event": "task_started",
+      "taskId": "W4",
+      "by": "maker-agent",
+      "reason": "Task started through the Work CLI.",
+      "revision": 12
+    },
+    {
+      "seq": 13,
+      "at": "2026-10-08T21:53:21.105Z",
+      "event": "evidence_recorded",
+      "taskId": "W4",
+      "by": "maker-agent",
+      "reason": "Evidence recorded with 3 validation results.",
+      "revision": 13
+    },
+    {
+      "seq": 14,
+      "at": "2026-10-08T21:53:26.243Z",
+      "event": "review_recorded",
+      "taskId": "W4",
+      "by": "checker-agent",
+      "reason": "Task review recorded with pass.",
+      "revision": 14
+    },
+    {
+      "seq": 15,
+      "at": "2026-10-08T21:53:35.107Z",
+      "event": "work_closed",
+      "taskId": null,
+      "by": "pilot",
+      "reason": "Trabajo completado por el piloto",
+      "revision": 15
+    }
+  ],
+  "closure": {
+    "outcome": "completed",
+    "reason": "Trabajo completado por el piloto",
+    "by": "pilot",
+    "closedAt": "2026-10-08T21:53:35.107Z",
+    "briefDigest": "86855a50c268507d1d0959c26b76da1737f0c23903424bf4b811c7e28addc9f1",
+    "finalRevision": 15
+  },
+  "promotion": null
+}

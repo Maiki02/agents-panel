@@ -1,7 +1,17 @@
-import { ChangeDetectionStrategy, Component, computed, inject, input, signal } from '@angular/core';
-import { Router, RouterLink } from '@angular/router';
-import type { ChatKind, Project } from '@agents-panel/shared';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  effect,
+  inject,
+  input,
+  output,
+  signal,
+} from '@angular/core';
+import { RouterLink } from '@angular/router';
+import type { Chat, ChatKind, Project } from '@agents-panel/shared';
 import { ChatsService, apiErrorMessage } from './chats.service';
+import { NewChatDraft } from './new-chat.draft';
 import { Button } from '../ui/button';
 import { settingsTabPath } from '../projects/settings-tabs';
 import {
@@ -30,8 +40,7 @@ export function slugProblem(slug: string): string | null {
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [Button, RouterLink],
   template: `
-    <form class="card" (submit)="submit($event)">
-      <h2>Nuevo chat</h2>
+    <form class="!m-0 !border-0 !p-0 !shadow-none" (submit)="submit($event)">
       @if (blockedReason(); as reason) {
         <p class="hint" role="status">{{ reason }}</p>
       }
@@ -125,22 +134,22 @@ export function slugProblem(slug: string): string | null {
 })
 export class NewChatForm {
   private readonly chats = inject(ChatsService);
-  private readonly router = inject(Router);
+  private readonly draft = inject(NewChatDraft);
 
   /** The project the chat is created on; fixed by the page, never chosen here. */
   readonly project = input.required<Project>();
+  /** The chat was created; the host closes the dialog and opens it. */
+  readonly created = output<Chat>();
 
-  protected readonly kind = signal<ChatKind>('work');
-  protected readonly slug = signal('');
-  protected readonly prompt = signal('');
+  // What is typed lives in the draft, so closing the dialog does not lose it.
+  protected readonly kind = this.draft.kind;
+  protected readonly slug = this.draft.slug;
+  protected readonly prompt = this.draft.prompt;
+  protected readonly autopilot = this.draft.autopilot;
+  protected readonly thinker = this.draft.thinker;
+  protected readonly executor = this.draft.executor;
   protected readonly busy = signal(false);
   protected readonly error = signal<string | null>(null);
-
-  /** The switch starts on; only a scope or work can have it. */
-  protected readonly autopilot = signal(true);
-  /** null: the project's model stays (the select shows it as the default). */
-  protected readonly thinker = signal<string | null>(null);
-  protected readonly executor = signal<string | null>(null);
 
   protected readonly kinds = computed(() => availableKinds(this.project()));
   protected readonly chosenKind = computed(() => effectiveKind(this.project(), this.kind()));
@@ -175,6 +184,12 @@ export class NewChatForm {
       this.prompt().trim() !== '',
   );
 
+  constructor() {
+    effect(() => {
+      this.draft.use(this.project().id);
+    });
+  }
+
   protected text(event: Event): string {
     return (event.target as HTMLInputElement).value;
   }
@@ -203,7 +218,8 @@ export class NewChatForm {
           models: { thinker: this.thinkerModel(), executor: this.executorModel() },
         }),
       );
-      await this.router.navigate(['/projects', chat.projectId, 'chats', chat.id]);
+      this.draft.reset();
+      this.created.emit(chat);
     } catch (cause) {
       // Keep everything typed so the user can fix the slug and retry.
       this.error.set(apiErrorMessage(cause));

@@ -8,12 +8,7 @@ import {
   input,
   signal,
 } from '@angular/core';
-import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { NavigationEnd, Router, RouterLink, RouterLinkActive } from '@angular/router';
 import type { Chat } from '@agents-panel/shared';
-import { filter } from 'rxjs';
-import { Badge } from '../ui/badge';
-import { Icon } from '../ui/icon';
 import {
   CHAT_FILTERS,
   emptyFilterText,
@@ -24,34 +19,25 @@ import {
   type ChatFilterId,
 } from './chat-filter-logic';
 import { ChatsService, apiErrorMessage } from './chats.service';
-import { RUNTIME_APPROX_HELP, createdLabel, runtimeLabel } from './runtime-logic';
-import { chatSubtitle, hasRunning, sidebarBadge } from './status';
+import { ChatCard } from './chat-card';
+import { hasRunning } from './status';
 
 const POLL_MS = 4000;
 
 /**
- * Left column of the Chats section, like current AI chat apps: "Nuevo chat" on top and the
- * project's chats below (title, kind and branch, status). The API filters by projectId, so no
- * other project's chat shows up. It reloads after every navigation (a created chat appears and
- * gets selected) and every few seconds while some agent is running.
+ * The project's chats as a grid of cards (one column on phones, two from `sm`, three from `xl`)
+ * under the status filters. The API filters by projectId, so no other project's chat shows up.
+ * It loads on open and reloads every few seconds only while some agent is running.
  */
 @Component({
-  selector: 'app-chat-sidebar',
+  selector: 'app-chat-list',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink, RouterLinkActive, Badge, Icon],
+  imports: [ChatCard],
   template: `
-    <a
-      [routerLink]="['/projects', projectId(), 'chats', 'new']"
-      routerLinkActive="!bg-surface-raised"
-      class="mb-2 flex items-center gap-2 rounded-control border border-border px-3 py-2 text-sm font-medium text-text hover:bg-surface-raised hover:no-underline"
-    >
-      <app-icon name="plus" />
-      Nuevo chat
-    </a>
     @if (error(); as message) {
       <p class="error" role="alert">{{ message }}</p>
     }
-    <div class="mb-2 flex flex-wrap gap-1" role="group" aria-label="Filtrar chats">
+    <div class="mb-3 flex flex-wrap gap-1" role="group" aria-label="Filtrar chats">
       @for (option of filters; track option.id) {
         <button
           type="button"
@@ -68,43 +54,22 @@ const POLL_MS = 4000;
         </button>
       }
     </div>
-    <ul class="m-0 flex list-none flex-col gap-1 p-0">
-      @for (chat of visible(); track chat.id) {
-        <li>
-          <a
-            [routerLink]="['/projects', projectId(), 'chats', chat.id]"
-            routerLinkActive="!border-accent bg-surface-raised"
-            class="block rounded-control border border-transparent px-3 py-2 text-text hover:bg-surface-raised hover:no-underline"
-          >
-            <span class="flex items-start justify-between gap-2">
-              <span class="min-w-0 break-words text-sm font-medium">{{ chat.title }}</span>
-              <app-badge class="shrink-0" [tone]="badge(chat).tone">
-                {{ badge(chat).label }}
-              </app-badge>
-            </span>
-            <span class="mt-0.5 block break-all text-xs text-muted">{{ subtitle(chat) }}</span>
-            <span class="mt-0.5 flex items-center justify-between gap-2 text-xs text-muted">
-              <span>{{ created(chat.createdAt) }}</span>
-              <span
-                [attr.title]="chat.runtimeApprox ? approxHelp : null"
-                [attr.aria-label]="chat.runtimeApprox ? approxHelp : null"
-              >
-                {{ runtime(chat) }}
-              </span>
-            </span>
-          </a>
-        </li>
-      } @empty {
-        @if (loaded()) {
-          <li class="hint px-1">{{ emptyText() }}</li>
-        } @else {
-          <li class="hint px-1" role="status">Cargando…</li>
+    @if (visible().length > 0) {
+      <ul class="m-0 grid list-none grid-cols-1 gap-3 p-0 sm:grid-cols-2 xl:grid-cols-3">
+        @for (chat of visible(); track chat.id) {
+          <li class="min-w-0">
+            <app-chat-card [chat]="chat" [projectId]="projectId()" />
+          </li>
         }
-      }
-    </ul>
+      </ul>
+    } @else if (loaded()) {
+      <p class="hint" data-testid="chats-empty">{{ emptyText() }}</p>
+    } @else {
+      <p class="hint" role="status">Cargando…</p>
+    }
   `,
 })
-export class ChatSidebar {
+export class ChatList {
   private readonly service = inject(ChatsService);
 
   readonly projectId = input.required<number>();
@@ -124,24 +89,10 @@ export class ChatSidebar {
   protected readonly counts = computed(() => filterCounts(this.chats()));
   protected readonly emptyText = computed(() => emptyFilterText(this.filter()));
 
-  protected readonly badge = sidebarBadge;
-  protected readonly subtitle = chatSubtitle;
-  protected readonly created = createdLabel;
-  protected readonly runtime = runtimeLabel;
-  protected readonly approxHelp = RUNTIME_APPROX_HELP;
-
   constructor() {
     effect(() => {
       void this.reload(this.projectId());
     });
-    inject(Router)
-      .events.pipe(
-        filter((event) => event instanceof NavigationEnd),
-        takeUntilDestroyed(),
-      )
-      .subscribe(() => {
-        void this.reload(this.projectId());
-      });
     inject(DestroyRef).onDestroy(() => {
       this.stopPolling();
     });

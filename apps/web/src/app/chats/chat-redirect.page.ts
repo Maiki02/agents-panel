@@ -1,7 +1,6 @@
 import { ChangeDetectionStrategy, Component, effect, inject, input, signal } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
 import { ChatsService, apiErrorMessage } from './chats.service';
-import { chatsPath } from '../projects/last-chat';
 
 /** /chats/:id (old link): looks up the chat's project and goes to /projects/:p/chats/:id. */
 @Component({
@@ -37,7 +36,9 @@ export class ChatRedirectPage {
     }
     try {
       const chat = await this.chats.get(id);
-      await this.router.navigateByUrl(chatsPath(chat.projectId, chat.id), { replaceUrl: true });
+      await this.router.navigate(['/projects', chat.projectId, 'chats', chat.id], {
+        replaceUrl: true,
+      });
     } catch (cause) {
       this.error.set(apiErrorMessage(cause));
     }

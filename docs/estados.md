@@ -12,6 +12,8 @@ Los estados se agrupan en seis fases, que son las que se ven en el stepper de la
 
 `Preparación → Planificación → Ejecución → QA → Merge a dev → Cierre`
 
+En la tarjeta el stepper muestra `Idea › Plan › Ejecución › QA › Cierre › Merge › PR`. Con el trabajo en `mergeada` los siete pasos se pintan en verde (hechos, PR incluido) y ninguno queda como actual. Los demás estados de la fase PR (`pr_lista`, `pr_checks_fallidos`, `pr_cambios_pedidos`) dejan PR como paso actual; `limpiando`, `archivado` y `terminado` también, porque pueden llegar sin merge (Borrar trabajo).
+
 Además hay estados **transversales** (pausado, interrumpido, bloqueado, etc.) que pueden aparecer en cualquier fase. Cuando se resuelven, el worktree vuelve al estado en el que estaba.
 
 ## Catálogo
