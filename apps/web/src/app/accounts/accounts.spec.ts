@@ -1,6 +1,6 @@
 import type { ClaudeAccount } from '@agents-panel/shared';
 import { describe, expect, it } from 'vitest';
-import { accountLabel, accountWarnings, canActivate } from './accounts-logic';
+import { accountLabel, accountWarnings, canActivate, canAddAccount } from './accounts-logic';
 
 const account = (extra: Partial<ClaudeAccount> = {}): ClaudeAccount => ({
   id: 2,
@@ -32,6 +32,15 @@ describe('accountWarnings', () => {
     expect(warnings).toHaveLength(2);
     expect(warnings[0]).toContain('CLAUDE_CONFIG_DIR=/home/ubuntu/.claude2 claude');
     expect(warnings[1]).toContain('11-claude-cuentas.sh');
+  });
+});
+
+describe('canAddAccount', () => {
+  it('needs a name and a directory, and no request in flight', () => {
+    expect(canAddAccount(false, 'Cuenta', '/home/ubuntu/.claude2')).toBe(true);
+    expect(canAddAccount(false, '  ', '/home/ubuntu/.claude2')).toBe(false);
+    expect(canAddAccount(false, 'Cuenta', ' ')).toBe(false);
+    expect(canAddAccount(true, 'Cuenta', '/home/ubuntu/.claude2')).toBe(false);
   });
 });
 

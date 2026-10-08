@@ -62,6 +62,27 @@ export function pushSupport(env: PushEnvironment): PushSupport {
   return { kind: 'ready', reason: null };
 }
 
+/**
+ * Whether «Agregar este dispositivo» can be pressed, and the reason when it cannot (the button's
+ * title). `null` support means the browser has not answered yet.
+ */
+export function addDeviceAvailability(support: PushSupport | null): {
+  available: boolean;
+  reason: string | null;
+} {
+  if (support === null) return { available: false, reason: 'Comprobando este dispositivo…' };
+  return { available: support.kind === 'ready', reason: support.reason };
+}
+
+/** The modal's Activar needs a ready browser, a name and no request in flight. */
+export function canActivateDevice(
+  busy: boolean,
+  name: string,
+  support: PushSupport | null,
+): boolean {
+  return !busy && name.trim() !== '' && addDeviceAvailability(support).available;
+}
+
 /** "Chrome en Windows": a name for the device the user can recognize in the list. */
 export function suggestedName(userAgent: string): string {
   const os = userAgent.includes('iPhone')

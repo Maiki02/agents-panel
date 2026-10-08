@@ -21,6 +21,11 @@ export function accountWarnings(account: ClaudeAccount): string[] {
   return warnings;
 }
 
+/** The "Nueva cuenta" Agregar button needs both fields filled and no request in flight. */
+export function canAddAccount(busy: boolean, name: string, configDir: string): boolean {
+  return !busy && name.trim() !== '' && configDir.trim() !== '';
+}
+
 /** Only an account with a login can be chosen: every turn of one without it would fail. */
 export function canActivate(account: ClaudeAccount): boolean {
   return account.loggedIn && !account.active;

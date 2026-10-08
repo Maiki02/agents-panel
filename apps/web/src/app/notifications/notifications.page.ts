@@ -3,14 +3,10 @@ import type { PushConfig, PushSubscriptionInfo } from '@agents-panel/shared';
 import { apiErrorMessage } from '../chats/chats.service';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
+import { Icon } from '../ui/icon';
 import { NotificationsService } from './notifications.service';
-import {
-  pushSupport,
-  subscriptionBody,
-  suggestedName,
-  testMessage,
-  type PushSupport,
-} from './notifications-logic';
+import { addDeviceAvailability, pushSupport, testMessage, type PushSupport } from './notifications-logic';
+import { AddDeviceModal } from './add-device.modal';
 import { PushBrowser } from './push-browser';
 
 /**
@@ -20,9 +16,21 @@ import { PushBrowser } from './push-browser';
 @Component({
   selector: 'app-notifications',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [Badge, Button],
+  imports: [Badge, Button, Icon, AddDeviceModal],
   template: `
-    <h2>Notificaciones</h2>
+    <div class="mb-4 flex items-center justify-between gap-3">
+      <h2 class="m-0">Notificaciones</h2>
+      <button
+        appButton
+        type="button"
+        [disabled]="!addDevice().available || busy()"
+        [attr.title]="addDevice().reason"
+        (click)="adding.set(true)"
+      >
+        <app-icon name="plus" />
+        Agregar este dispositivo
+      </button>
+    </div>
     <p class="hint">
       El panel te avisa en este y en tus otros dispositivos cuando un trabajo frena, te hace una
       pregunta o deja la PR lista, aunque la pestaña esté cerrada.
@@ -34,24 +42,14 @@ import { PushBrowser } from './push-browser';
       <p class="hint" role="status">{{ message }}</p>
     }
 
-    <section class="card">
-      <h3>Este dispositivo</h3>
-      @if (support(); as s) {
-        <button
-          appButton
-          type="button"
-          [disabled]="s.kind !== 'ready' || busy()"
-          (click)="activate()"
-        >
-          {{ busy() ? 'Activando…' : 'Activar en este dispositivo' }}
-        </button>
-        @if (s.reason; as why) {
-          <p class="hint" role="status" data-testid="support-reason">{{ why }}</p>
-        }
-      } @else {
-        <p class="hint">Cargando…</p>
-      }
-    </section>
+    @if (adding()) {
+      <app-add-device-modal
+        [support]="support()"
+        [publicKey]="config()?.publicKey ?? null"
+        (added)="onAdded($event)"
+        (closed)="adding.set(false)"
+      />
+    }
 
     <section class="card">
       <h3>Dispositivos que reciben avisos</h3>
@@ -112,7 +110,7 @@ import { PushBrowser } from './push-browser';
           @if (loaded()) {
             <li class="text-sm text-muted">
               Ningún dispositivo recibe avisos todavía. Entrá desde el que quieras avisar y tocá
-              «Activar en este dispositivo».
+              «Agregar este dispositivo».
             </li>
           } @else {
             <li class="text-sm text-muted" role="status">Cargando…</li>
@@ -154,6 +152,9 @@ export class NotificationsPage {
       subscribed: here !== null && this.devices().some((d) => d.endpoint === here),
     });
   });
+
+  protected readonly adding = signal(false);
+  protected readonly addDevice = computed(() => addDeviceAvailability(this.support()));
 
   constructor() {
     void this.load();
@@ -218,15 +219,11 @@ export class NotificationsPage {
     }
   }
 
-  protected async activate(): Promise<void> {
-    const publicKey = this.config()?.publicKey;
-    if (publicKey === null || publicKey === undefined) return;
+  /** The modal saved the subscription: refresh the list, close it and leave the notice. */
+  protected async onAdded(endpoint: string): Promise<void> {
+    this.here.set(endpoint);
+    this.adding.set(false);
     await this.run(async () => {
-      const subscription = await this.browser.subscribe(publicKey);
-      const body = subscriptionBody(subscription.toJSON(), suggestedName(this.browser.userAgent()));
-      if (body === null) throw new Error('El navegador no devolvió las claves de la suscripción.');
-      await this.service.subscribe(body);
-      this.here.set(subscription.endpoint);
       await this.refreshList();
       this.notice.set('Listo: este dispositivo recibe avisos. Probalo con el botón «Probar».');
     });

@@ -1,19 +1,27 @@
 import { DatePipe } from '@angular/common';
-import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
 import type { ClaudeAccount } from '@agents-panel/shared';
 import { apiErrorMessage } from '../chats/chats.service';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
+import { Icon } from '../ui/icon';
 import { accountWarnings, canActivate } from './accounts-logic';
+import { AddAccountModal } from './add-account.modal';
 import { AccountsService } from './accounts.service';
 
 /** Cuentas: the Claude logins of the VM the panel can run sessions with. */
 @Component({
   selector: 'app-accounts',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [DatePipe, Badge, Button],
+  imports: [DatePipe, Badge, Button, Icon, AddAccountModal],
   template: `
-    <h2>Cuentas de Claude</h2>
+    <div class="mb-4 flex items-center justify-between gap-3">
+      <h2 class="m-0">Cuentas de Claude</h2>
+      <button appButton type="button" (click)="adding.set(true)">
+        <app-icon name="plus" />
+        Nueva cuenta
+      </button>
+    </div>
     <p class="hint">
       La cuenta activa es la de todo el panel: el próximo turno de cualquier chat corre con ella. Un
       turno que ya está corriendo termina con la suya.
@@ -104,39 +112,12 @@ import { AccountsService } from './accounts.service';
           </div>
         </div>
       </section>
+    } @empty {
+      <p class="hint">Todavía no hay cuentas. Agregá la primera con «Nueva cuenta».</p>
     }
-
-    <section class="card">
-      <h3>Agregar cuenta</h3>
-      <p class="hint">
-        Antes, en la VM: <code>CLAUDE_CONFIG_DIR=~/.claude2 claude</code> (y <code>/login</code>) y
-        <code>bash scripts/vm/11-claude-cuentas.sh ~/.claude2</code> para compartir skills, permisos
-        y sesiones con la principal.
-      </p>
-      <form (submit)="add($event)">
-        <label for="account-name">Nombre</label>
-        <input
-          id="account-name"
-          name="account-name"
-          autocomplete="off"
-          placeholder="Miqueas - Bimtrazer"
-          [value]="newName()"
-          (input)="newName.set(text($event))"
-        />
-        <label for="account-dir">Directorio de config (ruta absoluta)</label>
-        <input
-          id="account-dir"
-          name="account-dir"
-          autocomplete="off"
-          placeholder="/home/ubuntu/.claude2"
-          [value]="newDir()"
-          (input)="newDir.set(text($event))"
-        />
-        <button appButton type="submit" [disabled]="!canAdd()">
-          {{ busy() ? 'Agregando…' : 'Agregar' }}
-        </button>
-      </form>
-    </section>
+    @if (adding()) {
+      <app-add-account-modal (closed)="onModalClosed()" />
+    }
   `,
 })
 export class AccountsPage {
@@ -145,11 +126,7 @@ export class AccountsPage {
   protected readonly error = signal<string | null>(null);
   protected readonly editing = signal<number | null>(null);
   protected readonly draftName = signal('');
-  protected readonly newName = signal('');
-  protected readonly newDir = signal('');
-  protected readonly canAdd = computed(
-    () => !this.busy() && this.newName().trim() !== '' && this.newDir().trim() !== '',
-  );
+  protected readonly adding = signal(false);
   protected readonly warnings = accountWarnings;
   protected readonly activable = canActivate;
 
@@ -183,16 +160,8 @@ export class AccountsPage {
     await this.run(() => this.service.remove(account.id));
   }
 
-  protected async add(event: Event): Promise<void> {
-    event.preventDefault();
-    if (!this.canAdd()) return;
-    const ok = await this.run(() =>
-      this.service.create({ name: this.newName().trim(), configDir: this.newDir().trim() }),
-    );
-    if (ok) {
-      this.newName.set('');
-      this.newDir.set('');
-    }
+  protected onModalClosed(): void {
+    this.adding.set(false);
   }
 
   /** Runs an action with the busy flag and shows the API's error; true when it worked. */

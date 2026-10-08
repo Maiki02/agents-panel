@@ -43,7 +43,6 @@ const POLL_MS = 3000;
     @if (error(); as message) {
       <p class="error" role="alert">{{ message }}</p>
     }
-    <app-capacity-bars />
     @for (project of projects(); track project.id) {
       <article class="card project-card">
         <div class="flex items-start justify-between gap-3">
@@ -130,6 +129,7 @@ const POLL_MS = 3000;
         <p class="hint" role="status">Cargando…</p>
       }
     }
+    <app-capacity-bars class="mt-4 block" />
     @if (adding()) {
       <app-add-project-form (added)="onAdded($event)" (closed)="adding.set(false)" />
     }

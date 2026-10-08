@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+  addDeviceAvailability,
+  canActivateDevice,
   pushSupport,
   subscriptionBody,
   suggestedName,
@@ -49,6 +51,38 @@ describe('pushSupport', () => {
     expect(pushSupport({ ...ok, serverEnabled: false, hasPushManager: false }).kind).toBe(
       'disabled',
     );
+  });
+});
+
+describe('addDeviceAvailability', () => {
+  it('is available only when the browser is ready', () => {
+    expect(addDeviceAvailability(pushSupport(ok))).toEqual({ available: true, reason: null });
+  });
+
+  it('gives the reason when the browser cannot receive notices or is already subscribed', () => {
+    const denied = addDeviceAvailability(pushSupport({ ...ok, permission: 'denied' }));
+    expect(denied.available).toBe(false);
+    expect(denied.reason).toMatch(/Bloqueaste/);
+    const here = addDeviceAvailability(pushSupport({ ...ok, subscribed: true }));
+    expect(here).toEqual({ available: false, reason: 'Este dispositivo ya recibe avisos.' });
+  });
+
+  it('waits for the browser without a verdict', () => {
+    const waiting = addDeviceAvailability(null);
+    expect(waiting.available).toBe(false);
+    expect(waiting.reason).not.toBeNull();
+  });
+});
+
+describe('canActivateDevice', () => {
+  const ready = pushSupport(ok);
+
+  it('needs a ready browser, a name and nothing in flight', () => {
+    expect(canActivateDevice(false, 'PC', ready)).toBe(true);
+    expect(canActivateDevice(true, 'PC', ready)).toBe(false);
+    expect(canActivateDevice(false, '  ', ready)).toBe(false);
+    expect(canActivateDevice(false, 'PC', null)).toBe(false);
+    expect(canActivateDevice(false, 'PC', pushSupport({ ...ok, isIos: true }))).toBe(false);
   });
 });
 

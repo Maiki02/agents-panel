@@ -54,7 +54,7 @@ No hay un límite contratado de worktrees: es una **configuración del panel**. 
 
 Lo más probable es que se termine antes el límite de uso de la suscripción que la VM.
 
-**Capacidad de la VM y tiempo de ejecución (work `capacidad-y-tiempos`).** La página Proyectos muestra cuánto ocupa cada cosa y cuánta RAM queda, y cada tarjeta de chat muestra su fecha de creación y su tiempo de ejecución. Todo es solo lectura: no borra, no mueve ni instala nada, así que no cambia la VM ni los costos. Las rutas exigen sesión; `POST` además exige CSRF. Solo salen nombres de proyecto y números, nunca una ruta de la VM.
+**Capacidad de la VM y tiempo de ejecución (work `capacidad-y-tiempos`).** La página Proyectos muestra, debajo de la lista de proyectos, cuánto ocupa cada cosa y cuánta RAM queda, y cada tarjeta de chat muestra su fecha de creación y su tiempo de ejecución. Todo es solo lectura: no borra, no mueve ni instala nada, así que no cambia la VM ni los costos. Las rutas exigen sesión; `POST` además exige CSRF. Solo salen nombres de proyecto y números, nunca una ruta de la VM.
 
 Decisiones (D1 a D8):
 
