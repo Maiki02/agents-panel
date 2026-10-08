@@ -185,7 +185,7 @@ Agregar una cuenta:
 
 1. En la VM, login con su directorio: `CLAUDE_CONFIG_DIR=~/.claude2 claude` y `/login`.
 2. Compartir la config con la principal: `bash scripts/vm/11-claude-cuentas.sh ~/.claude2` (paso 17 de `vm-setup.md`).
-3. En la web, **Cuentas → Agregar cuenta**: nombre (por ejemplo «Miqueas - Bimtrazer») y directorio absoluto (`/home/ubuntu/.claude2`). Se rechaza si no está dentro del home, no existe, no tiene `.credentials.json` o es `~/.claude` (esa es la principal; se puede renombrar).
+3. En la web, **Cuentas → Nueva cuenta** (botón arriba a la derecha, abre un modal con los pasos previos en la VM): nombre (por ejemplo «Miqueas - Bimtrazer») y directorio absoluto (`/home/ubuntu/.claude2`). Se rechaza si no está dentro del home, no existe, no tiene `.credentials.json` o es `~/.claude` (esa es la principal; se puede renombrar).
 
 Referencia de la API: `GET /api/accounts`, `POST /api/accounts` `{ "name", "configDir" }` (**201**, **400** ruta no absoluta o directorio inválido, **409** nombre o directorio repetido), `PATCH /api/accounts/:id` `{ "name" }`, `DELETE /api/accounts/:id` (**204**, **409** para la principal o la activa; **404** si el id no existe, igual que en PATCH y PUT) y `PUT /api/accounts/active` `{ "id" }` (**409** sin login). Si la API se levanta en desarrollo desde una terminal con `CLAUDE_CONFIG_DIR` exportada, no importa: el panel arma el entorno de cada turno según la cuenta activa.
 
@@ -283,7 +283,7 @@ Web Push avisa a la PC y al celular aunque la pestaña esté cerrada. Usa los se
 
 1. **Generar las claves** (una sola vez, en la VM): `npm run -w @agents-panel/api cli -- push:vapid-keys`. Imprime tres líneas.
 2. **Dónde van:** en `apps/api/.env` (el de desarrollo de la VM): `PUSH_VAPID_PUBLIC_KEY`, `PUSH_VAPID_PRIVATE_KEY` y `PUSH_VAPID_SUBJECT` (`mailto:` o `https:`). La clave privada es un secreto: no se pega en docs, bitácora ni chats. Sin las claves el panel arranca igual y las notificaciones quedan apagadas (`GET /api/push/config` da `enabled: false`). Reiniciar la API después de cambiarlas; con otras claves, las suscripciones viejas dejan de servir y hay que activarlas de nuevo.
-3. **Activar un dispositivo:** entrá a **Notificaciones** (link del header), tocá **Activar en este dispositivo**, aceptá el permiso y probá con **Probar**. La lista permite renombrar y quitar.
+3. **Activar un dispositivo:** entrá a **Notificaciones** (link del header), tocá **Agregar este dispositivo** (botón arriba a la derecha; abre un modal con el nombre sugerido, editable), tocá **Activar**, aceptá el permiso y probá con **Probar**. Si el navegador no puede recibir avisos o el dispositivo ya está en la lista, el botón o Activar quedan deshabilitados y se ve el motivo. La lista permite renombrar y quitar.
    - En la PC por el túnel (`http://localhost:4200`) funciona porque `localhost` es contexto seguro.
    - En el Android hace falta la URL de Funnel (HTTPS): ver el paso 15 de `vm-setup.md` y `PANEL_EXTRA_ORIGINS`.
    - En iPhone y iPad hay que agregar el panel a la pantalla de inicio y abrirlo desde ahí.

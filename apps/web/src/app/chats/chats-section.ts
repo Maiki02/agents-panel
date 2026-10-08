@@ -33,7 +33,7 @@ const NEW_CHAT_URL = /\/chats\/new(?:[/?#]|$)/;
       </div>
       <app-chat-list [projectId]="p.id" />
       @if (newOpen()) {
-        <app-modal heading="Nuevo chat" (closed)="closeNew(p.id)">
+        <app-modal heading="Nuevo chat" [wide]="true" (closed)="closeNew(p.id)">
           <app-new-chat-form [project]="p" (created)="opened($event)" />
         </app-modal>
       }

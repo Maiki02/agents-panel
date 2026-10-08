@@ -41,12 +41,15 @@ p {
   margin: 0 0 0.5rem;
 }
 /* Links follow the identity, not the browser's blue. */
-a {
-  color: var(--ui-link);
-  text-decoration: none;
-}
-a:hover {
-  text-decoration: underline;
+/* In @layer base so Tailwind utilities (hover:no-underline, text-*) win over them. */
+@layer base {
+  a {
+    color: var(--ui-link);
+    text-decoration: none;
+  }
+  a:hover {
+    text-decoration: underline;
+  }
 }
 :focus-visible {
   outline: 2px solid var(--ui-accent);
