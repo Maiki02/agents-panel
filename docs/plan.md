@@ -54,6 +54,28 @@ No hay un límite contratado de worktrees: es una **configuración del panel**. 
 
 Lo más probable es que se termine antes el límite de uso de la suscripción que la VM.
 
+**Capacidad de la VM y tiempo de ejecución (work `capacidad-y-tiempos`).** La página Proyectos muestra cuánto ocupa cada cosa y cuánta RAM queda, y cada tarjeta de chat muestra su fecha de creación y su tiempo de ejecución. Todo es solo lectura: no borra, no mueve ni instala nada, así que no cambia la VM ni los costos. Las rutas exigen sesión; `POST` además exige CSRF. Solo salen nombres de proyecto y números, nunca una ruta de la VM.
+
+Decisiones (D1 a D8):
+
+| # | Decisión |
+| --- | --- |
+| D1 | Tiempo de ejecución = sesiones de IA + pasos del panel − esperas de preguntas. |
+| D2 | Por proyecto se muestran «Repositorio» y «Worktrees» por separado (nunca «clon»). |
+| D3 | RAM por función, no por proyecto: «Sesiones de IA y builds», «Panel», «Otros» y «Disponible», más el swap. |
+| D4 | El disco se mide en segundo plano y se guarda. |
+| D5 | La RAM se lee en cada consulta, sin caché. |
+| D6 | «Otros» del disco = usado total − Proyectos − Worktrees. |
+| D7 | Un chat anterior a la medición de pasos muestra el tiempo con «≈». |
+| D8 | Se hizo como un Kyro Work independiente del scope `autopiloto-kyro`. |
+
+- **Disco** (`GET /api/capacity/disk`, `POST /api/capacity/disk/refresh`). Un `DiskMonitor` mide con `du -sx --block-size=1` por `execFile` (sin shell, con timeout de 5 min, sin seguir symlinks y contando cada inodo una vez por llamada) el repositorio y los worktrees de cada proyecto. Corre al arrancar, cada 10 minutos, al crear o borrar un worktree o un proyecto, y con **Recalcular**. Hay una sola medición a la vez: si ya hay una en curso, `refresh` responde 200 `{ started: false }` y no arranca otra; si arranca, 202. La última medición vive en memoria (se recalcula al arrancar, así que nunca queda vieja tras un reinicio) y la consulta nunca espera a `du`: devuelve esa medición con su hora (`measuredAt`). Los totales cierran: `Proyectos + Worktrees + Otros + Libre = total`, con `Otros` = usado (`statfs`) − Proyectos − Worktrees y nunca negativo (si las carpetas suman más que lo usado, se recortan Worktrees y luego Proyectos). Las carpetas de `PANEL_PROJECTS_DIR` o `PANEL_WORKTREES_DIR` que no son de un proyecto registrado van a `strays` y suman en el tramo de su área (Proyectos o Worktrees); lo que queda fuera de esas carpetas es Otros. Un worktree-dir inexistente de un proyecto cuenta 0 B (medido). Antes de la primera medición la respuesta es `measuring: true` sin números («Midiendo…»); un valor que falló es `null` («sin dato»), nunca 0.
+- **RAM** (`GET /api/capacity/memory`). Se lee en cada consulta de `/proc/meminfo` y de `/proc/<pid>/{cwd,status}`. «Sesiones de IA y builds» suma los procesos cuyo `cwd` está bajo el directorio de worktrees; «Panel» suma el proceso de la API y sus hijos que no están en worktrees; «Otros» es el resto de la memoria usada (incluye los procesos con `cwd` ilegible) y «Disponible» es `MemAvailable`. Los cuatro suman el total. El swap va aparte (usado sobre total). Si `meminfo` falla, `totals` y `swap` son `null` («sin dato»).
+- **Registro de pasos del panel.** Tabla `panel_steps` (migración 20: `chat_id`, `kind`, `started_at`, `ended_at`, `result`). Cada paso sin IA pasa por un único envoltorio (`StepRunner`, en `chats/steps-repo.ts`) que abre el intervalo, corre el paso y lo cierra aunque falle (`ok` o `failed`). Los pasos medidos son `setup` (el worktree todavía no tiene chat: los intervalos se guardan al crearlo), `analyze`, `push`, y los de la fase de merge: `merge_pull`, `merge_scan`, `merge_validate`, `merge_dev_check` y `merge_pr`. Al arrancar el panel, todo paso que quedó abierto se cierra con la hora del reinicio y resultado `interrupted`.
+- **Tiempo neto** (`runtimeMs` y `runtimeApprox` en cada `Chat`). Se calcula en `chats/runtime.ts` (`netRuntimeMs`): se **unen** los intervalos de las sesiones de IA y de los pasos (lo que se solapa cuenta una vez), y se resta lo que cae dentro de ese tiempo de las esperas del usuario, que son las preguntas abiertas (desde que se hicieron hasta la respuesta). Un intervalo abierto cuenta hasta «ahora»; la resta tiene piso en 0 y una pregunta fuera de toda sesión no resta nada. La cola, el cupo de uso y las aprobaciones ocurren entre sesiones, así que no suman. El listado de chats lo calcula con tres consultas para todos los chats. `runtimeApprox` es verdadero cuando el chat se creó antes de la migración 20: no hay pasos medidos, así que el valor es un mínimo.
+- **Tarjeta de chat** (`chats/chat-sidebar.ts`, formato en `chats/runtime-logic.ts`). Muestra la fecha de creación en formato local corto y el tiempo como «45 s», «12 min» o «1 h 12 min». Con `runtimeApprox` antepone «≈» y la ayuda aclara que solo cuenta las sesiones de IA. La lista se recarga cada 4 s mientras un agente corre, así que el tiempo avanza en cada recarga y queda quieto con una pregunta abierta.
+- **Seguimiento fuera de este work:** alertas por umbral de disco o RAM con Web Push, una vez vistos los datos reales.
+
 **Limpieza al mergear.** Cuando todas las PRs de un scope o work están mergeadas en `dev` y la raíz ya está en `main`, el panel borra el worktree solo:
 
 1. Detecta el merge con `gh pr list --head feature-<scope> --state merged`.

@@ -9,6 +9,9 @@ import { AccountRepository } from './accounts/repo.js';
 import { registerAccountRoutes } from './accounts/routes.js';
 import { AccountService } from './accounts/service.js';
 import { AgentManager } from './agent/manager.js';
+import { DiskMonitor, type DiskMeter } from './capacity/disk.js';
+import { readMemory } from './capacity/memory.js';
+import { registerCapacityRoutes } from './capacity/routes.js';
 import { KyroLock } from './maintenance/lock.js';
 import { registerMaintenanceRoutes } from './maintenance/routes.js';
 import { MaintenanceRunRepository } from './maintenance/runs.js';
@@ -18,6 +21,7 @@ import { KyroVersions, type Exec } from './maintenance/versions.js';
 import type { AgentRunner } from './agent/runner.js';
 import { SdkRunner } from './agent/sdk-runner.js';
 import { AgentSessionRepository } from './chats/sessions-repo.js';
+import { PanelStepRepository } from './chats/steps-repo.js';
 import { UsageRepository } from './usage/repo.js';
 import { registerUsageRoutes } from './usage/routes.js';
 import { UsageService } from './usage/service.js';
@@ -138,6 +142,10 @@ export interface AppDeps {
   kyroRunner?: CommandRunner;
   /** Home where the Claude accounts live (~/.claude, ~/.claude.json); tests use a temporary one. */
   accountsHome?: string;
+  /** Measures folders for the disk view; tests inject a fake instead of running `du`. */
+  diskMeter?: DiskMeter;
+  /** Root of the proc filesystem for the RAM view; tests use a simulated one. */
+  procRoot?: string;
   /** Reads the plan usage with a short SDK session; tests inject fixtures instead of a process. */
   usageReader?: UsageReader;
 }
@@ -217,6 +225,9 @@ export function buildApp(deps: AppDeps, options: FastifyServerOptions = {}): Fas
   };
   const tracker = new WorktreeStateTracker(worktreeState, kyroReader, ideaScanner, questions);
   const agentSessions = new AgentSessionRepository(deps.db, now);
+  const panelSteps = new PanelStepRepository(deps.db, now);
+  // A step the old process left open ended with the restart.
+  panelSteps.closeOpen('interrupted');
   const accounts = new AccountService(new AccountRepository(deps.db, now), deps.accountsHome);
   const usageRepo = new UsageRepository(deps.db, now);
   const manager =
@@ -285,6 +296,7 @@ export function buildApp(deps: AppDeps, options: FastifyServerOptions = {}): Fas
     tracker,
     questions,
     sessions: agentSessions,
+    steps: panelSteps,
     usage: usageRepo,
     ...(deps.pilotGit ? { git: deps.pilotGit } : {}),
     projectOf: (chat) => projects.findById(chat.projectId),
@@ -301,6 +313,7 @@ export function buildApp(deps: AppDeps, options: FastifyServerOptions = {}): Fas
     worktreesDir: deps.config.worktreesDir,
     envFiles,
     tracker,
+    steps: panelSteps,
     states: worktreeState,
     autopilot: autopilotRuns,
     onAutopilotStart: (chatId) => {
@@ -370,6 +383,35 @@ export function buildApp(deps: AppDeps, options: FastifyServerOptions = {}): Fas
       kyroPending.invalidate();
     }
     done();
+  });
+
+  const disk = new DiskMonitor({
+    projects: () => projects.list(),
+    projectsDir: deps.config.projectsDir,
+    worktreesDir: deps.config.worktreesDir,
+    ...(deps.diskMeter ? { meter: deps.diskMeter } : {}),
+    now,
+    log: (message) => {
+      app.log.warn(message);
+    },
+  });
+  app.addHook('onReady', () => {
+    disk.start();
+  });
+  app.addHook('onClose', () => {
+    disk.stop();
+  });
+  registerCapacityRoutes(app, {
+    disk,
+    memory: () =>
+      readMemory({
+        worktreesDir: deps.config.worktreesDir,
+        ...(deps.procRoot ? { procRoot: deps.procRoot } : {}),
+        now,
+        log: (message) => {
+          app.log.error(message);
+        },
+      }),
   });
 
   registerProjectRoutes(app, { projects, service: projectService, kyroPending });

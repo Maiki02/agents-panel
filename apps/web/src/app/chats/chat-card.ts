@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, input } from '@angular/core';
 import { RouterLink, RouterLinkActive } from '@angular/router';
 import type { Chat } from '@agents-panel/shared';
 import { Badge } from '../ui/badge';
+import { RUNTIME_APPROX_HELP, createdLabel, runtimeLabel } from './runtime-logic';
 import { chatSubtitle, kindChipLabel, sidebarBadge } from './status';
 
 /**
@@ -27,6 +28,15 @@ import { chatSubtitle, kindChipLabel, sidebarBadge } from './status';
         <span class="kind-chip">{{ kindLabel() }}</span>
         <span class="min-w-0 break-all text-xs text-muted">{{ subtitle() }}</span>
       </span>
+      <span class="mt-0.5 flex items-center justify-between gap-2 text-xs text-muted">
+        <span>{{ created() }}</span>
+        <span
+          [attr.title]="chat().runtimeApprox ? approxHelp : null"
+          [attr.aria-label]="chat().runtimeApprox ? approxHelp : null"
+        >
+          {{ runtime() }}
+        </span>
+      </span>
     </a>
   `,
 })
@@ -34,6 +44,14 @@ export class ChatCard {
   readonly chat = input.required<Chat>();
   readonly projectId = input.required<number>();
 
+  protected readonly approxHelp = RUNTIME_APPROX_HELP;
+
+  protected created(): string {
+    return createdLabel(this.chat().createdAt);
+  }
+  protected runtime(): string {
+    return runtimeLabel(this.chat());
+  }
   protected badge() {
     return sidebarBadge(this.chat());
   }

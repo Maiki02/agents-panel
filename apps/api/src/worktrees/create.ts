@@ -4,6 +4,8 @@ import { rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import type { Project } from '@agents-panel/shared';
+import { notifyDiskChanged } from '../capacity/disk.js';
+import type { StepRunner } from '../chats/steps-repo.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -24,6 +26,8 @@ export interface WorktreeOptions {
   branch?: string;
   /** Skips the project's setup command (a worktree that only commits files needs no dependencies). */
   skipSetup?: boolean;
+  /** Times the setup command; the chat does not exist yet, so the caller stores the interval. */
+  step?: StepRunner;
 }
 
 export type WorktreeLog = (type: string, payload: Record<string, unknown>) => void;
@@ -147,11 +151,15 @@ export async function createWorktree(
       log,
       'git worktree add',
     );
-    if (!options.skipSetup) await runSetup(project, path, log);
+    if (project.setupCommand && !options.skipSetup) {
+      const setup = (): Promise<void> => runSetup(project, path, log);
+      await (options.step ? options.step('setup', setup) : setup());
+    }
   } catch (error) {
     await rollback(project.repoPath, path, branch);
     throw error;
   }
+  notifyDiskChanged();
   return { path, branch };
 }
 
@@ -162,6 +170,7 @@ export async function removeWorktree(
   branch: string,
 ): Promise<void> {
   await rollback(repoPath, path, branch);
+  notifyDiskChanged();
 }
 
 /**
