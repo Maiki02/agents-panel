@@ -110,14 +110,17 @@ export function stepperView(
 ): StepperView {
   const phase = state === null ? null : phaseOf(state.state, state.previousState);
   const index = phase === null ? -1 : PHASES.findIndex((p) => p.id === phase);
+  // A merged work has finished every phase, PR included: all steps are done and none is current.
+  // Only `mergeada` counts: `limpiando`, `archivado` and `terminado` can be reached without a merge.
+  const merged = state !== null && state.state === 'mergeada';
   const steps = PHASES.map<StepView>((p, i) => ({
     id: p.id,
     label: p.label,
-    status: i < index ? 'done' : i === index ? 'current' : 'upcoming',
+    status: merged || i < index ? 'done' : i === index ? 'current' : 'upcoming',
   }));
   return {
     steps,
-    current: index < 0 ? null : (PHASES[index]?.label ?? null),
+    current: merged || index < 0 ? null : (PHASES[index]?.label ?? null),
     sprint: state === null ? null : ratio('Sprint', state.sprintCurrent, state.sprintTotal),
     task: state === null ? null : ratio('Tarea', state.taskDone, state.taskTotal),
     session: state === null ? null : sessionLabel(state.role, state.model),

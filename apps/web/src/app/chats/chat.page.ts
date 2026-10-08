@@ -12,6 +12,7 @@ import {
   signal,
   viewChild,
 } from '@angular/core';
+import { RouterLink } from '@angular/router';
 import type {
   Chat,
   ChatEvent,
@@ -51,6 +52,8 @@ import { GitTab } from './git/git-tab';
 import { Tabs, type TabItem } from '../ui/tabs';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
+import { Icon } from '../ui/icon';
+import { ProjectContext } from '../projects/project-context';
 
 @Component({
   selector: 'app-chat',
@@ -58,6 +61,8 @@ import { Badge } from '../ui/badge';
   imports: [
     Button,
     Badge,
+    Icon,
+    RouterLink,
     Tabs,
     AutopilotBar,
     PhaseStepper,
@@ -70,9 +75,15 @@ import { Badge } from '../ui/badge';
   host: { class: 'flex min-h-0 flex-1 flex-col' },
   template: `
     <div class="chat-top">
+      <div class="mb-2">
+        <a appButton variant="secondary" [routerLink]="['/projects', projectId(), 'chats']">
+          <app-icon name="chats" />
+          Chats
+        </a>
+      </div>
       @if (chat(); as c) {
         <header class="chat-head">
-          <h1>{{ c.title }}</h1>
+          <h1>{{ c.slug }}</h1>
           <app-badge [tone]="badge().tone">{{ badge().label }}</app-badge>
           @if (c.status === 'running') {
             <button appButton variant="danger" type="button" (click)="cancel()">Cancelar</button>
@@ -279,6 +290,9 @@ import { Badge } from '../ui/badge';
 export class ChatPage {
   private readonly service = inject(ChatsService);
   private readonly stream = inject(ChatStreamService);
+  /** The layout renders this page only once the project is loaded. */
+  private readonly context = inject(ProjectContext);
+  protected readonly projectId = computed(() => this.context.project()?.id ?? 0);
   private readonly feed = viewChild<ElementRef<HTMLElement>>('feed');
   /**
    * Whether the feed follows new events: true while the user is at (or near) the end, false

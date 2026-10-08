@@ -10,6 +10,13 @@
   .narrow {
     @apply mx-auto my-10 max-w-sm;
   }
+  /* Scrolls but never shows the scrollbar (Firefox, Chrome/Safari). */
+  .scrollbar-none {
+    scrollbar-width: none;
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
 
   /* Forms */
   form {
@@ -71,6 +78,10 @@
   }
 
   /* Chat */
+  /* Neutral pill with the kind of a chat (Scope, Work, Idea, Directo): not a state, no tone. */
+  .kind-chip {
+    @apply inline-flex shrink-0 items-center rounded-pill border border-border bg-surface-raised px-2 py-0.5 text-xs font-medium text-text;
+  }
   .chat-head {
     @apply flex flex-wrap items-center gap-3;
   }

@@ -1,4 +1,4 @@
-import type { Chat, ChatStatus } from '@agents-panel/shared';
+import type { Chat, ChatKind, ChatStatus } from '@agents-panel/shared';
 import type { BadgeTone } from '../ui/badge';
 import { workStateBadge } from './work-state';
 
@@ -31,9 +31,21 @@ export function hasRunning(chats: readonly Pick<Chat, 'status'>[]): boolean {
   return chats.some((chat) => chat.status === 'running');
 }
 
-/** What identifies a chat besides its title: kind and branch (the worktree's branch). */
-export function chatSubtitle(chat: Pick<Chat, 'kind' | 'branch'>): string {
-  return `${chat.kind === 'direct' ? 'directo' : chat.kind} · ${chat.branch}`;
+const KIND_LABELS: Record<ChatKind, string> = {
+  scope: 'Scope',
+  work: 'Work',
+  idea: 'Idea',
+  direct: 'Directo',
+};
+
+/** Text of the chip that tells the kind of a chat. */
+export function kindChipLabel(kind: ChatKind): string {
+  return KIND_LABELS[kind];
+}
+
+/** What identifies a chat besides its short name: the worktree's branch (the kind is a chip). */
+export function chatSubtitle(chat: Pick<Chat, 'branch'>): string {
+  return chat.branch;
 }
 
 /**

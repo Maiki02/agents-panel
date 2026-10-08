@@ -54,6 +54,31 @@ describe('stepperView', () => {
     expect(view.current).toBe('QA');
   });
 
+  it('paints every step done when the PR is merged', () => {
+    const view = stepperView({ ...base, state: 'mergeada' });
+    expect(view.steps).toHaveLength(7);
+    expect(view.steps.every((s) => s.status === 'done')).toBe(true);
+    expect(view.current).toBeNull();
+  });
+
+  it('keeps PR as the current step while the PR is open', () => {
+    for (const state of ['pr_lista', 'pr_checks_fallidos', 'pr_cambios_pedidos'] as const) {
+      const view = stepperView({ ...base, state });
+      expect(view.current, state).toBe('PR');
+      expect(
+        view.steps.map((s) => s.status),
+        state,
+      ).toEqual(['done', 'done', 'done', 'done', 'done', 'done', 'current']);
+    }
+  });
+
+  it('does not treat states that can come without a merge as merged', () => {
+    for (const state of ['limpiando', 'archivado', 'terminado'] as const) {
+      const view = stepperView({ ...base, state });
+      expect(view.steps[6]?.status, state).toBe('current');
+    }
+  });
+
   it('shows sprint and task only when the numbers come, never invents them', () => {
     expect(stepperView({ ...base, state: 'qa' })).toMatchObject({ sprint: null, task: null });
     expect(

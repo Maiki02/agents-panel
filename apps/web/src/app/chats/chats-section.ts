@@ -1,74 +1,61 @@
-import { ChangeDetectionStrategy, Component, effect, inject, signal } from '@angular/core';
-import { RouterOutlet } from '@angular/router';
+import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
+import { Router } from '@angular/router';
+import type { Chat } from '@agents-panel/shared';
 import { ProjectContext } from '../projects/project-context';
 import { currentUrl } from '../shell/current-url';
-import { WIDE_QUERY, mediaMatches } from '../shell/media';
 import { Button } from '../ui/button';
-import { Drawer } from '../ui/drawer';
-import { closesOnNavigation } from '../ui/drawer-logic';
 import { Icon } from '../ui/icon';
-import { ChatSidebar } from './chat-sidebar';
+import { Modal } from '../ui/modal';
+import { ChatList } from './chat-list';
+import { NewChatForm } from './new-chat.form';
+
+/** chats/new (also the old "Nuevo chat" links) is the grid with the dialog open. */
+const NEW_CHAT_URL = /\/chats\/new(?:[/?#]|$)/;
 
 /**
- * The "Chats" section of a project, filling the height it gets. Wide screens: the chat list on
- * the left (own scroll) and the conversation next to it. Phones: the conversation takes it all
- * and a "Chats" button opens the list as a sliding panel, which closes when a chat is picked.
- * Only one list is mounted at a time (each one polls while an agent runs).
+ * The "Chats" section of a project: "Nuevo chat" on top, the filters and the grid of chat cards
+ * below. "Nuevo chat" opens a dialog (route chats/new); creating closes it and opens the chat.
+ * Closing it any other way keeps what was typed (NewChatDraft) until the page is reloaded.
  */
 @Component({
   selector: 'app-chats-section',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterOutlet, ChatSidebar, Drawer, Button, Icon],
-  host: { class: 'flex min-h-0 flex-1 flex-col' },
+  imports: [Button, Icon, Modal, ChatList, NewChatForm],
+  host: { class: 'block' },
   template: `
     @if (project(); as p) {
-      <div class="flex min-h-0 flex-1 gap-4">
-        @if (wide()) {
-          <aside class="w-64 shrink-0 overflow-y-auto pr-1" aria-label="Chats del proyecto">
-            <app-chat-sidebar [projectId]="p.id" />
-          </aside>
-        }
-        <div class="flex min-h-0 min-w-0 flex-1 flex-col">
-          @if (!wide()) {
-            <div class="mb-2 shrink-0">
-              <button
-                appButton
-                variant="secondary"
-                type="button"
-                [attr.aria-expanded]="listOpen()"
-                (click)="listOpen.set(true)"
-              >
-                <app-icon name="chats" />
-                Chats
-              </button>
-            </div>
-          }
-          <div class="flex min-h-0 flex-1 flex-col overflow-y-auto">
-            <router-outlet />
-          </div>
-        </div>
+      <div class="mb-3 flex items-center justify-between gap-3">
+        <h2 class="m-0 text-lg font-semibold">Chats</h2>
+        <button appButton variant="primary" type="button" (click)="openNew(p.id)">
+          <app-icon name="plus" />
+          Nuevo chat
+        </button>
       </div>
-      @if (!wide()) {
-        <app-drawer [open]="listOpen()" heading="Chats del proyecto" (closed)="listOpen.set(false)">
-          <app-chat-sidebar [projectId]="p.id" />
-        </app-drawer>
+      <app-chat-list [projectId]="p.id" />
+      @if (newOpen()) {
+        <app-modal heading="Nuevo chat" (closed)="closeNew(p.id)">
+          <app-new-chat-form [project]="p" (created)="opened($event)" />
+        </app-modal>
       }
     }
   `,
 })
 export class ChatsSection {
+  private readonly router = inject(Router);
   protected readonly project = inject(ProjectContext).project;
-  protected readonly wide = mediaMatches(WIDE_QUERY);
-  protected readonly listOpen = signal(false);
   private readonly url = currentUrl();
+  protected readonly newOpen = computed(() => NEW_CHAT_URL.test(this.url()));
 
-  constructor() {
-    // Picking a chat (or "Nuevo chat") navigates: the panel gets out of the way.
-    let previous = this.url();
-    effect(() => {
-      const next = this.url();
-      if (closesOnNavigation(previous, next)) this.listOpen.set(false);
-      previous = next;
-    });
+  protected openNew(projectId: number): void {
+    void this.router.navigate(['/projects', projectId, 'chats', 'new']);
+  }
+
+  protected closeNew(projectId: number): void {
+    void this.router.navigate(['/projects', projectId, 'chats']);
+  }
+
+  /** A chat was created: the dialog goes away with the navigation to the chat. */
+  protected opened(chat: Chat): void {
+    void this.router.navigate(['/projects', chat.projectId, 'chats', chat.id]);
   }
 }

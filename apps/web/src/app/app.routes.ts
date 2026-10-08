@@ -1,16 +1,5 @@
-import { inject } from '@angular/core';
-import { Router, type CanActivateFn, type Routes } from '@angular/router';
+import type { Routes } from '@angular/router';
 import { authGuard, guestGuard } from './auth/auth.guard';
-import { chatsPath } from './projects/last-chat';
-import { LastChatStore } from './projects/last-chat.store';
-
-/** /projects/:id and /projects/:id/chats open the last selected chat, or "Nuevo chat". */
-const lastChatGuard: CanActivateFn = (route) => {
-  const raw = route.pathFromRoot.map((r) => r.params['id'] as string | undefined).find(Boolean);
-  const projectId = Number(raw);
-  if (!Number.isInteger(projectId) || projectId < 1) return true;
-  return inject(Router).parseUrl(chatsPath(projectId, inject(LastChatStore).get(projectId)));
-};
 
 export const routes: Routes = [
   {
@@ -29,15 +18,15 @@ export const routes: Routes = [
     canActivate: [authGuard],
     loadComponent: () => import('./projects/project-layout').then((m) => m.ProjectLayout),
     children: [
-      { path: '', pathMatch: 'full', canActivate: [lastChatGuard], children: [] },
+      { path: '', pathMatch: 'full', redirectTo: 'chats' },
       {
         path: 'chats',
-        loadComponent: () => import('./chats/chats-section').then((m) => m.ChatsSection),
         children: [
-          { path: '', pathMatch: 'full', canActivate: [lastChatGuard], children: [] },
           {
-            path: 'new',
-            loadComponent: () => import('./chats/new-chat.page').then((m) => m.NewChatPage),
+            // The grid; chats/new is the same grid with the "Nuevo chat" dialog open.
+            path: '',
+            loadComponent: () => import('./chats/chats-section').then((m) => m.ChatsSection),
+            children: [{ path: 'new', children: [] }],
           },
           {
             path: ':chatId',

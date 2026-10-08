@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { moveTab, resolveTab } from './tabs-logic';
+import { moveTab, resolveTab, REVEAL_OPTIONS } from './tabs-logic';
 import { badgeClasses } from './badge';
 import { buttonClasses } from './button';
 
@@ -30,6 +30,12 @@ describe('moveTab', () => {
     expect(moveTab(IDS, 'general', 'End')).toBe('environment');
     expect(moveTab(IDS, 'general', 'a')).toBeNull();
     expect(moveTab([], 'general', 'Home')).toBeNull();
+  });
+});
+
+describe('REVEAL_OPTIONS', () => {
+  it('scrolls the minimum needed on both axes', () => {
+    expect(REVEAL_OPTIONS).toEqual({ block: 'nearest', inline: 'nearest' });
   });
 });
 
