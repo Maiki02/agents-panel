@@ -1,0 +1,365 @@
+{
+  "schemaVersion": 1,
+  "kind": "organic-work",
+  "id": "ui-chats-2-y-layout",
+  "title": "Chats sin subrayado, modal de Nuevo chat ancho, capacidad al final y Cuentas y Notificaciones como lista + botón",
+  "objective": "Que las pantallas de listas sigan una sola estructura (título, botón primario «Nuevo …» a la derecha, la lista y el alta en un modal), como ya hacen Proyectos y Chats, y pulir tres detalles de la web: el subrayado al pasar el mouse por las cards de chat, el ancho del modal de Nuevo chat y la posición del disco y la RAM en Proyectos.",
+  "brief": {
+    "path": "brief.md",
+    "digest": "4b54b3a6f1af688fa347b1f1857b9e42ba4ff84953711332394f4c0df3be83ca",
+    "sourceIdea": null
+  },
+  "state": "closed",
+  "revision": 12,
+  "createdAt": "2026-10-08T22:12:46.822Z",
+  "updatedAt": "2026-10-08T22:25:46.815Z",
+  "handoff": {
+    "nextAction": "done",
+    "nextTaskId": null,
+    "blockedReason": null
+  },
+  "tasks": [
+    {
+      "id": "W1",
+      "title": "Sin subrayado en cards de chat, modal de Nuevo chat ancho y capacidad al final de Proyectos",
+      "description": "1) styles/base.css: las reglas a y a:hover pasan a @layer base para que las utilidades de Tailwind (hover:no-underline) les ganen; el resto de base.css queda igual. Se revisa que chat-card, side-nav y account-selector no se subrayen al pasar el mouse y que .link (components.css) siga subrayado. 2) chats-section.ts: el app-modal de Nuevo chat lleva [wide]=\"true\" (max-w-3xl); se revisa que el formulario aproveche el ancho sin romperse en el celular. 3) projects.page.ts: <app-capacity-bars /> pasa debajo de la lista de proyectos (después del @for/@empty), con su separación arriba.",
+      "context": "Pedidos 1, 2 y 3. Causa del subrayado: en Tailwind v4 las utilidades viven en @layer utilities y una regla sin capa les gana, así que hover:no-underline no tiene efecto. docs/identidad-visual.md ya dice que los links que son ítems de menú o tarjetas no se subrayan. Decisión propia: solo los links pasan a la capa base, para no cambiar márgenes de títulos en toda la app. Si docs/plan.md o docs/panel-desarrollo.md dicen dónde están las barras de capacidad, se actualizan.",
+      "filesToTouch": [
+        "apps/web/src/styles/base.css",
+        "apps/web/src/app/chats/chats-section.ts",
+        "apps/web/src/app/projects/projects.page.ts",
+        "docs/identidad-visual.md"
+      ],
+      "acceptanceCriteria": [
+        "Al pasar el mouse por una card de chat ningún texto se subraya; los links .link dentro de frases siguen subrayados",
+        "El modal de Nuevo chat usa el ancho wide (max-w-3xl) y en el celular sigue ocupando el ancho disponible sin desbordar",
+        "En Proyectos las barras de disco y RAM aparecen debajo de la lista de proyectos (y del estado vacío)",
+        "Build, lint y tests de la web en verde"
+      ],
+      "dependsOn": [],
+      "definitionRevision": 1,
+      "status": "verified",
+      "blocker": null,
+      "evidence": {
+        "summary": "Link rules a / a:hover moved to @layer base so hover:no-underline wins on cards and menus (.link keeps its underline); Nuevo chat modal uses [wide]=true (max-w-3xl, still w-full on mobile); app-capacity-bars now sits below the projects list and empty state with mt-4. Docs updated (identidad-visual, plan). runtime-logic.ts got String() in template literals to clear a lint error that predated this task.",
+        "validations": [
+          {
+            "command": "npm run build -w @agents-panel/web",
+            "result": "passed",
+            "note": "Application bundle generation complete"
+          },
+          {
+            "command": "npm run lint",
+            "result": "passed",
+            "note": "eslint clean"
+          },
+          {
+            "command": "npm run test -w @agents-panel/web",
+            "result": "passed",
+            "note": "351 tests"
+          }
+        ],
+        "filesChanged": [
+          "apps/web/src/styles/base.css",
+          "apps/web/src/app/chats/chats-section.ts",
+          "apps/web/src/app/projects/projects.page.ts",
+          "apps/web/src/app/chats/runtime-logic.ts",
+          "docs/identidad-visual.md",
+          "docs/plan.md"
+        ],
+        "notes": "Visual hover and mobile checks were not run in a browser; verified by code reading and the Tailwind v4 layer order.",
+        "by": "maker-agent",
+        "recordedAt": "2026-10-08T22:20:06.346Z",
+        "definitionRevision": 1,
+        "materialDigest": "ee59bec62fb90990ae35dd19cb371d2f22548305afbf41ad8012e8802a821cf1"
+      },
+      "verdict": {
+        "result": "pass",
+        "checkedCriteria": [
+          "Al pasar el mouse por una card de chat ningún texto se subraya; los links .link dentro de frases siguen subrayados",
+          "El modal de Nuevo chat usa el ancho wide (max-w-3xl) y en el celular sigue ocupando el ancho disponible sin desbordar",
+          "En Proyectos las barras de disco y RAM aparecen debajo de la lista de proyectos (y del estado vacío)",
+          "Build, lint y tests de la web en verde"
+        ],
+        "findings": [],
+        "by": "checker-agent",
+        "reviewedAt": "2026-10-08T22:20:18.631Z",
+        "definitionRevision": 1,
+        "evidenceDigest": "9126ca9ac65dce410add125d52ea120038e19fc1c735df87c50c010a6a3c6351",
+        "reviewedMaterialDigest": "ee59bec62fb90990ae35dd19cb371d2f22548305afbf41ad8012e8802a821cf1"
+      },
+      "disposition": null
+    },
+    {
+      "id": "W2",
+      "title": "Cuentas: lista + botón «Nueva cuenta» que abre un modal",
+      "description": "accounts.page.ts sigue la estructura de Proyectos: cabecera con el título «Cuentas de Claude» y a la derecha el botón primario «Nueva cuenta» (ícono plus); debajo la ayuda, el error y la lista de cuentas tal como está (Usar esta, Renombrar, Borrar). Se quita la tarjeta «Agregar cuenta» del pie. El botón abre un app-modal «Nueva cuenta» (componente nuevo add-account.modal.ts o similar) con los pasos previos en la VM, Nombre y Directorio de config (ruta absoluta) y Agregar; la validación del botón sigue en accounts-logic si hace falta lógica nueva (con spec). Agregar crea la cuenta y cierra el modal; el error de la API se muestra dentro del modal sin borrar lo escrito; Esc, la X y el fondo cierran sin crear. Estado vacío con texto si la lista está vacía.",
+      "context": "Pedido 4. Modelo: projects.page.ts + add-project.form.ts (modal Nuevo proyecto) y chats-section.ts. Sin cambios de API (POST /api/accounts). docs/panel-desarrollo.md (sección Cuentas, paso 3) dice «Cuentas → Agregar cuenta»: pasa a «Cuentas → Nueva cuenta». docs/identidad-visual.md describe la estructura de las páginas de lista (título + botón primario «Nuevo …» + lista + modal de alta) en el mismo cambio.",
+      "filesToTouch": [
+        "apps/web/src/app/accounts/accounts.page.ts",
+        "apps/web/src/app/accounts/add-account.modal.ts",
+        "apps/web/src/app/accounts/accounts-logic.ts",
+        "apps/web/src/app/accounts/accounts.spec.ts",
+        "docs/panel-desarrollo.md",
+        "docs/identidad-visual.md"
+      ],
+      "acceptanceCriteria": [
+        "Cuentas muestra el título con el botón primario «Nueva cuenta» a la derecha y debajo la lista de cuentas con sus acciones; ya no hay tarjeta de alta al pie",
+        "«Nueva cuenta» abre un modal con la ayuda de la VM, Nombre y Directorio de config; Agregar crea la cuenta, cierra el modal y la cuenta aparece en la lista",
+        "Un error de la API se ve dentro del modal sin borrar lo escrito; Esc, la X y el fondo cierran sin crear",
+        "docs/panel-desarrollo.md y docs/identidad-visual.md describen el botón y el modal",
+        "Build, lint y tests de la web en verde"
+      ],
+      "dependsOn": [],
+      "definitionRevision": 1,
+      "status": "verified",
+      "blocker": null,
+      "evidence": {
+        "summary": "Cuentas: cabecera con botón primario «Nueva cuenta» que abre AddAccountModal; se quitó la tarjeta de alta del pie; estado vacío con hint; canAddAccount en accounts-logic con spec; docs actualizados.",
+        "validations": [
+          {
+            "command": "npm run lint",
+            "result": "passed",
+            "note": "eslint sin hallazgos"
+          },
+          {
+            "command": "npm run build -w @agents-panel/web",
+            "result": "passed",
+            "note": "build de producción completo"
+          },
+          {
+            "command": "npm run test -w @agents-panel/web",
+            "result": "passed",
+            "note": "39 archivos, 352 tests"
+          }
+        ],
+        "filesChanged": [
+          "apps/web/src/app/accounts/accounts.page.ts",
+          "apps/web/src/app/accounts/add-account.modal.ts",
+          "apps/web/src/app/accounts/accounts-logic.ts",
+          "apps/web/src/app/accounts/accounts.spec.ts",
+          "docs/panel-desarrollo.md",
+          "docs/identidad-visual.md"
+        ],
+        "notes": "Sin cambios de API; el error del POST se muestra dentro del modal sin vaciar los campos; Esc, cruz y fondo cierran vía app-modal.",
+        "by": "maker-agent",
+        "recordedAt": "2026-10-08T22:22:59.656Z",
+        "definitionRevision": 1,
+        "materialDigest": "c100d2b8c9a72ca9eee42533d9b2aca5b50af87e88d2a526da4fdf45925a5a61"
+      },
+      "verdict": {
+        "result": "pass",
+        "checkedCriteria": [
+          "Cuentas muestra el título con el botón primario «Nueva cuenta» a la derecha y debajo la lista de cuentas con sus acciones; ya no hay tarjeta de alta al pie",
+          "«Nueva cuenta» abre un modal con la ayuda de la VM, Nombre y Directorio de config; Agregar crea la cuenta, cierra el modal y la cuenta aparece en la lista",
+          "Un error de la API se ve dentro del modal sin borrar lo escrito; Esc, la X y el fondo cierran sin crear",
+          "docs/panel-desarrollo.md y docs/identidad-visual.md describen el botón y el modal",
+          "Build, lint y tests de la web en verde"
+        ],
+        "findings": [],
+        "by": "checker-agent",
+        "reviewedAt": "2026-10-08T22:23:09.609Z",
+        "definitionRevision": 1,
+        "evidenceDigest": "28086f491f4d5ea44a3c9bba8c97657e5a1c0f73da3e061774e901ae425b5474",
+        "reviewedMaterialDigest": "c100d2b8c9a72ca9eee42533d9b2aca5b50af87e88d2a526da4fdf45925a5a61"
+      },
+      "disposition": null
+    },
+    {
+      "id": "W3",
+      "title": "Notificaciones: lista de dispositivos + botón «Agregar este dispositivo» que abre un modal",
+      "description": "notifications.page.ts sigue la misma estructura: cabecera con el título «Notificaciones» y el botón primario «Agregar este dispositivo» (ícono plus) a la derecha; debajo la ayuda, los avisos y la lista de dispositivos (Renombrar, Probar, Quitar) sin la tarjeta «Este dispositivo». El botón abre un app-modal «Agregar este dispositivo» con el nombre sugerido (suggestedName, editable, maxlength 80), el motivo cuando el navegador no puede recibir avisos (pushSupport.reason) y Activar, que pide permiso, suscribe con ese nombre (subscriptionBody), refresca la lista, cierra el modal y deja el aviso «Listo…». Si este dispositivo ya está suscripto, el botón queda deshabilitado con el motivo como title. Errores dentro del modal. La lógica nueva (por ejemplo, si el botón está disponible y su motivo) va en notifications-logic.ts con spec.",
+      "context": "Pedido 5. Decisión propia: hay modal aunque solo pida el nombre, para seguir el mismo patrón que Cuentas y Proyectos y darle lugar al motivo cuando no se puede. Sin cambios de API (POST /api/push/subscriptions ya acepta el nombre). docs/panel-desarrollo.md (Activar un dispositivo) dice «Activar en este dispositivo»: pasa a «Agregar este dispositivo». Mantener que la consulta de la suscripción del navegador no demore la lista (docs/plan.md, stale-while-revalidate).",
+      "filesToTouch": [
+        "apps/web/src/app/notifications/notifications.page.ts",
+        "apps/web/src/app/notifications/add-device.modal.ts",
+        "apps/web/src/app/notifications/notifications-logic.ts",
+        "apps/web/src/app/notifications/notifications-logic.spec.ts",
+        "docs/panel-desarrollo.md",
+        "docs/identidad-visual.md"
+      ],
+      "acceptanceCriteria": [
+        "Notificaciones muestra el título con el botón primario «Agregar este dispositivo» y debajo la lista de dispositivos con sus acciones; ya no hay tarjeta «Este dispositivo»",
+        "El botón abre un modal con el nombre sugerido editable y Activar; al activar se suscribe con ese nombre, se cierra el modal y el dispositivo aparece en la lista como «Este dispositivo»",
+        "Si el navegador no puede recibir avisos o este dispositivo ya está en la lista, el motivo se ve y Activar (o el botón) queda deshabilitado",
+        "Spec de la lógica nueva; docs/panel-desarrollo.md y docs/identidad-visual.md actualizados",
+        "Build, lint y tests de la web en verde"
+      ],
+      "dependsOn": [
+        "W2"
+      ],
+      "definitionRevision": 1,
+      "status": "verified",
+      "blocker": null,
+      "evidence": {
+        "summary": "Notificaciones: cabecera con botón primario «Agregar este dispositivo» que abre AddDeviceModal (nombre sugerido editable, motivo, Activar); se quitó la tarjeta «Este dispositivo»; addDeviceAvailability y canActivateDevice en notifications-logic con spec; docs actualizados.",
+        "validations": [
+          {
+            "command": "npm run lint",
+            "result": "passed",
+            "note": "eslint sin hallazgos"
+          },
+          {
+            "command": "npm run build -w @agents-panel/web",
+            "result": "passed",
+            "note": "build de producción completo"
+          },
+          {
+            "command": "npm run test -w @agents-panel/web",
+            "result": "passed",
+            "note": "39 archivos, 356 tests"
+          }
+        ],
+        "filesChanged": [
+          "apps/web/src/app/notifications/notifications.page.ts",
+          "apps/web/src/app/notifications/add-device.modal.ts",
+          "apps/web/src/app/notifications/notifications-logic.ts",
+          "apps/web/src/app/notifications/notifications-logic.spec.ts",
+          "docs/panel-desarrollo.md",
+          "docs/identidad-visual.md"
+        ],
+        "notes": "Sin cambios de API. La consulta de la suscripción del navegador sigue sin demorar la lista; el botón queda deshabilitado con el motivo como title mientras no responde o si el dispositivo ya está suscripto. Errores dentro del modal.",
+        "by": "maker-agent",
+        "recordedAt": "2026-10-08T22:25:32.922Z",
+        "definitionRevision": 1,
+        "materialDigest": "1073da5b30cd8808f149a516cf7e0b25ec9fdb77226ea410ff12a1aa230e4829"
+      },
+      "verdict": {
+        "result": "pass",
+        "checkedCriteria": [
+          "Notificaciones muestra el título con el botón primario «Agregar este dispositivo» y debajo la lista de dispositivos con sus acciones; ya no hay tarjeta «Este dispositivo»",
+          "El botón abre un modal con el nombre sugerido editable y Activar; al activar se suscribe con ese nombre, se cierra el modal y el dispositivo aparece en la lista como «Este dispositivo»",
+          "Si el navegador no puede recibir avisos o este dispositivo ya está en la lista, el motivo se ve y Activar (o el botón) queda deshabilitado",
+          "Spec de la lógica nueva; docs/panel-desarrollo.md y docs/identidad-visual.md actualizados",
+          "Build, lint y tests de la web en verde"
+        ],
+        "findings": [],
+        "by": "checker-agent",
+        "reviewedAt": "2026-10-08T22:25:38.566Z",
+        "definitionRevision": 1,
+        "evidenceDigest": "551e12718ee7a3efebe33929a9cfbbec3f214ecded5af5713003d0975e562588",
+        "reviewedMaterialDigest": "1073da5b30cd8808f149a516cf7e0b25ec9fdb77226ea410ff12a1aa230e4829"
+      },
+      "disposition": null
+    }
+  ],
+  "activity": [
+    {
+      "seq": 1,
+      "at": "2026-10-08T22:12:46.822Z",
+      "event": "created",
+      "taskId": null,
+      "by": "claude",
+      "reason": "Created through the Work CLI.",
+      "revision": 1
+    },
+    {
+      "seq": 2,
+      "at": "2026-10-08T22:13:16.241Z",
+      "event": "tasks_planned",
+      "taskId": null,
+      "by": "claude",
+      "reason": "Planned 3 Work tasks.",
+      "revision": 2
+    },
+    {
+      "seq": 3,
+      "at": "2026-10-08T22:13:44.862Z",
+      "event": "task_started",
+      "taskId": "W1",
+      "by": "cli",
+      "reason": "Task started through the Work CLI.",
+      "revision": 3
+    },
+    {
+      "seq": 4,
+      "at": "2026-10-08T22:20:06.346Z",
+      "event": "evidence_recorded",
+      "taskId": "W1",
+      "by": "maker-agent",
+      "reason": "Evidence recorded with 3 validation results.",
+      "revision": 4
+    },
+    {
+      "seq": 5,
+      "at": "2026-10-08T22:20:18.631Z",
+      "event": "review_recorded",
+      "taskId": "W1",
+      "by": "checker-agent",
+      "reason": "Task review recorded with pass.",
+      "revision": 5
+    },
+    {
+      "seq": 6,
+      "at": "2026-10-08T22:20:32.720Z",
+      "event": "task_started",
+      "taskId": "W2",
+      "by": "cli",
+      "reason": "Task started through the Work CLI.",
+      "revision": 6
+    },
+    {
+      "seq": 7,
+      "at": "2026-10-08T22:22:59.656Z",
+      "event": "evidence_recorded",
+      "taskId": "W2",
+      "by": "maker-agent",
+      "reason": "Evidence recorded with 3 validation results.",
+      "revision": 7
+    },
+    {
+      "seq": 8,
+      "at": "2026-10-08T22:23:09.609Z",
+      "event": "review_recorded",
+      "taskId": "W2",
+      "by": "checker-agent",
+      "reason": "Task review recorded with pass.",
+      "revision": 8
+    },
+    {
+      "seq": 9,
+      "at": "2026-10-08T22:23:26.807Z",
+      "event": "task_started",
+      "taskId": "W3",
+      "by": "cli",
+      "reason": "Task started through the Work CLI.",
+      "revision": 9
+    },
+    {
+      "seq": 10,
+      "at": "2026-10-08T22:25:32.922Z",
+      "event": "evidence_recorded",
+      "taskId": "W3",
+      "by": "maker-agent",
+      "reason": "Evidence recorded with 3 validation results.",
+      "revision": 10
+    },
+    {
+      "seq": 11,
+      "at": "2026-10-08T22:25:38.566Z",
+      "event": "review_recorded",
+      "taskId": "W3",
+      "by": "checker-agent",
+      "reason": "Task review recorded with pass.",
+      "revision": 11
+    },
+    {
+      "seq": 12,
+      "at": "2026-10-08T22:25:46.815Z",
+      "event": "work_closed",
+      "taskId": null,
+      "by": "pilot",
+      "reason": "Trabajo completado por el piloto",
+      "revision": 12
+    }
+  ],
+  "closure": {
+    "outcome": "completed",
+    "reason": "Trabajo completado por el piloto",
+    "by": "pilot",
+    "closedAt": "2026-10-08T22:25:46.815Z",
+    "briefDigest": "4b54b3a6f1af688fa347b1f1857b9e42ba4ff84953711332394f4c0df3be83ca",
+    "finalRevision": 12
+  },
+  "promotion": null
+}
