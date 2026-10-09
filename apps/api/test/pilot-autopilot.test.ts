@@ -20,6 +20,7 @@ import type {
   AnalyzeFinding,
   KyroScopeState,
   KyroTaskContext,
+  PrData,
   ScopeSummary,
 } from '../src/kyro/state.js';
 import {
@@ -115,6 +116,39 @@ class FakeKyro implements PilotKyro {
     return Promise.resolve({
       ok: true,
       state: { title: 'Mi scope', objective: 'Objetivo del scope', sprints: ['Sprint 1: uno'] },
+    });
+  }
+  /** When true the detailed PR data cannot be read. */
+  prDataFails = false;
+  scopePrData(): Promise<PrData> {
+    if (this.prDataFails) return Promise.reject(new Error('kyro ilegible'));
+    return Promise.resolve({
+      kind: 'scope',
+      slug: 'demo',
+      title: 'Scope detallado',
+      objective: 'Objetivo detallado',
+      tasks: [],
+      sprints: [
+        {
+          n: 1,
+          title: 'uno',
+          tasks: [
+            { id: 'T1.1', title: 'Tarea', description: '', summary: 'hecha', discarded: null },
+          ],
+        },
+      ],
+    });
+  }
+  workPrData(): Promise<PrData> {
+    return Promise.resolve({
+      kind: 'work',
+      slug: 'w',
+      title: 'Mi work',
+      objective: 'Objetivo del work',
+      tasks: [
+        { id: 'W1', title: 'Hacer', description: '', summary: 'resumen W1', discarded: null },
+      ],
+      sprints: [],
     });
   }
   completed: string[] = [];
@@ -573,9 +607,14 @@ describe('merge phase (R14)', () => {
     await t.pilot.drive(t.chat.id);
     expect(t.git.pulls).toEqual(['main']);
     expect(t.gh.created).toHaveLength(1);
-    expect(t.gh.created[0]).toMatchObject({ base: 'main', head: 'feature/a', title: 'Mi scope' });
-    expect(t.gh.created[0]?.body).toContain('Objetivo del scope');
-    expect(t.gh.created[0]?.body).toContain('- Sprint 1: uno');
+    expect(t.gh.created[0]).toMatchObject({
+      base: 'main',
+      head: 'feature/a',
+      title: 'Scope detallado',
+    });
+    expect(t.gh.created[0]?.body).toContain('Objetivo detallado');
+    expect(t.gh.created[0]?.body).toContain('### Sprint 1: uno');
+    expect(t.gh.created[0]?.body).toContain('**T1.1** — Tarea: hecha');
     expect(t.runs.get(t.chat.id)).toMatchObject({
       status: 'finished',
       phase: 'merge',
@@ -594,6 +633,29 @@ describe('merge phase (R14)', () => {
       'pr_lista',
     ]);
     expect(t.states.get(t.chat.id)?.state).toBe('pr_lista');
+  });
+
+  it('opens the PR with the plain text of before when Kyro cannot be read', async () => {
+    const t = await setup({ total: 1 });
+    t.kyro.prDataFails = true;
+    await t.pilot.drive(t.chat.id);
+    expect(t.gh.created[0]).toMatchObject({ title: 'Mi scope' });
+    expect(t.gh.created[0]?.body).toContain('Objetivo del scope');
+    expect(t.gh.created[0]?.body).toContain('- Sprint 1: uno');
+    expect(t.runs.get(t.chat.id)).toMatchObject({ status: 'finished' });
+  });
+
+  it('the PR of a work carries the objective and the tasks with their summary', async () => {
+    const t = await setup({ total: 1 });
+    const prText = (
+      t.pilot as unknown as {
+        prText(chat: unknown, state: unknown): Promise<{ title: string; body: string }>;
+      }
+    ).prText.bind(t.pilot);
+    const pr = await prText(t.chat, { kind: 'work', work: 'w' });
+    expect(pr.title).toBe('Mi work');
+    expect(pr.body).toContain('Objetivo del work');
+    expect(pr.body).toContain('**W1** — Hacer: resumen W1');
   });
 
   it('with conflicts opens a merge session with the executor and goes on when they are resolved', async () => {

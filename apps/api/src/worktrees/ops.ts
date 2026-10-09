@@ -31,6 +31,8 @@ import { GitInputError, realGit } from '../pilot/git-ops.js';
 import { realGh, type PilotGh } from '../pilot/github-cli.js';
 import { openOrReusePr } from '../pilot/merge.js';
 import { childRepos, MERGE_DEV_SKILL } from '../pilot/merge-phase.js';
+import { readPrText, type PrDataReader } from '../pilot/pr-body.js';
+import type { KyroStateReader } from './state-tracker.js';
 import { describeSecrets, scanWorktreeSecrets, type SecretFinding } from '../pilot/secrets.js';
 import type { AutopilotRunRepository } from '../pilot/runs-repo.js';
 import type { ProjectRepository } from '../projects/repo.js';
@@ -117,6 +119,8 @@ export interface WorktreeOpsDeps {
   gh?: PilotGh;
   /** Looks for secrets in what a repo would push; the real scan by default. */
   scan?: (cwd: string, base: string) => Promise<SecretFinding[]>;
+  /** Reads the Kyro state for the preloaded PR body; without it the body lists the commits. */
+  kyro?: Partial<KyroStateReader> & Partial<PrDataReader>;
   /** The project's setup; the real one by default, replaceable in tests. */
   setup?: typeof runSetup;
 }
@@ -400,11 +404,39 @@ export class WorktreeOps {
   }
 
   /**
+   * The detailed PR body of a work or scope (objective and tasks), or null for a direct request or
+   * when Kyro cannot be read: the preview then lists the commits as before.
+   */
+  private async detailedPrBody(chat: Chat): Promise<string | null> {
+    const kyro = this.deps.kyro;
+    if (kyro === undefined || (chat.kind !== 'work' && chat.kind !== 'scope')) return null;
+    try {
+      let name: string;
+      if (chat.kind === 'scope') {
+        const read = await kyro.readScope?.(chat.worktreePath, chat.slug);
+        if (!read?.ok) return null;
+        name = read.state.scope;
+      } else {
+        const read = await kyro.readWork?.(chat.worktreePath, undefined, {
+          preferred: chat.slug,
+          since: chat.createdAt,
+        });
+        if (!read?.ok) return null;
+        name = read.state.work;
+      }
+      return (await readPrText(kyro, chat.worktreePath, { kind: chat.kind, name }))?.body ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
    * Read only: the repos of the work with commits outside their base (the candidates for a PR),
    * each with its open PR if any and the prefilled title and body (D25).
    */
   async prPreview(chatId: number): Promise<PrPreview> {
     const { chat, targets } = await this.resolve(chatId);
+    const detailed = await this.detailedPrBody(chat);
     const repos: PrRepoPreview[] = [];
     for (const target of targets) {
       try {
@@ -425,7 +457,7 @@ export class WorktreeOps {
           commits,
           openPrUrl,
           title: prefillTitle(chat),
-          body: subjects.map((subject) => `- ${subject}`).join('\n'),
+          body: detailed ?? subjects.map((subject) => `- ${subject}`).join('\n'),
         });
       } catch {
         // A repo git cannot read is not a candidate; the status shows its error.
