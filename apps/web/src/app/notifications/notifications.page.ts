@@ -5,9 +5,15 @@ import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
 import { Icon } from '../ui/icon';
 import { NotificationsService } from './notifications.service';
-import { addDeviceAvailability, pushSupport, testMessage, type PushSupport } from './notifications-logic';
+import {
+  addDeviceAvailability,
+  pushSupport,
+  testMessage,
+  type PushSupport,
+} from './notifications-logic';
 import { AddDeviceModal } from './add-device.modal';
 import { PushBrowser } from './push-browser';
+import { RenameDeviceModal } from './rename-device.modal';
 
 /**
  * Notificaciones: the devices of the logged-in user that receive Web Push. It is not a project
@@ -16,7 +22,7 @@ import { PushBrowser } from './push-browser';
 @Component({
   selector: 'app-notifications',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [Badge, Button, Icon, AddDeviceModal],
+  imports: [Badge, Button, Icon, AddDeviceModal, RenameDeviceModal],
   template: `
     <div class="mb-4 flex items-center justify-between gap-3">
       <h2 class="m-0">Notificaciones</h2>
@@ -51,6 +57,14 @@ import { PushBrowser } from './push-browser';
       />
     }
 
+    @if (renaming(); as device) {
+      <app-rename-device-modal
+        [device]="device"
+        (renamed)="onRenamed()"
+        (closed)="renaming.set(null)"
+      />
+    }
+
     <section class="card">
       <h3>Dispositivos que reciben avisos</h3>
       <ul class="m-0 flex list-none flex-col gap-3 p-0">
@@ -70,19 +84,12 @@ import { PushBrowser } from './push-browser';
               </span>
             </div>
             <div class="flex flex-wrap items-center gap-2">
-              <input
-                class="min-w-0 flex-1"
-                [attr.aria-label]="'Nombre de ' + item.name"
-                maxlength="80"
-                [value]="draft(item)"
-                (input)="rename(item.id, text($event))"
-              />
               <button
                 appButton
                 variant="secondary"
                 type="button"
-                [disabled]="busy() || draft(item).trim() === '' || draft(item).trim() === item.name"
-                (click)="saveName(item)"
+                [disabled]="busy()"
+                (click)="renaming.set(item)"
               >
                 Renombrar
               </button>
@@ -134,7 +141,7 @@ export class NotificationsPage {
    * browser has not answered yet. It never holds back the list of devices.
    */
   protected readonly here = signal<string | null | undefined>(undefined);
-  protected readonly names = signal<Record<number, string>>({});
+  protected readonly renaming = signal<PushSubscriptionInfo | null>(null);
   protected readonly busy = signal(false);
   protected readonly error = signal<string | null>(null);
   protected readonly notice = signal<string | null>(null);
@@ -183,18 +190,6 @@ export class NotificationsPage {
     this.devices.set(await this.service.list());
   }
 
-  protected text(event: Event): string {
-    return (event.target as HTMLInputElement).value;
-  }
-
-  protected draft(item: PushSubscriptionInfo): string {
-    return this.names()[item.id] ?? item.name;
-  }
-
-  protected rename(id: number, value: string): void {
-    this.names.update((names) => ({ ...names, [id]: value }));
-  }
-
   protected time(epochMs: number): string {
     return new Date(epochMs).toLocaleString('es-AR', {
       day: 'numeric',
@@ -229,11 +224,10 @@ export class NotificationsPage {
     });
   }
 
-  protected async saveName(item: PushSubscriptionInfo): Promise<void> {
-    await this.run(async () => {
-      await this.service.rename(item.id, this.draft(item).trim());
-      await this.refreshList();
-    });
+  /** The modal saved the new name: close it and refresh the list. */
+  protected async onRenamed(): Promise<void> {
+    this.renaming.set(null);
+    await this.run(() => this.refreshList());
   }
 
   protected async test(item: PushSubscriptionInfo): Promise<void> {

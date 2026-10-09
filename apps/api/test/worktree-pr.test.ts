@@ -8,6 +8,7 @@ import type { PilotGh } from '../src/pilot/github-cli.js';
 import { ProjectRepository } from '../src/projects/repo.js';
 import { ProjectRepoRepository } from '../src/projects/repos-repo.js';
 import { WorktreeStateRepository } from '../src/worktrees/state-repo.js';
+import type { KyroScopeState, PrData } from '../src/kyro/state.js';
 import { WorktreeOps } from '../src/worktrees/ops.js';
 import { makeGitRepo, makeRepoWithRemote } from './helpers.js';
 
@@ -39,7 +40,44 @@ function fakeGh(open: Record<string, string> = {}) {
   return { gh, created };
 }
 
-async function setup(options: { child?: boolean; open?: Record<string, string> } = {}) {
+/** A Kyro reader that never runs the CLI. */
+function fakeKyro(opts: { unreadable?: boolean; dataFails?: boolean } = {}) {
+  const data: PrData = {
+    kind: 'scope',
+    slug: 'panel',
+    title: 'T',
+    objective: 'Objetivo X',
+    tasks: [],
+    sprints: [
+      {
+        n: 1,
+        title: 'uno',
+        tasks: [
+          { id: 'T1', title: 'Tarea', description: '', summary: 'resumen T1', discarded: null },
+        ],
+      },
+    ],
+  };
+  return {
+    readScope: () =>
+      Promise.resolve(
+        opts.unreadable === true
+          ? { ok: false as const, error: { kind: 'no_target' as const, message: 'sin scope' } }
+          : { ok: true as const, state: { scope: 'panel' } as KyroScopeState },
+      ),
+    scopePrData: () =>
+      opts.dataFails === true ? Promise.reject(new Error('boom')) : Promise.resolve(data),
+  };
+}
+
+async function setup(
+  options: {
+    child?: boolean;
+    open?: Record<string, string>;
+    kyro?: ReturnType<typeof fakeKyro>;
+    kind?: 'scope' | 'direct';
+  } = {},
+) {
   const db = openDatabase(':memory:');
   const root = makeRepoWithRemote('feature/x');
   const projects = new ProjectRepository(db);
@@ -51,7 +89,7 @@ async function setup(options: { child?: boolean; open?: Record<string, string> }
   const chats = new ChatRepository(db);
   const chat = chats.create({
     projectId: project.id,
-    kind: 'scope',
+    kind: options.kind ?? 'scope',
     slug: 'panel',
     title: 'Panel de PRs\ncon salto',
     worktreePath: root.repo,
@@ -80,6 +118,7 @@ async function setup(options: { child?: boolean; open?: Record<string, string> }
     state,
     envFiles: { readAll: () => [] },
     gh,
+    ...(options.kyro ? { kyro: options.kyro } : {}),
   });
   return { ops, chat, root, child, created, state };
 }
@@ -99,6 +138,23 @@ describe('WorktreeOps.prPreview', () => {
       body: '- feat: a',
     });
     expect(preview.repos[1]?.baseBranch).toBe('dev');
+  });
+
+  it('preloads the detailed body for a scope with readable Kyro, editable like any other', async () => {
+    const s = await setup({ kyro: fakeKyro() });
+    const body = (await s.ops.prPreview(s.chat.id)).repos[0]?.body;
+    expect(body).toContain('Objetivo X');
+    expect(body).toContain('**T1** — Tarea: resumen T1');
+    expect(body).not.toContain('- feat: a');
+  });
+
+  it('keeps the commit list for a direct request or when Kyro cannot be read', async () => {
+    const direct = await setup({ kyro: fakeKyro(), kind: 'direct' });
+    expect((await direct.ops.prPreview(direct.chat.id)).repos[0]?.body).toBe('- feat: a');
+    const broken = await setup({ kyro: fakeKyro({ unreadable: true }) });
+    expect((await broken.ops.prPreview(broken.chat.id)).repos[0]?.body).toBe('- feat: a');
+    const failing = await setup({ kyro: fakeKyro({ dataFails: true }) });
+    expect((await failing.ops.prPreview(failing.chat.id)).repos[0]?.body).toBe('- feat: a');
   });
 
   it('leaves out a repo without commits outside its base and shows the open PR', async () => {

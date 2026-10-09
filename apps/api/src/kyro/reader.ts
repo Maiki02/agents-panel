@@ -1,11 +1,14 @@
 import { execFile } from 'node:child_process';
 import { readFile, readdir, stat } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, resolve, sep } from 'node:path';
 import { promisify } from 'node:util';
 import {
   KyroStateError,
   parseAnalyzeFindings,
   parseCapabilities,
+  parseLedgerEntries,
+  parseSnapshotTasks,
+  parseWorkPrData,
   parseScopeState,
   parseScopeSummary,
   parseScopeTaskContext,
@@ -15,6 +18,9 @@ import {
   type KyroScopeState,
   type KyroTaskContext,
   type KyroWorkState,
+  type PrData,
+  type PrSprint,
+  type PrTask,
   type ScopeSummary,
 } from './state.js';
 
@@ -328,6 +334,72 @@ export class KyroReader {
     } catch (error) {
       return { ok: false, error: this.toError(error) };
     }
+  }
+
+  /**
+   * What the PR description of a work is built from (`work.json`). Never throws: an unreadable
+   * file gives an empty record, so the PR still opens with what the caller knows.
+   */
+  async workPrData(cwd: string, work: string): Promise<PrData> {
+    let json: unknown;
+    try {
+      json = await readJsonFile(join(cwd, '.agents', 'kyro', 'work', work, 'work.json'));
+    } catch {
+      json = undefined;
+    }
+    return parseWorkPrData(json, work);
+  }
+
+  /**
+   * What the PR description of a scope is built from: `sprint.json` plus the archive snapshot of
+   * each closed sprint. A missing or unreadable file leaves that part empty. Never throws.
+   */
+  async scopePrData(cwd: string, scope: string): Promise<PrData> {
+    let artifactRoot = join('.agents', 'kyro', 'scopes');
+    try {
+      const project = await readJsonFile(join(cwd, '.agents', 'kyro', 'project.json'));
+      const root = isRecord(project) ? project['artifactRoot'] : undefined;
+      if (typeof root === 'string' && root !== '') artifactRoot = root;
+    } catch {
+      // The default artifact root applies.
+    }
+    const scopeDir = resolve(cwd, artifactRoot, scope);
+    let sprint: unknown;
+    try {
+      sprint = await readJsonFile(join(scopeDir, 'sprint.json'));
+    } catch {
+      sprint = undefined;
+    }
+    const record = isRecord(sprint) ? sprint : {};
+    const text = (value: unknown): string => (typeof value === 'string' ? value.trim() : '');
+    const sprints: PrSprint[] = [];
+    for (const entry of parseLedgerEntries(sprint)) {
+      let tasks: PrTask[] = [];
+      if (entry.snapshot !== null) {
+        const file = resolve(scopeDir, entry.snapshot);
+        // The snapshot path comes from a file in the repo: it must stay inside the scope folder.
+        if (file.startsWith(scopeDir + sep)) {
+          try {
+            const snapshot = await readJsonFile(file);
+            tasks = parseSnapshotTasks(snapshot);
+            if (entry.title === '' && isRecord(snapshot)) {
+              entry.title = text(snapshot['title']) || text(snapshot['slug']);
+            }
+          } catch {
+            // Unreadable snapshot: the sprint shows without tasks.
+          }
+        }
+      }
+      sprints.push({ n: entry.n, title: entry.title, tasks });
+    }
+    return {
+      kind: 'scope',
+      slug: scope,
+      title: text(record['title']),
+      objective: text(record['objective']),
+      tasks: [],
+      sprints,
+    };
   }
 
   /** The verbs the installed Kyro supports (`capabilities --json`). */
