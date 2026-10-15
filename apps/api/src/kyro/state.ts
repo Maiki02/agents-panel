@@ -194,6 +194,103 @@ export function parseScopeSummary(sprintJson: unknown): ScopeSummary {
   return { title: text(sprintJson['title']), objective: text(sprintJson['objective']), sprints };
 }
 
+/** A task as the PR description shows it. `discarded` is the reason when the task was dropped. */
+export interface PrTask {
+  id: string;
+  title: string;
+  description: string;
+  /** `evidence.summary`; empty when the task has no evidence. */
+  summary: string;
+  discarded: string | null;
+}
+
+/** A closed sprint of a scope with the tasks its archive snapshot holds. */
+export interface PrSprint {
+  n: number;
+  title: string;
+  tasks: PrTask[];
+}
+
+/** What the PR description of a work or scope is built from. Every field degrades to empty. */
+export interface PrData {
+  kind: 'work' | 'scope';
+  /** Slug of the work or scope, the fallback for a missing title. */
+  slug: string;
+  title: string;
+  objective: string;
+  /** Tasks of a work. */
+  tasks: PrTask[];
+  /** Closed sprints of a scope. */
+  sprints: PrSprint[];
+}
+
+const prText = (value: unknown): string => (typeof value === 'string' ? value.trim() : '');
+
+/** One task of work.json or of a sprint snapshot. Never throws. */
+export function parsePrTask(raw: unknown): PrTask {
+  const task = isRecord(raw) ? raw : {};
+  const evidence = isRecord(task['evidence']) ? task['evidence'] : {};
+  const disposition = task['disposition'];
+  const status = prText(task['status']);
+  let discarded: string | null = null;
+  if (isRecord(disposition)) {
+    discarded = prText(disposition['reason']) || prText(disposition['kind']) || 'sin motivo';
+  } else if (['cancelled', 'superseded', 'disposed', 'discarded'].includes(status)) {
+    discarded = 'sin motivo';
+  }
+  return {
+    id: prText(task['id']) || '?',
+    title: prText(task['title']),
+    description: prText(task['description']),
+    summary: prText(evidence['summary']),
+    discarded,
+  };
+}
+
+/** Title, objective and tasks of a work.json. */
+export function parseWorkPrData(workJson: unknown, slug: string): PrData {
+  const work = isRecord(workJson) ? workJson : {};
+  const tasks = Array.isArray(work['tasks']) ? (work['tasks'] as unknown[]) : [];
+  return {
+    kind: 'work',
+    slug,
+    title: prText(work['title']),
+    objective: prText(work['objective']),
+    tasks: tasks.map(parsePrTask),
+    sprints: [],
+  };
+}
+
+/** Tasks of a sprint snapshot (`phases[].tasks[]`, or a flat `tasks[]`). Never throws. */
+export function parseSnapshotTasks(snapshot: unknown): PrTask[] {
+  if (!isRecord(snapshot)) return [];
+  const raw: unknown[] = [];
+  if (Array.isArray(snapshot['phases'])) {
+    for (const phase of snapshot['phases'] as unknown[]) {
+      if (isRecord(phase) && Array.isArray(phase['tasks']))
+        raw.push(...(phase['tasks'] as unknown[]));
+    }
+  }
+  if (Array.isArray(snapshot['tasks'])) raw.push(...(snapshot['tasks'] as unknown[]));
+  return raw.map(parsePrTask);
+}
+
+/** `ledger[].snapshot` paths (relative to the scope folder) with their sprint number and slug. */
+export function parseLedgerEntries(
+  sprintJson: unknown,
+): { n: number; title: string; snapshot: string | null }[] {
+  const sprint = isRecord(sprintJson) ? sprintJson : {};
+  const ledger = Array.isArray(sprint['ledger']) ? (sprint['ledger'] as unknown[]) : [];
+  return ledger.map((entry, index) => {
+    const item = isRecord(entry) ? entry : {};
+    return {
+      n: typeof item['n'] === 'number' ? item['n'] : index + 1,
+      title: prText(item['title']) || prText(item['slug']),
+      snapshot: prText(item['snapshot']) || null,
+    };
+  });
+}
+
 /** Roadmap total and closed sprints, read from the scope's `sprint.json` (no CLI prints them). */
 export function parseSprintRoadmap(sprintJson: unknown): { total: number; closed: number } {
   if (!isRecord(sprintJson)) throw new KyroStateError('sprint.json is not a JSON object');

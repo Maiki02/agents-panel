@@ -1,0 +1,456 @@
+{
+  "schemaVersion": 1,
+  "kind": "organic-work",
+  "id": "notificaciones-nombre-y-pr",
+  "title": "Notificaciones: renombrar en un modal · PR con descripción detallada",
+  "objective": "> En notificaciones, quitemos el input del nombre. > Si se quiere cambiar el nombre, se debe apretar \"Renombrar\" y eso abre el modal con un input y un botón de confirmar. > > Por otro lado, necesito que agreguemos que los PR en la descripción, tenga información detallada.",
+  "brief": {
+    "path": "brief.md",
+    "digest": "d8b5c42ec5235cb30f33e0981cfdcac2f68a4565893c0f100e4851f8af13a0cf",
+    "sourceIdea": null
+  },
+  "state": "closed",
+  "revision": 15,
+  "createdAt": "2026-10-09T03:30:18.932Z",
+  "updatedAt": "2026-10-09T03:52:25.914Z",
+  "handoff": {
+    "nextAction": "done",
+    "nextTaskId": null,
+    "blockedReason": null
+  },
+  "tasks": [
+    {
+      "id": "W1",
+      "title": "Notificaciones: renombrar un dispositivo desde un modal",
+      "description": "Quitar el input del nombre de cada dispositivo en la página Notificaciones. El botón Renombrar abre un modal (componente Modal de apps/web/src/app/ui) con un input precargado con el nombre actual (maxlength 80) y un botón Confirmar; Confirmar llama a NotificationsService.rename con el nombre recortado, cierra el modal y refresca la lista. Sacar el estado de borradores por id (names, draft, rename) que ya no hace falta. La regla de habilitación del Confirmar va como función pura en notifications-logic.ts con su spec.",
+      "context": "notifications.page.ts hoy tiene un <input> por fila y un botón Renombrar que guarda el borrador. add-device.modal.ts es el modelo de modal de la misma página; modal.ts y modal-logic.ts son el componente genérico. Probar y Quitar no cambian. Enter en el input confirma si está habilitado; Escape o Cancelar cierran sin guardar.",
+      "filesToTouch": [
+        "apps/web/src/app/notifications/notifications.page.ts",
+        "apps/web/src/app/notifications/rename-device.modal.ts",
+        "apps/web/src/app/notifications/notifications-logic.ts",
+        "apps/web/src/app/notifications/notifications-logic.spec.ts"
+      ],
+      "acceptanceCriteria": [
+        "La lista de dispositivos ya no muestra ningún input de nombre; cada fila tiene Renombrar, Probar y Quitar.",
+        "Renombrar abre un modal con un input precargado con el nombre actual y un botón Confirmar.",
+        "Confirmar está deshabilitado con el nombre vacío (o solo espacios), igual al actual o con la llamada en curso; la regla es una función pura con spec.",
+        "Confirmar guarda el nombre recortado con PATCH /api/push/subscriptions/:id, cierra el modal y la lista muestra el nombre nuevo; un error se muestra dentro del modal sin cerrarlo.",
+        "Cancelar o Escape cierran el modal sin cambiar el nombre.",
+        "npm run build, lint y test de la web pasan."
+      ],
+      "dependsOn": [],
+      "definitionRevision": 1,
+      "status": "verified",
+      "blocker": null,
+      "evidence": {
+        "summary": "Renombrar un dispositivo ahora abre RenameDeviceModal (input precargado, maxlength 80, Confirmar/Cancelar, Enter confirma, Escape cierra); la lista ya no tiene input de nombre y se quitó el estado de borradores (names, draft, rename, text, saveName). La regla de habilitación es la función pura canRenameDevice con spec.",
+        "validations": [
+          {
+            "command": "npm run build",
+            "result": "passed",
+            "note": "API y web compilan (ng build ok)."
+          },
+          {
+            "command": "npm run lint",
+            "result": "passed",
+            "note": "eslint sin errores."
+          },
+          {
+            "command": "npm run test --workspace apps/web",
+            "result": "passed",
+            "note": "39 archivos, 357 tests ok, incluido canRenameDevice."
+          },
+          {
+            "command": "npm run format:check",
+            "result": "passed",
+            "note": "Tras npm run format sobre notifications.page.ts."
+          }
+        ],
+        "filesChanged": [
+          "apps/web/src/app/notifications/notifications.page.ts",
+          "apps/web/src/app/notifications/rename-device.modal.ts",
+          "apps/web/src/app/notifications/notifications-logic.ts",
+          "apps/web/src/app/notifications/notifications-logic.spec.ts"
+        ],
+        "notes": "El modal llama a NotificationsService.rename con el nombre recortado y emite renamed; la página lo cierra y refresca la lista. Un error queda dentro del modal sin cerrarlo. No se probó en navegador.",
+        "by": "maker-agent",
+        "recordedAt": "2026-10-09T03:34:40.505Z",
+        "definitionRevision": 1,
+        "materialDigest": "b7e7dc33f22774b27d089a9f418f83399fc5dc0c25cb888ca451c7afe3e6283e"
+      },
+      "verdict": {
+        "result": "pass",
+        "checkedCriteria": [
+          "La lista de dispositivos ya no muestra ningún input de nombre; cada fila tiene Renombrar, Probar y Quitar.",
+          "Renombrar abre un modal con un input precargado con el nombre actual y un botón Confirmar.",
+          "Confirmar está deshabilitado con el nombre vacío (o solo espacios), igual al actual o con la llamada en curso; la regla es una función pura con spec.",
+          "Confirmar guarda el nombre recortado con PATCH /api/push/subscriptions/:id, cierra el modal y la lista muestra el nombre nuevo; un error se muestra dentro del modal sin cerrarlo.",
+          "Cancelar o Escape cierran el modal sin cambiar el nombre.",
+          "npm run build, lint y test de la web pasan."
+        ],
+        "findings": [],
+        "by": "checker-agent",
+        "reviewedAt": "2026-10-09T03:34:51.369Z",
+        "definitionRevision": 1,
+        "evidenceDigest": "43f33342ea8ba5b3323c3c957ea97ebbb454c1e2b5e5ec5df0013728588fe367",
+        "reviewedMaterialDigest": "b7e7dc33f22774b27d089a9f418f83399fc5dc0c25cb888ca451c7afe3e6283e"
+      },
+      "disposition": null
+    },
+    {
+      "id": "W2",
+      "title": "Armador puro de la descripción de la PR desde Kyro",
+      "description": "Agregar en la API un módulo puro (por ejemplo apps/api/src/pilot/pr-body.ts) que arme el título y el cuerpo Markdown de la PR a partir del estado de Kyro, y los lectores que juntan ese estado. Work: título y objetivo de work.json y una sección Tareas con, por tarea, id, título y el resumen de su evidencia (evidence.summary), o su descripción si no tiene evidencia; las descartadas se marcan con su motivo. Scope: título y objetivo de sprint.json y, por cada sprint cerrado del ledger, su título y sus tareas leídas del snapshot del archivo (archive/sprint-NNN-*.json), con el mismo formato. Termina con el pie actual del piloto. Si falta algún dato o un archivo no se puede leer, el armador degrada a lo que tenga y nunca tira.",
+      "context": "KyroReader.scopeSummary y parseScopeSummary (apps/api/src/kyro/reader.ts y state.ts) ya leen sprint.json para prText; se amplían o se suma un lector para el work (readWork ya ubica la carpeta del work por slug). Los snapshots del scope tienen la ruta en ledger[].snapshot relativa a la carpeta del scope. El texto de la evidencia se pega tal cual (es Markdown seguro para GitHub) pero recortado para no pasar el límite del cuerpo de una PR (65536 caracteres).",
+      "filesToTouch": [
+        "apps/api/src/pilot/pr-body.ts",
+        "apps/api/src/kyro/state.ts",
+        "apps/api/src/kyro/reader.ts",
+        "apps/api/test/pr-body.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "Para un work, el cuerpo trae el objetivo y una línea por tarea con id, título y el resumen de la evidencia (o la descripción si no hay evidencia); una tarea descartada aparece marcada como descartada.",
+        "Para un scope, el cuerpo trae el objetivo y, por sprint cerrado, su título y sus tareas con el mismo formato, leídas de los snapshots del archivo.",
+        "Con work.json, sprint.json o un snapshot ilegible o con campos faltantes, el armador devuelve un cuerpo válido con lo que pudo leer y no tira.",
+        "El cuerpo nunca supera 65536 caracteres.",
+        "Tests unitarios cubren work, scope, tarea descartada, datos faltantes y el recorte; tsc, lint y los tests de la API pasan."
+      ],
+      "dependsOn": [],
+      "definitionRevision": 1,
+      "status": "verified",
+      "blocker": null,
+      "evidence": {
+        "summary": "Nuevo módulo puro apps/api/src/pilot/pr-body.ts (buildPrText) que arma título y cuerpo Markdown de la PR para un work (objetivo + sección Tareas con id, título y evidence.summary o descripción; descartadas tachadas con su motivo) y para un scope (objetivo + por sprint cerrado su título y tareas leídas de los snapshots del archivo), con el pie del piloto y recorte a 65536 caracteres. state.ts suma los parsers tolerantes (parsePrTask, parseWorkPrData, parseSnapshotTasks, parseLedgerEntries) y reader.ts los lectores workPrData y scopePrData, que nunca tiran y no salen de la carpeta del scope.",
+        "validations": [
+          {
+            "command": "npm run typecheck",
+            "result": "passed",
+            "note": "shared, api y web."
+          },
+          {
+            "command": "npm run lint",
+            "result": "passed",
+            "note": "eslint sin errores."
+          },
+          {
+            "command": "npm run format",
+            "result": "passed",
+            "note": "prettier aplicado."
+          },
+          {
+            "command": "npm test --workspace apps/api",
+            "result": "passed",
+            "note": "1312 de 1314 ok, incluidos los 11 tests nuevos de pr-body.test.ts. Fallan 2 de db.test.ts (migraciones 20 y 21 esperan que la 22 no exista): preexistentes, no tocan este cambio."
+          }
+        ],
+        "filesChanged": [
+          "apps/api/src/pilot/pr-body.ts",
+          "apps/api/src/kyro/state.ts",
+          "apps/api/src/kyro/reader.ts",
+          "apps/api/test/pr-body.test.ts"
+        ],
+        "notes": "Todavía no se conecta con autopilot.prText (eso es otra tarea). El detalle de la forma de disposition de una tarea descartada se asumió {kind, reason}; si falta se marca igual como descartada.",
+        "by": "maker-agent",
+        "recordedAt": "2026-10-09T03:40:08.807Z",
+        "definitionRevision": 1,
+        "materialDigest": "2bee8b8f78b9f0a0b197bb119c313e8e0c6be9e067479fe6af93ce106d9c575d"
+      },
+      "verdict": {
+        "result": "pass",
+        "checkedCriteria": [
+          "Para un work, el cuerpo trae el objetivo y una línea por tarea con id, título y el resumen de la evidencia (o la descripción si no hay evidencia); una tarea descartada aparece marcada como descartada.",
+          "Para un scope, el cuerpo trae el objetivo y, por sprint cerrado, su título y sus tareas con el mismo formato, leídas de los snapshots del archivo.",
+          "Con work.json, sprint.json o un snapshot ilegible o con campos faltantes, el armador devuelve un cuerpo válido con lo que pudo leer y no tira.",
+          "El cuerpo nunca supera 65536 caracteres.",
+          "Tests unitarios cubren work, scope, tarea descartada, datos faltantes y el recorte; tsc, lint y los tests de la API pasan."
+        ],
+        "findings": [],
+        "by": "checker-agent",
+        "reviewedAt": "2026-10-09T03:40:16.234Z",
+        "definitionRevision": 1,
+        "evidenceDigest": "11b9300188dea3d970744ecd6590fa6d7fa14973a4f15a91c8070243551faf33",
+        "reviewedMaterialDigest": "2bee8b8f78b9f0a0b197bb119c313e8e0c6be9e067479fe6af93ce106d9c575d"
+      },
+      "disposition": null
+    },
+    {
+      "id": "W3",
+      "title": "Usar la descripción detallada en el piloto y en Crear PR",
+      "description": "El piloto usa el armador de W2 en prText (autopilot.ts) para la PR del merge genérico, en works y scopes. GET /api/chats/:id/git/pr (WorktreeOps.prPreview) usa el mismo cuerpo como texto precargado cuando el chat es un work o un scope con estado de Kyro legible; un pedido directo, o un Kyro ilegible, sigue con la lista de commits actual. El cuerpo sigue siendo editable en la web antes de enviar.",
+      "context": "prPreview en apps/api/src/worktrees/ops.ts arma hoy body con los subjects de los commits. WorktreeOps tiene que recibir el lector de Kyro como dependencia inyectable para que los tests no llamen al CLI. El merge-dev queda fuera: su skill escribe el cuerpo.",
+      "filesToTouch": [
+        "apps/api/src/pilot/autopilot.ts",
+        "apps/api/src/worktrees/ops.ts",
+        "apps/api/src/app.ts",
+        "apps/api/test/merge-phase.test.ts",
+        "apps/api/test/worktree-ops.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "La PR que abre el piloto con el merge genérico para un work lleva el objetivo y las tareas con su resumen, no solo «Work x completado».",
+        "La PR de un scope lleva el objetivo y las tareas por sprint cerrado.",
+        "GET /api/chats/:id/git/pr de un work o scope devuelve ese cuerpo como body precargado; para un pedido directo sigue devolviendo la lista de commits.",
+        "Si Kyro no se puede leer, el piloto y Crear PR usan el texto de antes y la PR se abre igual.",
+        "Los tests del API cubren piloto y prPreview sin llamar a Kyro real ni a GitHub; npm run build, lint y test pasan."
+      ],
+      "dependsOn": [
+        "W2"
+      ],
+      "definitionRevision": 1,
+      "status": "verified",
+      "blocker": null,
+      "evidence": {
+        "summary": "El piloto (Autopilot.prText) y WorktreeOps.prPreview usan buildPrText de W2 a través del helper readPrText (pr-body.ts), que lee workPrData/scopePrData y devuelve null si el lector falta o tira. En el piloto, un work y un scope abren la PR del merge genérico con objetivo y tareas (por sprint cerrado en el scope); si readPrText da null se usa el texto de antes. WorktreeOps recibe el lector de Kyro como dependencia inyectable (deps.kyro, cableado en app.ts) y prPreview precarga el cuerpo detallado solo para chats work o scope con estado legible; un pedido directo o un Kyro ilegible siguen con la lista de commits. El merge-dev no cambia.",
+        "validations": [
+          {
+            "command": "npm run build",
+            "result": "passed",
+            "note": "API y web compilan."
+          },
+          {
+            "command": "npm run lint",
+            "result": "passed",
+            "note": "eslint sin errores."
+          },
+          {
+            "command": "npm run typecheck",
+            "result": "passed",
+            "note": "shared, api y web."
+          },
+          {
+            "command": "npm test --workspace apps/api",
+            "result": "passed",
+            "note": "1316 de 1318 ok, incluidos los tests nuevos de pilot-autopilot (scope detallado, caída al texto anterior, work) y worktree-pr (prPreview detallado, pedido directo, Kyro ilegible y lector que tira). Fallan 2 de db.test.ts (migraciones 20 y 21 esperan que la 22 no exista): preexistentes, ya registrados en W2. Web: 357 ok."
+          }
+        ],
+        "filesChanged": [
+          "apps/api/src/pilot/pr-body.ts",
+          "apps/api/src/pilot/autopilot.ts",
+          "apps/api/src/worktrees/ops.ts",
+          "apps/api/src/app.ts",
+          "apps/api/test/pilot-autopilot.test.ts",
+          "apps/api/test/worktree-pr.test.ts"
+        ],
+        "notes": "Los tests quedaron en pilot-autopilot.test.ts y worktree-pr.test.ts (donde ya vivían el merge del piloto y prPreview) en vez de los merge-phase.test.ts y worktree-ops.test.ts de la lista, que no tienen ese montaje; ninguno llama a Kyro real ni a GitHub. El título de la PR en Crear PR no cambia (solo el cuerpo precargado). El test del work llama al prText privado del piloto por cast.",
+        "by": "maker-agent",
+        "recordedAt": "2026-10-09T03:51:28.536Z",
+        "definitionRevision": 1,
+        "materialDigest": "598b2f7a3f1e7a47631716b36b368e0747665fe4733b2a0c974ced24ebea5bcc"
+      },
+      "verdict": {
+        "result": "pass",
+        "checkedCriteria": [
+          "La PR que abre el piloto con el merge genérico para un work lleva el objetivo y las tareas con su resumen, no solo «Work x completado».",
+          "La PR de un scope lleva el objetivo y las tareas por sprint cerrado.",
+          "GET /api/chats/:id/git/pr de un work o scope devuelve ese cuerpo como body precargado; para un pedido directo sigue devolviendo la lista de commits.",
+          "Si Kyro no se puede leer, el piloto y Crear PR usan el texto de antes y la PR se abre igual.",
+          "Los tests del API cubren piloto y prPreview sin llamar a Kyro real ni a GitHub; npm run build, lint y test pasan."
+        ],
+        "findings": [],
+        "by": "checker-agent",
+        "reviewedAt": "2026-10-09T03:51:33.019Z",
+        "definitionRevision": 1,
+        "evidenceDigest": "3878e43b6dd6157eb28a732f1585d7de62eff05c413dee0229818673a709a77e",
+        "reviewedMaterialDigest": "598b2f7a3f1e7a47631716b36b368e0747665fe4733b2a0c974ced24ebea5bcc"
+      },
+      "disposition": null
+    },
+    {
+      "id": "W4",
+      "title": "Documentar el modal de renombrar y la descripción de la PR",
+      "description": "Sumar en docs/plan.md (Pendientes, con fecha y work notificaciones-nombre-y-pr) una entrada que diga qué cambió: el nombre de un dispositivo se cambia solo desde el modal de Renombrar, y la descripción de la PR del piloto y de Crear PR sale del estado de Kyro (objetivo y tareas con su resumen), con la caída al texto anterior y sin merge-dev. Ajustar cualquier mención existente al cuerpo de la PR (por ejemplo «el cuerpo de la PR genérica sale de sprint.json») para que no contradiga.",
+      "context": "Los docs se escriben en español; las entradas de Pendientes tienen el formato de las de works anteriores (sondeo-prs, pr-y-deploy).",
+      "filesToTouch": [
+        "docs/plan.md"
+      ],
+      "acceptanceCriteria": [
+        "docs/plan.md describe el modal de renombrar y el contenido nuevo de la descripción de la PR, con su alcance y la caída.",
+        "Ninguna mención previa del cuerpo de la PR en docs/plan.md contradice el comportamiento nuevo."
+      ],
+      "dependsOn": [
+        "W1",
+        "W3"
+      ],
+      "definitionRevision": 1,
+      "status": "verified",
+      "blocker": null,
+      "evidence": {
+        "summary": "docs/plan.md suma en Pendientes la entrada «Renombrar dispositivos y descripción de la PR» (09/10/2026, work notificaciones-nombre-y-pr): el nombre del dispositivo se cambia solo desde el modal de Renombrar; la descripción de la PR del piloto y de Crear PR sale del estado de Kyro (objetivo y tareas con su resumen, por sprint en un scope), con alcance (solo genérico, sin merge-dev, pedido directo con commits) y caída al texto anterior. Se ajustaron las menciones previas: la fase de merge (T4.5) que decía que el cuerpo sale de sprint.json y la fila de GET /api/chats/:id/git/pr que decía cuerpo desde los commits.",
+        "validations": [
+          {
+            "command": "grep -n -e sprint.json -e Renombrar docs/plan.md",
+            "result": "passed",
+            "note": "La entrada existe y ninguna mención del cuerpo de la PR contradice el comportamiento nuevo."
+          }
+        ],
+        "filesChanged": [
+          "docs/plan.md"
+        ],
+        "notes": "Solo documentación; no hay build ni tests que correr.",
+        "by": "maker-agent",
+        "recordedAt": "2026-10-09T03:52:14.828Z",
+        "definitionRevision": 1,
+        "materialDigest": "0301c493a4e30f99c09002bc73bd9534f3bc74790475b22e80a11dfae4f498d4"
+      },
+      "verdict": {
+        "result": "pass",
+        "checkedCriteria": [
+          "docs/plan.md describe el modal de renombrar y el contenido nuevo de la descripción de la PR, con su alcance y la caída.",
+          "Ninguna mención previa del cuerpo de la PR en docs/plan.md contradice el comportamiento nuevo."
+        ],
+        "findings": [],
+        "by": "checker-agent",
+        "reviewedAt": "2026-10-09T03:52:18.854Z",
+        "definitionRevision": 1,
+        "evidenceDigest": "32c339579debe2c214353ccbe8853d0b88048dc4790271f4f45f455ab37351e4",
+        "reviewedMaterialDigest": "0301c493a4e30f99c09002bc73bd9534f3bc74790475b22e80a11dfae4f498d4"
+      },
+      "disposition": null
+    }
+  ],
+  "activity": [
+    {
+      "seq": 1,
+      "at": "2026-10-09T03:30:18.932Z",
+      "event": "created",
+      "taskId": null,
+      "by": "claude-planner",
+      "reason": "Created through the Work CLI.",
+      "revision": 1
+    },
+    {
+      "seq": 2,
+      "at": "2026-10-09T03:30:52.242Z",
+      "event": "tasks_planned",
+      "taskId": null,
+      "by": "claude-planner",
+      "reason": "Planned 4 Work tasks.",
+      "revision": 2
+    },
+    {
+      "seq": 3,
+      "at": "2026-10-09T03:31:20.188Z",
+      "event": "task_started",
+      "taskId": "W1",
+      "by": "cli",
+      "reason": "Task started through the Work CLI.",
+      "revision": 3
+    },
+    {
+      "seq": 4,
+      "at": "2026-10-09T03:34:40.505Z",
+      "event": "evidence_recorded",
+      "taskId": "W1",
+      "by": "maker-agent",
+      "reason": "Evidence recorded with 4 validation results.",
+      "revision": 4
+    },
+    {
+      "seq": 5,
+      "at": "2026-10-09T03:34:51.369Z",
+      "event": "review_recorded",
+      "taskId": "W1",
+      "by": "checker-agent",
+      "reason": "Task review recorded with pass.",
+      "revision": 5
+    },
+    {
+      "seq": 6,
+      "at": "2026-10-09T03:35:14.756Z",
+      "event": "task_started",
+      "taskId": "W2",
+      "by": "cli",
+      "reason": "Task started through the Work CLI.",
+      "revision": 6
+    },
+    {
+      "seq": 7,
+      "at": "2026-10-09T03:40:08.807Z",
+      "event": "evidence_recorded",
+      "taskId": "W2",
+      "by": "maker-agent",
+      "reason": "Evidence recorded with 4 validation results.",
+      "revision": 7
+    },
+    {
+      "seq": 8,
+      "at": "2026-10-09T03:40:16.234Z",
+      "event": "review_recorded",
+      "taskId": "W2",
+      "by": "checker-agent",
+      "reason": "Task review recorded with pass.",
+      "revision": 8
+    },
+    {
+      "seq": 9,
+      "at": "2026-10-09T03:40:33.697Z",
+      "event": "task_started",
+      "taskId": "W3",
+      "by": "cli",
+      "reason": "Task started through the Work CLI.",
+      "revision": 9
+    },
+    {
+      "seq": 10,
+      "at": "2026-10-09T03:51:28.536Z",
+      "event": "evidence_recorded",
+      "taskId": "W3",
+      "by": "maker-agent",
+      "reason": "Evidence recorded with 4 validation results.",
+      "revision": 10
+    },
+    {
+      "seq": 11,
+      "at": "2026-10-09T03:51:33.019Z",
+      "event": "review_recorded",
+      "taskId": "W3",
+      "by": "checker-agent",
+      "reason": "Task review recorded with pass.",
+      "revision": 11
+    },
+    {
+      "seq": 12,
+      "at": "2026-10-09T03:52:02.292Z",
+      "event": "task_started",
+      "taskId": "W4",
+      "by": "maker-agent",
+      "reason": "Task started through the Work CLI.",
+      "revision": 12
+    },
+    {
+      "seq": 13,
+      "at": "2026-10-09T03:52:14.828Z",
+      "event": "evidence_recorded",
+      "taskId": "W4",
+      "by": "maker-agent",
+      "reason": "Evidence recorded with 1 validation result.",
+      "revision": 13
+    },
+    {
+      "seq": 14,
+      "at": "2026-10-09T03:52:18.854Z",
+      "event": "review_recorded",
+      "taskId": "W4",
+      "by": "checker-agent",
+      "reason": "Task review recorded with pass.",
+      "revision": 14
+    },
+    {
+      "seq": 15,
+      "at": "2026-10-09T03:52:25.914Z",
+      "event": "work_closed",
+      "taskId": null,
+      "by": "pilot",
+      "reason": "Trabajo completado por el piloto",
+      "revision": 15
+    }
+  ],
+  "closure": {
+    "outcome": "completed",
+    "reason": "Trabajo completado por el piloto",
+    "by": "pilot",
+    "closedAt": "2026-10-09T03:52:25.914Z",
+    "briefDigest": "d8b5c42ec5235cb30f33e0981cfdcac2f68a4565893c0f100e4851f8af13a0cf",
+    "finalRevision": 15
+  },
+  "promotion": null
+}

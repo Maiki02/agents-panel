@@ -42,12 +42,13 @@ import { WorktreeOps, type PilotActions } from '../worktrees/ops.js';
 import { realGit, type MergeGit, type PilotGit } from './git-ops.js';
 import { realGh, type PilotGh } from './github-cli.js';
 import { runMergePhase, type MergePhaseOutcome } from './merge-phase.js';
+import { readPrText, type PrDataReader } from './pr-body.js';
 import type { SecretFinding } from './secrets.js';
 import type { AutopilotRunRepository } from './runs-repo.js';
 import type { UsageRepository } from '../usage/repo.js';
 
 /** Everything the pilot reads from the Kyro CLI. */
-export interface PilotKyro extends KyroStateReader, CapabilityReader {
+export interface PilotKyro extends KyroStateReader, CapabilityReader, Partial<PrDataReader> {
   contextPackTask(
     cwd: string,
     scope: string,
@@ -684,6 +685,11 @@ export class Autopilot {
     chat: Chat,
     state: KyroScopeState | KyroWorkState,
   ): Promise<{ title: string; body: string }> {
+    const detailed = await readPrText(this.deps.kyro, chat.worktreePath, {
+      kind: state.kind,
+      name: state.kind === 'scope' ? state.scope : state.work,
+    });
+    if (detailed !== null) return detailed;
     const footer = 'Abierta por el piloto del panel. Revisá los cambios antes de mergear.';
     if (state.kind === 'work') {
       return {

@@ -283,6 +283,7 @@ export function buildApp(deps: AppDeps, options: FastifyServerOptions = {}): Fas
     autopilot: autopilotRuns,
     state: worktreeState,
     envFiles,
+    kyro: deps.pilotKyro ?? realKyro,
     // The injected fakes of the tests only implement what the pilot uses.
     ...(deps.pilotGit ? { git: deps.pilotGit as PilotGit & MergeGit & RepoGit } : {}),
     ...(deps.pilotGh ? { gh: deps.pilotGh } : {}),
