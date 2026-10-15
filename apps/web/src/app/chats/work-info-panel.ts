@@ -19,6 +19,17 @@ import { PhaseStepper } from './phase-stepper';
 const WIDE_QUERY = '(min-width: 1024px)';
 
 /**
+ * Lines of the current task card: the id on top when there is one; without an id (the Plan phase)
+ * the activity is the main line and nothing repeats below it.
+ */
+export function taskLines(task: { id: string | null; activity: string }): {
+  title: string | null;
+  activity: string;
+} {
+  return { title: task.id, activity: task.activity };
+}
+
+/**
  * Information of the worktree next to the chat: branch and state, current task, phases, pilot and
  * models. From `lg` it is a column with its own scroll; below, a collapsible summary on top whose
  * folded part keeps the branch, the state and the current task. A direct request has only the
@@ -54,13 +65,18 @@ const WIDE_QUERY = '(min-width: 1024px)';
               <span class="ml-auto">{{ progress }}</span>
             }
           </p>
-          <p class="m-0 mt-0.5 font-medium">{{ t.id ?? 'Sin id' }}</p>
+          @let lines = taskLines(t);
+          @if (lines.title; as title) {
+            <p class="m-0 mt-0.5 font-medium">{{ title }}</p>
+          }
           <p
             class="m-0 text-sm"
+            [class.mt-0.5]="lines.title === null"
+            [class.font-medium]="lines.title === null"
             [class.text-warn]="t.tone === 'warn'"
             [class.text-danger]="t.tone === 'danger'"
           >
-            {{ t.activity }}
+            {{ lines.activity }}
           </p>
           @if (t.sprint; as sprint) {
             <p class="m-0 text-xs text-muted">{{ sprint }}</p>
@@ -118,6 +134,7 @@ export class WorkInfoPanel {
   protected readonly place = computed(() => `${this.chat().projectName} · ${this.chat().branch}`);
   protected readonly task = computed(() => currentTaskView(this.state()));
   protected readonly wide = signal(false);
+  protected readonly taskLines = taskLines;
 
   constructor() {
     if (typeof matchMedia !== 'function') return;

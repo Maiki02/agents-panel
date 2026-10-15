@@ -390,6 +390,13 @@ export function parseWorkState(workStatusJson: unknown): KyroWorkState {
   const verified = strings(summary, 'verified', 'work-status.data.summary');
   const disposed = strings(summary, 'disposed', 'work-status.data.summary');
   const unresolved = strings(summary, 'unresolved', 'work-status.data.summary');
+  // The task being worked on: the one in progress, then the one awaiting review. Older Kyro
+  // output may not list them, so the CLI's own nextTaskId stays as the fallback.
+  const optionalIds = (key: string): string[] => {
+    const value = summary[key];
+    return Array.isArray(value) ? value.filter((id): id is string => typeof id === 'string') : [];
+  };
+  const currentTask = optionalIds('inProgress')[0] ?? optionalIds('awaitingReview')[0] ?? null;
 
   return {
     kind: 'work',
@@ -401,7 +408,7 @@ export function parseWorkState(workStatusJson: unknown): KyroWorkState {
       WORK_NEXT_ACTIONS,
       'work-status.data.nextAction',
     ),
-    nextTaskId: nullableStr(data, 'nextTaskId', 'work-status.data'),
+    nextTaskId: currentTask ?? nullableStr(data, 'nextTaskId', 'work-status.data'),
     tasks: {
       done: verified.length + disposed.length,
       total: verified.length + disposed.length + unresolved.length,

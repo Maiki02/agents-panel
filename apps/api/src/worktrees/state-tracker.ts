@@ -36,6 +36,8 @@ export interface TurnInfo {
 export interface TurnObserver {
   turnStarted(chat: Chat, turn: TurnInfo): void;
   turnFinished(chat: Chat, turn: TurnInfo, result: ChatStatus): Promise<void>;
+  /** A Bash command that ran kyro ended inside the turn: Kyro is read again (see the tracker). */
+  kyroCommandFinished?(chat: Chat, turn: TurnInfo): Promise<void>;
   questionAsked(chat: Chat): void;
   questionAnswered(chat: Chat): void;
 }
@@ -172,13 +174,7 @@ export class WorktreeStateTracker implements TurnObserver {
       await this.ideaFinished(chat, common);
       return;
     }
-    const read =
-      chat.kind === 'scope'
-        ? await this.reader.readScope(chat.worktreePath, chat.slug)
-        : await this.reader.readWork(chat.worktreePath, undefined, {
-            preferred: chat.slug,
-            since: chat.createdAt,
-          });
+    const read = await this.readKyro(chat);
     if (!read.ok) {
       this.states.transition(chat.id, {
         state: 'error',
@@ -190,11 +186,45 @@ export class WorktreeStateTracker implements TurnObserver {
       });
       return;
     }
-    const mapped = mapKyroState(read.state);
+    this.applyRead(chat, turn, read.state, common);
+  }
+
+  private readKyro(chat: Chat): Promise<KyroReadResult<KyroScopeState | KyroWorkState>> {
+    return chat.kind === 'scope'
+      ? this.reader.readScope(chat.worktreePath, chat.slug)
+      : this.reader.readWork(chat.worktreePath, undefined, {
+          preferred: chat.slug,
+          since: chat.createdAt,
+        });
+  }
+
+  /**
+   * The agent finished a Bash command that ran kyro inside a running turn: read Kyro again so the
+   * state, task and progress follow the work without waiting for the turn to end. The signal is
+   * still the CLI's output (R7). A failed read changes nothing and never breaks the turn.
+   */
+  async kyroCommandFinished(chat: Chat, turn: TurnInfo): Promise<void> {
+    if (!WorktreeStateTracker.tracked(chat) || chat.kind === 'idea') return;
+    const current = this.states.get(chat.id);
+    // Only a running turn moves on its own: a question wait or a stop is not overwritten.
+    if (current === undefined || STOPPED.includes(current.state)) return;
+    if (QUESTION_WAITS.includes(current.state)) return;
+    const read = await this.readKyro(chat);
+    if (!read.ok) return;
+    this.applyRead(chat, turn, read.state, { role: turn.role, model: turn.model });
+  }
+
+  private applyRead(
+    chat: Chat,
+    turn: TurnInfo,
+    state: KyroScopeState | KyroWorkState,
+    common: { role: TurnInfo['role']; model: string },
+  ): void {
+    const mapped = mapKyroState(state);
     this.states.transition(chat.id, {
       state: mapped.state,
       actor: turn.pilot ? 'pilot' : 'agent',
-      reason: `Kyro: ${read.state.nextAction}`,
+      reason: `Kyro: ${state.nextAction}`,
       detail: mapped.detail,
       phase: mapped.phase,
       sprintCurrent: mapped.sprintCurrent,
@@ -207,8 +237,8 @@ export class WorktreeStateTracker implements TurnObserver {
       blockedReason: mapped.blockedReason,
       // Without the pilot the next move is the user's; with it, the pilot decides.
       data: {
-        nextAction: read.state.nextAction,
-        nextTaskId: read.state.nextTaskId,
+        nextAction: state.nextAction,
+        nextTaskId: state.nextTaskId,
         waitingOn: turn.pilot ? 'pilot' : 'user',
         ...turn.pilot,
       },
