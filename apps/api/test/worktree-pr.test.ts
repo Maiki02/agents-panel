@@ -10,7 +10,11 @@ import { ProjectRepoRepository } from '../src/projects/repos-repo.js';
 import { WorktreeStateRepository } from '../src/worktrees/state-repo.js';
 import type { KyroScopeState, PrData } from '../src/kyro/state.js';
 import { WorktreeOps } from '../src/worktrees/ops.js';
+import { ForgeRegistry } from '../src/forge/provider.js';
 import { makeGitRepo, makeRepoWithRemote } from './helpers.js';
+import { fakeGitlab } from './fake-gitlab.js';
+
+const GL_TOKEN = 'glpat-xyz';
 
 interface Created {
   cwd: string;
@@ -76,16 +80,29 @@ async function setup(
     open?: Record<string, string>;
     kyro?: ReturnType<typeof fakeKyro>;
     kind?: 'scope' | 'direct';
+    gitlab?: ReturnType<typeof fakeGitlab>;
   } = {},
 ) {
   const db = openDatabase(':memory:');
   const root = makeRepoWithRemote('feature/x');
   const projects = new ProjectRepository(db);
-  const project = await projects.add({
-    name: 'demo',
-    repoPath: makeGitRepo(),
-    baseBranch: 'main',
-  });
+  const project = options.gitlab
+    ? projects.insertGithub({
+        name: 'demo',
+        displayName: null,
+        repoUrl: 'https://gitlab.example.com/g/repo',
+        gitProvider: 'gitlab',
+        repoPath: makeGitRepo(),
+        baseBranch: 'main',
+        setupCommand: null,
+        status: 'ready',
+        statusDetail: null,
+      })
+    : await projects.add({
+        name: 'demo',
+        repoPath: makeGitRepo(),
+        baseBranch: 'main',
+      });
   const chats = new ChatRepository(db);
   const chat = chats.create({
     projectId: project.id,
@@ -117,7 +134,17 @@ async function setup(
     manager: { isRunning: () => false, inMaintenance: false },
     state,
     envFiles: { readAll: () => [] },
-    gh,
+    ...(options.gitlab
+      ? {
+          forge: new ForgeRegistry({
+            projects,
+            credentials: {
+              forProject: () => ({ host: 'gitlab.example.com', username: 'u', token: GL_TOKEN }),
+            },
+            fetch: options.gitlab.fetchImpl,
+          }),
+        }
+      : { gh }),
     ...(options.kyro ? { kyro: options.kyro } : {}),
   });
   return { ops, chat, root, child, created, state };
@@ -199,6 +226,28 @@ describe('WorktreeOps.createPr', () => {
       op: 'create_pr',
       url: 'https://github.com/acme/repo/pull/1',
     });
+  });
+
+  it('opens a merge request in a GitLab project and the Timeline records it with its actor', async () => {
+    const gitlab = fakeGitlab('gitlab.example.com', GL_TOKEN);
+    const s = await setup({ gitlab });
+    const url = 'https://gitlab.example.com/g/repo/-/merge_requests/1';
+    const out = await s.ops.createPr(s.chat.id, 'user', [
+      { repo: '.', title: 'feat(panel): uno', body: 'Cuerpo' },
+    ]);
+    expect(out.repos[0]).toMatchObject({ result: 'ok', url, existing: false });
+    expect(gitlab.mrs).toMatchObject([
+      { source_branch: 'feature/x', target_branch: 'main', description: 'Cuerpo' },
+    ]);
+    expect(s.created).toEqual([]); // gh was never used
+    const entry = s.state.timeline(s.chat.id).at(-1);
+    expect(entry?.actor).toBe('user');
+    expect(entry?.data).toMatchObject({ op: 'create_pr', url });
+    expect(JSON.stringify(s.state.timeline(s.chat.id))).not.toContain(GL_TOKEN);
+    // A second run reuses the open MR.
+    const again = await s.ops.createPr(s.chat.id, 'pilot', [{ repo: '.', title: 't', body: '' }]);
+    expect(again.repos[0]).toMatchObject({ result: 'ok', url, existing: true });
+    expect(gitlab.mrs).toHaveLength(1);
   });
 
   it('does not create another PR when one is open and answers its link (S10)', async () => {

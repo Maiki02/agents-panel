@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeOrigin, parseGithubRepo } from '../src/projects/github.js';
+import { parseGithubRepo } from '../src/projects/github.js';
+import { normalizeOrigin, parseRemote } from '../src/projects/remote.js';
 import { ProjectError } from '../src/projects/repo.js';
 
 const expected = {
@@ -135,10 +136,29 @@ describe('normalizeOrigin', () => {
     );
   });
 
+  it('normalizes the https and ssh forms of GitLab, subgroups included', () => {
+    for (const input of [
+      'https://gitlab.com/Grupo/Sub/Repo',
+      'https://gitlab.com/Grupo/Sub/Repo.git/',
+      'git@gitlab.com:Grupo/Sub/Repo.git',
+      'ssh://git@gitlab.com/Grupo/Sub/Repo.git',
+      'https://oauth2:tok@gitlab.com/Grupo/Sub/Repo.git',
+    ]) {
+      expect(normalizeOrigin(input)).toBe('https://gitlab.com/grupo/sub/repo');
+    }
+  });
+
+  it('only recognizes a self-hosted GitLab whose host is given', () => {
+    expect(normalizeOrigin('git@git.acme.io:g/r.git')).toBeNull();
+    expect(normalizeOrigin('git@git.acme.io:g/r.git', ['git.acme.io'])).toBe(
+      'https://git.acme.io/g/r',
+    );
+  });
+
   it.each([
     '',
-    'https://gitlab.com/a/b',
-    'git@gitlab.com:a/b.git',
+    'https://gitlab.com/a',
+    'https://gitlab.com/a/b/-/tree/dev',
     'https://github.com.evil.com/a/b',
     'https://github.com/a/b/c',
     '/home/ubuntu/proyectos/ventas',
@@ -146,5 +166,84 @@ describe('normalizeOrigin', () => {
     'not a url',
   ])('returns null for %j', (input) => {
     expect(normalizeOrigin(input)).toBeNull();
+  });
+});
+
+describe('parseRemote', () => {
+  it('keeps the GitHub forms as they were', () => {
+    expect(parseRemote('Maiki02/agents-panel')).toEqual({
+      provider: 'github',
+      host: 'github.com',
+      slug: 'Maiki02/agents-panel',
+      name: 'agents-panel',
+      httpsUrl: 'https://github.com/Maiki02/agents-panel',
+      branch: null,
+    });
+    expect(parseRemote('https://github.com/o/r/tree/feature/x')).toMatchObject({
+      provider: 'github',
+      slug: 'o/r',
+      branch: 'feature/x',
+    });
+  });
+
+  it.each([
+    'https://gitlab.com/grupo/sub/repo',
+    'https://gitlab.com/grupo/sub/repo.git',
+    'https://gitlab.com/grupo/sub/repo/',
+    'https://GitLab.com/grupo/sub/repo',
+  ])('accepts %j on gitlab.com', (input) => {
+    expect(parseRemote(input)).toEqual({
+      provider: 'gitlab',
+      host: 'gitlab.com',
+      slug: 'grupo/sub/repo',
+      name: 'repo',
+      httpsUrl: 'https://gitlab.com/grupo/sub/repo',
+      branch: null,
+    });
+  });
+
+  it('reads the branch of /-/tree/<branch>, slashes included', () => {
+    expect(parseRemote('https://gitlab.com/g/r/-/tree/dev')).toMatchObject({
+      slug: 'g/r',
+      branch: 'dev',
+    });
+    expect(parseRemote('https://gitlab.com/g/s/r.git/-/tree/feature/x')).toMatchObject({
+      slug: 'g/s/r',
+      branch: 'feature/x',
+    });
+  });
+
+  it('accepts a private GitLab only when its host has a linked account', () => {
+    expect(parseRemote('https://git.acme.io/team/app', ['git.acme.io'])).toMatchObject({
+      provider: 'gitlab',
+      host: 'git.acme.io',
+      httpsUrl: 'https://git.acme.io/team/app',
+    });
+    expect(() => parseRemote('https://git.acme.io/team/app')).toThrow(ProjectError);
+    expect(() => parseRemote('https://git.acme.io/team/app', ['other.io'])).toThrow(ProjectError);
+  });
+
+  it.each([
+    'http://gitlab.com/g/r',
+    'git@gitlab.com:g/r.git',
+    'ssh://git@gitlab.com/g/r.git',
+    'https://user:pass@gitlab.com/g/r',
+    'https://oauth2@gitlab.com/g/r',
+    'https://gitlab.com:8443/g/r',
+    'https://gitlab.com/g/r?x=1',
+    'https://gitlab.com/g/r#f',
+    'https://gitlab.com/r',
+    'https://gitlab.com/',
+    'https://gitlab.com/g/-/r',
+    'https://gitlab.com/g/r/-/blob/main/x',
+    'https://gitlab.com/g/r/-/tree',
+    'https://gitlab.com/g/r/-/tree/-flag',
+    'https://gitlab.com/g//r',
+    'https://gitlab.com/g/../r',
+    'https://gitlab.com/g/.hidden',
+    'https://gitlab.com.evil.com/g/r',
+    'https://evil.com/g/r',
+  ])('rejects %j', (input) => {
+    expect(() => parseRemote(input, ['git.acme.io'])).toThrow(ProjectError);
   });
 });

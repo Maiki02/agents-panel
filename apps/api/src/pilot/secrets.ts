@@ -13,6 +13,7 @@ export const SECRET_KINDS = [
   'credentials_file',
   'private_key',
   'github_token',
+  'gitlab_token',
   'anthropic_key',
   'aws_access_key',
   'slack_token',
@@ -30,6 +31,7 @@ const KIND_LABEL: Record<SecretKind, string> = {
   credentials_file: 'archivo de credenciales',
   private_key: 'clave privada',
   github_token: 'token de GitHub',
+  gitlab_token: 'token de GitLab',
   anthropic_key: 'clave de Anthropic',
   aws_access_key: 'clave de acceso de AWS',
   slack_token: 'token de Slack',
@@ -49,6 +51,7 @@ function kindOfFileName(file: string): SecretKind | null {
 const CONTENT_PATTERNS: readonly { kind: SecretKind; pattern: RegExp }[] = [
   { kind: 'private_key', pattern: /-----BEGIN [A-Z ]*PRIVATE KEY-----/ },
   { kind: 'github_token', pattern: /\bghp_[A-Za-z0-9]{20,}|\bgithub_pat_[A-Za-z0-9_]{20,}/ },
+  { kind: 'gitlab_token', pattern: /\bglpat-[A-Za-z0-9_-]{20,}/ },
   { kind: 'anthropic_key', pattern: /\bsk-ant-[A-Za-z0-9_-]{20,}/ },
   { kind: 'aws_access_key', pattern: /\bAKIA[0-9A-Z]{16}\b/ },
   { kind: 'slack_token', pattern: /\bxox[abpr]-[A-Za-z0-9-]{10,}/ },

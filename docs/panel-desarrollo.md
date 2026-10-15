@@ -95,12 +95,34 @@ Lo que hace la web es `POST /api/projects`, que clona el repo en `PANEL_PROJECTS
 ```
 
 - Solo `repo` es obligatorio: la URL completa `https://github.com/owner/repo` (con o sin `.git`; la web pide esta forma) o, como referencia de la API, `owner/repo`. Si la URL trae `/tree/<rama>` (por ejemplo `https://github.com/owner/repo/tree/dev` o `…/tree/feature/x`), esa rama es la base del proyecto; un `baseBranch` explícito gana sobre la de la URL. Otros caminos (`/blob/…`), ramas con caracteres raros, query o fragmento se rechazan con 400. El resto es opcional: `name` (kebab-case; si falta sale del repo), `displayName` (nombre visible), `baseBranch` (si falta, la rama por defecto del clon) y `setupCommand`.
-- Cualquier otro campo (por ejemplo una ruta de carpeta) o un repo que no sea de GitHub se rechaza con 400: el destino lo decide siempre el panel.
+- Cualquier otro campo (por ejemplo una ruta de carpeta) o un repo que no sea de GitHub ni de GitLab se rechaza con 400: el destino lo decide siempre el panel.
 - **202**: el clon sigue en segundo plano y el proyecto está en `cloning`. **201**: la carpeta ya existía con ese origin y se adoptó (queda `ready`). **409**: el proyecto ya existe, o la carpeta existe con otro origin.
 - Seguir el estado con `GET /api/projects/:id` (`cloning`, `ready` o `error` con `statusDetail`). Si falló, `POST /api/projects/:id/retry`. Un chat sobre un proyecto que no está `ready` responde 409.
 - `GET /api/projects/:id` incluye `suggestedSetupCommand` (`bash scripts/panel-setup.sh`) cuando el repo trae ese script y el setup está vacío. No se aplica solo: se guarda con `PATCH /api/projects/:id` (`displayName`, `baseBranch`, `setupCommand`).
 - `hasKyro` indica si el repo trae `.agents/kyro/`; en ese caso se inicializa Kyro al quedar listo y, si falla, `kyroWarning` lo avisa sin revertir el proyecto. Sin Kyro, crear un chat `work` o `scope` responde 409; `direct` se acepta siempre. Para agregarle Kyro, ver «Operar un proyecto».
-- Requiere `gh` autenticado en la VM (`gh auth status`) y al menos `PANEL_MIN_FREE_DISK_GB` GB libres.
+- Un repo de GitLab (URL `https://gitlab.com/grupo/subgrupo/repo`) exige `gitAccountId`; ver «Proyectos de GitLab y cuentas de git».
+- Un proyecto de GitHub sin cuenta requiere `gh` autenticado en la VM (`gh auth status`); con cuenta usa su token. Hace falta además al menos `PANEL_MIN_FREE_DISK_GB` GB libres.
+
+### Proyectos de GitLab y cuentas de git
+
+Un proyecto puede ser de GitHub o de GitLab. En **Nuevo proyecto** pegás la URL completa (`https://github.com/usuario/repo` o `https://gitlab.com/grupo/subgrupo/repo`; con `/tree/<rama>` o `/-/tree/<rama>` se toma esa rama como base) y elegís la **cuenta de git** del proyecto. Un proyecto de GitLab exige una cuenta de GitLab del mismo host; uno de GitHub puede ir sin cuenta (usa el login global de `gh` de la VM) o con una cuenta de GitHub. Las cuentas se gestionan en la pantalla de cuentas (junto a las de Claude) y por `/api/git-accounts`. El token se guarda cifrado en la tabla `git_accounts` de la base del panel y nunca se vuelve a mostrar: para cambiarlo se carga uno nuevo.
+
+**Crear el token con los permisos mínimos** (se hace en el sitio del proveedor, con el usuario que va a pushear):
+
+- **GitHub:** Settings → Developer settings → Personal access tokens. Preferí un token *fine-grained* limitado a los repos del proyecto, con *Contents: Read and write* y *Pull requests: Read and write* (y *Metadata: Read*, que viene por defecto). Si usás un token *classic*, el único permiso es `repo`. Poné vencimiento.
+- **GitLab:** Preferences → Access Tokens (personal) o Settings → Access Tokens del proyecto o grupo. Los permisos son `api` (hace falta para abrir y leer merge requests por la API REST), `read_repository` y `write_repository` (clonar y pushear por HTTPS). Un token de proyecto o de grupo con rol *Developer* alcanza si la rama base no es protegida para ese rol; poné vencimiento. En una instancia propia, el host tiene que ser `https` y sin puerto.
+
+**Vincular el token:**
+
+1. En la web, **Cuentas → Cuentas de GitHub y GitLab → vincular**: elegí el proveedor, un nombre, el host (solo GitLab; `gitlab.com` o el de tu instancia), pegá el token y confirmá con un código TOTP nuevo. El panel valida el token contra el proveedor y guarda el usuario que este devuelve; si lo rechaza, no se guarda nada.
+2. Por la API (referencia; con sesión, CSRF y `Origin` como siempre; el token va solo en el body y no se pega en docs ni en el historial del shell):
+   ```json
+   { "provider": "gitlab", "name": "gitlab-trabajo", "host": "gitlab.com", "token": "<token>", "totp": "123456" }
+   ```
+   `POST /api/git-accounts` devuelve 201 con la cuenta sin el token. `GET /api/git-accounts` lista; `PATCH /api/git-accounts/:id` renombra o reemplaza el token (pide TOTP); `DELETE /api/git-accounts/:id` devuelve 409 si un proyecto la usa.
+3. Dar de alta el proyecto con `gitAccountId` (`POST /api/projects`) o cambiarla después con `PATCH /api/projects/:id`.
+
+Si el token vence o se revoca, las operaciones git del proyecto fallan con un error de credenciales: reemplazalo en la cuenta. Si cambia `PANEL_SECRET_KEY`, las cuentas quedan ilegibles y hay que volver a cargar sus tokens. No hay variables nuevas en `apps/api/.env`.
 
 ### Una carpeta ya clonada (CLI)
 

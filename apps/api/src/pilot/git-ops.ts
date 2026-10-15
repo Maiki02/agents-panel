@@ -4,6 +4,7 @@ import { rm } from 'node:fs/promises';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import type { DiffAgainst, DiffFile, DiffFileStatus } from '@agents-panel/shared';
+import { authForPath } from '../git-accounts/credentials.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -15,11 +16,24 @@ const GIT_NETWORK_TIMEOUT_MS = 5 * 60_000;
 export type Exec = (
   file: string,
   args: string[],
-  options: { timeout: number },
+  options: { timeout: number; env?: NodeJS.ProcessEnv },
 ) => Promise<{ stdout: string; stderr: string }>;
 
 const defaultExec: Exec = (file, args, options) =>
-  execFileAsync(file, args, { timeout: options.timeout, maxBuffer: 4 * 1024 * 1024 });
+  execFileAsync(file, args, {
+    timeout: options.timeout,
+    maxBuffer: 4 * 1024 * 1024,
+    ...(options.env ? { env: options.env } : {}),
+  });
+
+/** Argv and options of one git call: a project with an account adds its credential (env only). */
+function gitCall(cwd: string, args: string[], timeout: number) {
+  const auth = authForPath(cwd);
+  return {
+    argv: [...auth.configArgs, '-C', cwd, ...args],
+    options: { timeout, ...(auth.env ? { env: auth.env } : {}) },
+  };
+}
 
 /** The git operations the pilot runs itself (never the agent). Injectable so tests use a fake. */
 export interface PilotGit {
@@ -181,7 +195,8 @@ function failure(args: string[], error: unknown): Error {
 export function createGit(exec: Exec = defaultExec): PilotGit & MergeGit & RepoGit {
   const git = async (cwd: string, args: string[], timeout = GIT_TIMEOUT_MS): Promise<string> => {
     try {
-      return (await exec('git', ['-C', cwd, ...args], { timeout })).stdout;
+      const call = gitCall(cwd, args, timeout);
+      return (await exec('git', call.argv, call.options)).stdout;
     } catch (error) {
       throw failure(args, error);
     }
@@ -211,7 +226,8 @@ export function createGit(exec: Exec = defaultExec): PilotGit & MergeGit & RepoG
    */
   const gitOutput = async (cwd: string, args: string[]): Promise<string> => {
     try {
-      return (await exec('git', ['-C', cwd, ...args], { timeout: GIT_TIMEOUT_MS })).stdout;
+      const call = gitCall(cwd, args, GIT_TIMEOUT_MS);
+      return (await exec('git', call.argv, call.options)).stdout;
     } catch (error) {
       const out = error as { code?: unknown; stdout?: unknown };
       const partial = typeof out.stdout === 'string' ? out.stdout : null;

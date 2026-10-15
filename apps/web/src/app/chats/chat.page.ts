@@ -39,6 +39,7 @@ import {
   approvalCard,
   debtFromTimeline,
   movesState,
+  prCardTexts,
   prLinks,
   showPrCard,
   type DebtView,
@@ -81,198 +82,198 @@ import { ProjectContext } from '../projects/project-context';
         />
       }
       <div class="chat-main">
-    <div class="chat-top">
-      <div class="mb-2 flex items-center justify-between gap-2">
-        <a appButton variant="secondary" [routerLink]="['/projects', projectId(), 'chats']">
-          <app-icon name="chats" />
-          Chats
-        </a>
-        @if (chat()?.status === 'running') {
-          <button appButton variant="danger" type="button" (click)="cancel()">Cancelar</button>
-        }
-      </div>
-      @if (chat(); as c) {
-        @if (tabs().length > 1) {
-          <app-tabs
-            class="mt-3 block"
-            [tabs]="tabs()"
-            [active]="tab()"
-            (selected)="tab.set($event)"
-          />
-        }
-        @if (c.status === 'interrupted') {
-          <p class="banner">
-            La sesión se interrumpió (el servidor se reinició). Mandá un mensaje para retomarla.
-          </p>
-        }
-        @if (!connected() && c.status === 'running') {
-          <p class="hint">Reconectando…</p>
-        }
-        @switch (card()) {
-          @case ('idea') {
-            <app-idea-approval-card [chatId]="c.id" (decided)="refreshAfterDecision()" />
-          }
-          @case ('debt') {
-            <app-debt-approval-card
-              [chatId]="c.id"
-              [debt]="debt()"
-              (accepted)="refreshAfterDecision()"
-            />
-          }
-          @case ('pr') {
-            @if (prCardVisible()) {
-              <section class="card approval" aria-label="Pull request">
-                <h2>La PR está lista para revisar</h2>
-                @for (url of prUrls(); track url) {
-                  <p>
-                    <a
-                      class="link break-all"
-                      [href]="url"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      >{{ url }}</a
-                    >
-                  </p>
-                } @empty {
-                  <p class="hint">Todavía no hay un link de la PR para mostrar.</p>
-                }
-              </section>
+        <div class="chat-top">
+          <div class="mb-2 flex items-center justify-between gap-2">
+            <a appButton variant="secondary" [routerLink]="['/projects', projectId(), 'chats']">
+              <app-icon name="chats" />
+              Chats
+            </a>
+            @if (chat()?.status === 'running') {
+              <button appButton variant="danger" type="button" (click)="cancel()">Cancelar</button>
             }
-          }
-        }
-      }
-      @if (error(); as message) {
-        <p class="error" role="alert">{{ message }}</p>
-      }
-    </div>
-
-    @if (tab() === 'timeline' && hasWork()) {
-      <section class="chat-scroll" aria-label="Timeline">
-        <app-timeline [transitions]="timeline()" />
-      </section>
-    } @else if (tab() === 'git' && chat(); as g) {
-      <app-git-tab
-        [chatId]="g.id"
-        [chatStatus]="g.status"
-        [workState]="g.workState ?? null"
-        [kind]="g.kind"
-        (messageSent)="afterMessageSent()"
-        (stepStarted)="afterMessageSent()"
-        (workChanged)="refreshAfterDecision()"
-      />
-    } @else {
-      <section
-        #feed
-        class="feed chat-scroll"
-        aria-label="Conversación"
-        aria-live="polite"
-        (scroll)="onFeedScroll()"
-      >
-        <p class="hint feed-edge min-h-6 text-center" data-testid="feed-edge">
-          @if (loadingOlder()) {
-            Cargando mensajes anteriores…
-          } @else if (!hasMore() && rows().length > 0) {
-            Inicio de la conversación
-          }
-        </p>
-        @for (row of rows(); track row.key) {
-          @let item = row.item;
-          @switch (item.kind) {
-            @case ('user') {
-              <div class="msg user">{{ item.text }}</div>
+          </div>
+          @if (chat(); as c) {
+            @if (tabs().length > 1) {
+              <app-tabs
+                class="mt-3 block"
+                [tabs]="tabs()"
+                [active]="tab()"
+                (selected)="tab.set($event)"
+              />
             }
-            @case ('assistant') {
-              <div class="msg assistant">{{ item.text }}</div>
+            @if (c.status === 'interrupted') {
+              <p class="banner">
+                La sesión se interrumpió (el servidor se reinició). Mandá un mensaje para retomarla.
+              </p>
             }
-            @case ('tool') {
-              <details class="msg tool">
-                <summary>Herramienta: {{ item.name }}</summary>
-                <pre>{{ item.input }}</pre>
-              </details>
+            @if (!connected() && c.status === 'running') {
+              <p class="hint">Reconectando…</p>
             }
-            @case ('tool_result') {
-              <details class="msg tool" [class.bad]="item.isError">
-                <summary>{{ item.isError ? 'Resultado con error' : 'Resultado' }}</summary>
-                <pre>{{ item.text }}</pre>
-              </details>
-            }
-            @case ('denied') {
-              <div class="msg denied" role="alert">
-                Permiso denegado: <strong>{{ item.tool }}</strong> — {{ item.reason }}
-              </div>
-            }
-            @case ('result') {
-              <div class="msg result" [class.bad]="!item.ok">
-                {{ item.ok ? 'Terminó' : 'Terminó con error'
-                }}{{ item.text ? ': ' + item.text : '' }}
-              </div>
-            }
-            @case ('question') {
-              @if (pending().includes(item.questionId)) {
-                <app-question-card
-                  [questions]="item.questions"
-                  [busy]="submitted().includes(item.questionId)"
-                  (answered)="answer(item.questionId, $event)"
+            @switch (card()) {
+              @case ('idea') {
+                <app-idea-approval-card [chatId]="c.id" (decided)="refreshAfterDecision()" />
+              }
+              @case ('debt') {
+                <app-debt-approval-card
+                  [chatId]="c.id"
+                  [debt]="debt()"
+                  (accepted)="refreshAfterDecision()"
                 />
-              } @else {
-                <div class="msg assistant">
-                  @for (q of item.questions; track q.question) {
-                    <div>{{ q.question }}</div>
-                  }
-                </div>
+              }
+              @case ('pr') {
+                @if (prCardVisible()) {
+                  <section class="card approval" [attr.aria-label]="prTexts().label">
+                    <h2>{{ prTexts().heading }}</h2>
+                    @for (url of prUrls(); track url) {
+                      <p>
+                        <a
+                          class="link break-all"
+                          [href]="url"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          >{{ url }}</a
+                        >
+                      </p>
+                    } @empty {
+                      <p class="hint">{{ prTexts().empty }}</p>
+                    }
+                  </section>
+                }
               }
             }
-            @case ('answer') {
-              <div class="msg user">
-                @for (line of item.lines; track line.question) {
-                  <div>{{ line.answer }}</div>
+          }
+          @if (error(); as message) {
+            <p class="error" role="alert">{{ message }}</p>
+          }
+        </div>
+
+        @if (tab() === 'timeline' && hasWork()) {
+          <section class="chat-scroll" aria-label="Timeline">
+            <app-timeline [transitions]="timeline()" />
+          </section>
+        } @else if (tab() === 'git' && chat(); as g) {
+          <app-git-tab
+            [chatId]="g.id"
+            [chatStatus]="g.status"
+            [workState]="g.workState ?? null"
+            [kind]="g.kind"
+            (messageSent)="afterMessageSent()"
+            (stepStarted)="afterMessageSent()"
+            (workChanged)="refreshAfterDecision()"
+          />
+        } @else {
+          <section
+            #feed
+            class="feed chat-scroll"
+            aria-label="Conversación"
+            aria-live="polite"
+            (scroll)="onFeedScroll()"
+          >
+            <p class="hint feed-edge min-h-6 text-center" data-testid="feed-edge">
+              @if (loadingOlder()) {
+                Cargando mensajes anteriores…
+              } @else if (!hasMore() && rows().length > 0) {
+                Inicio de la conversación
+              }
+            </p>
+            @for (row of rows(); track row.key) {
+              @let item = row.item;
+              @switch (item.kind) {
+                @case ('user') {
+                  <div class="msg user">{{ item.text }}</div>
                 }
-              </div>
+                @case ('assistant') {
+                  <div class="msg assistant">{{ item.text }}</div>
+                }
+                @case ('tool') {
+                  <details class="msg tool">
+                    <summary>Herramienta: {{ item.name }}</summary>
+                    <pre>{{ item.input }}</pre>
+                  </details>
+                }
+                @case ('tool_result') {
+                  <details class="msg tool" [class.bad]="item.isError">
+                    <summary>{{ item.isError ? 'Resultado con error' : 'Resultado' }}</summary>
+                    <pre>{{ item.text }}</pre>
+                  </details>
+                }
+                @case ('denied') {
+                  <div class="msg denied" role="alert">
+                    Permiso denegado: <strong>{{ item.tool }}</strong> — {{ item.reason }}
+                  </div>
+                }
+                @case ('result') {
+                  <div class="msg result" [class.bad]="!item.ok">
+                    {{ item.ok ? 'Terminó' : 'Terminó con error'
+                    }}{{ item.text ? ': ' + item.text : '' }}
+                  </div>
+                }
+                @case ('question') {
+                  @if (pending().includes(item.questionId)) {
+                    <app-question-card
+                      [questions]="item.questions"
+                      [busy]="submitted().includes(item.questionId)"
+                      (answered)="answer(item.questionId, $event)"
+                    />
+                  } @else {
+                    <div class="msg assistant">
+                      @for (q of item.questions; track q.question) {
+                        <div>{{ q.question }}</div>
+                      }
+                    </div>
+                  }
+                }
+                @case ('answer') {
+                  <div class="msg user">
+                    @for (line of item.lines; track line.question) {
+                      <div>{{ line.answer }}</div>
+                    }
+                  </div>
+                }
+                @case ('question_cancelled') {
+                  <div class="msg log">La pregunta se canceló sin respuesta.</div>
+                }
+                @case ('error') {
+                  <div class="msg denied" role="alert">Error: {{ item.text }}</div>
+                }
+                @case ('log') {
+                  <pre class="msg log">{{ item.text }}</pre>
+                }
+              }
             }
-            @case ('question_cancelled') {
-              <div class="msg log">La pregunta se canceló sin respuesta.</div>
-            }
-            @case ('error') {
-              <div class="msg denied" role="alert">Error: {{ item.text }}</div>
-            }
-            @case ('log') {
-              <pre class="msg log">{{ item.text }}</pre>
-            }
+          </section>
+        }
+
+        @if (chat(); as c) {
+          @if (tab() === 'chat' || tabs().length < 2) {
+            <form class="composer" (submit)="send($event)">
+              <label for="message" class="sr-only">Mensaje</label>
+              @if (c.workState === 'archivado') {
+                <p class="hint">El trabajo está archivado: es de solo lectura.</p>
+              }
+              <textarea
+                id="message"
+                rows="3"
+                placeholder="Escribí un mensaje"
+                [disabled]="c.status === 'running' || c.workState === 'archivado'"
+                [value]="draft()"
+                (input)="draft.set(text($event))"
+              ></textarea>
+              <button
+                appButton
+                type="submit"
+                [disabled]="
+                  c.status === 'running' ||
+                  c.workState === 'archivado' ||
+                  draft().trim() === '' ||
+                  sending()
+                "
+              >
+                Enviar
+              </button>
+            </form>
           }
         }
-      </section>
-    }
-
-    @if (chat(); as c) {
-      @if (tab() === 'chat' || tabs().length < 2) {
-        <form class="composer" (submit)="send($event)">
-          <label for="message" class="sr-only">Mensaje</label>
-          @if (c.workState === 'archivado') {
-            <p class="hint">El trabajo está archivado: es de solo lectura.</p>
-          }
-          <textarea
-            id="message"
-            rows="3"
-            placeholder="Escribí un mensaje"
-            [disabled]="c.status === 'running' || c.workState === 'archivado'"
-            [value]="draft()"
-            (input)="draft.set(text($event))"
-          ></textarea>
-          <button
-            appButton
-            type="submit"
-            [disabled]="
-              c.status === 'running' ||
-              c.workState === 'archivado' ||
-              draft().trim() === '' ||
-              sending()
-            "
-          >
-            Enviar
-          </button>
-        </form>
-      }
-    }
       </div>
     </div>
   `,
@@ -283,6 +284,7 @@ export class ChatPage {
   /** The layout renders this page only once the project is loaded. */
   private readonly context = inject(ProjectContext);
   protected readonly projectId = computed(() => this.context.project()?.id ?? 0);
+  protected readonly prTexts = computed(() => prCardTexts(this.context.project()?.gitProvider));
   private readonly feed = viewChild<ElementRef<HTMLElement>>('feed');
   /**
    * Whether the feed follows new events: true while the user is at (or near) the end, false

@@ -12,11 +12,12 @@ import { apiErrorMessage, isInvalidTotp } from '../chats/chats.service';
 import { TotpModal } from '../shared/totp-modal';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
+import { providerTexts } from './project-label';
 import { kyroBranchSummary, kyroInitView } from './repo-actions';
 import { ProjectRepos } from './project-repos.section';
 import { ProjectsService } from './projects.service';
 
-/** Configuración > Repositorio: bring GitHub into the base clone and add Kyro on its own branch. */
+/** Configuración > Repositorio: bring the remote (GitHub or GitLab) into the base clone and add Kyro on its own branch. */
 @Component({
   selector: 'app-repo-actions',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -67,12 +68,12 @@ import { ProjectsService } from './projects.service';
             [disabled]="pushing()"
             (click)="pushBranch()"
           >
-            {{ pushing() ? 'Subiendo…' : 'Subir la rama a GitHub' }}
+            {{ pushing() ? 'Subiendo…' : 'Subir la rama a ' + texts().name }}
           </button>
         }
         @if (kyro().state === 'pending' && prLink(); as link) {
           <a class="link" [href]="link" target="_blank" rel="noopener noreferrer"
-            >Abrir la PR en GitHub</a
+            >Abrir {{ texts().thePr }} en {{ texts().name }}</a
           >
         }
         @if (kyro().state === 'pending') {
@@ -126,6 +127,7 @@ export class RepoActionsSection {
   protected readonly pushError = signal<string | null>(null);
   private readonly pushedLink = signal<string | null>(null);
   protected readonly kyro = computed(() => kyroInitView(this.project(), this.pushedNow()));
+  protected readonly texts = computed(() => providerTexts(this.project()));
   protected readonly prLink = computed(() => this.pushedLink() ?? this.kyro().prUrl);
 
   protected branchText(result: KyroBranchResult): string {

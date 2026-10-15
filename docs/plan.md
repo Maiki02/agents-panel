@@ -185,6 +185,29 @@ Campos confirmados en la VM con Kyro 6.1.0 (05/10/2026, scope `autopiloto-kyro`,
 - **Rutas que ya existían y quedaron en el catálogo.** `git`, `git/commit`, `git/pull-base`, `git/pull-branch`, `git/push`, `setup`, `idea` (aprobar la idea y crear el scope) y `messages` (resolver los conflictos del merge pidiéndoselo al agente).
 - **Actor en el servicio.** Los métodos que usa el piloto (`pushBranch`, `commitKyro`, `openPr`) y los manuales reciben el actor y lo copian al Timeline y a las transiciones.
 
+### Cuentas de git y proyectos de GitLab (work `integracion-gitlab`)
+
+Un proyecto puede vivir en GitHub o en GitLab (gitlab.com o una instancia propia). Decisiones:
+
+- **Proveedor por proyecto.** `projects.git_provider` (`github` por defecto, o `gitlab`) y `projects.git_account_id` (cuenta de git, `ON DELETE RESTRICT`). No se confunde con `projects.provider`, que es el proveedor de IA. El alta (`POST /api/projects`) acepta la URL completa de GitHub (`https://github.com/owner/repo`) o de GitLab (`https://gitlab.com/grupo/subgrupo/repo`, también `/-/tree/<rama>`); `projects/remote.ts` la interpreta y devuelve proveedor, host, ruta y URL canónica. Un host que no sea `gitlab.com` solo se acepta si hay una cuenta de GitLab de ese host.
+- **Cuentas de git (`git_accounts`, migración `git_accounts`).** Una fila por token: `provider`, `name`, `host`, `username` (lo devuelve el proveedor al validar el token) y el token **cifrado** con AES-256-GCM, con clave derivada de `PANEL_SECRET_KEY` (propósito `git-accounts-v1`) y el id, el proveedor y el host como datos autenticados (AAD): una fila copiada a otra cuenta no se descifra. El token entra y nunca sale: ni la API ni la web lo devuelven, ni queda en logs, docs ni Timeline. Si cambia `PANEL_SECRET_KEY`, las cuentas quedan ilegibles y hay que volver a cargar el token.
+- **Validar al guardar.** Crear o reemplazar un token consulta al proveedor (usuario autenticado); un token rechazado responde 400 y no se guarda nada. El host de GitLab es solo `https`, sin puerto, ruta ni credenciales; GitHub es siempre `github.com`.
+- **GitHub sin cuenta sigue igual.** Un proyecto de GitHub con `git_account_id` nulo usa el login global de `gh` de la VM, como antes. Con cuenta, usa el token de la cuenta. Un proyecto de GitLab **exige** una cuenta de GitLab del mismo host: el panel no depende de `glab` ni de un login global.
+- **Credenciales por entorno, nunca en disco ni en argv.** Cada proceso `git` o `gh` del proyecto (clon, fetch, push, pull, merge, el sondeo y los comandos del agente) recibe `GIT_ASKPASS` (`apps/api/scripts/git-askpass.sh`), `GIT_TERMINAL_PROMPT=0`, `PANEL_GIT_USERNAME` y `PANEL_GIT_TOKEN` en su entorno; el helper de credenciales global se anula solo para el host de la cuenta. `GH_TOKEN` se pone únicamente para `github.com`: un token de GitLab nunca llega a `gh`. El token no se escribe en `.git/config`, en la URL del remoto ni en la línea de comandos. Si el token ya no se puede leer, la operación falla con un error claro.
+- **GitLab por API REST v4, sin `glab`.** `GitlabForge` (`apps/api/src/forge/gitlab-api.ts`) usa `fetch` con el header `PRIVATE-TOKEN` (nada que instalar en la VM) y timeout de 30 s por pedido. La interfaz `ForgeProvider` (`forge/provider.ts`) tiene dos implementaciones, GitHub (`gh`) y GitLab (API), y el piloto, el sondeo y `WorktreeOps` la piden por proyecto. Una merge request (MR) hace de «PR»: `opened`/`locked` = abierta, `merged` = mergeada, `closed` = cerrada, así que los estados (`pr_lista`, `mergeada`, `revisar`) no cambian de nombre. Las URLs de MR se aceptan solo con `https`, del host de la cuenta y de la forma `/<ruta>/-/merge_requests/<iid>`.
+- **Rutas.** Todas piden sesión; `POST`, `PATCH` y `DELETE` piden CSRF y `Origin`; ninguna está en la allowlist pública.
+
+| Ruta | Para qué | Notas |
+| --- | --- | --- |
+| `GET /api/git-accounts` | Listar cuentas | Sin el token: `id`, `provider`, `name`, `host`, `username` y fechas |
+| `POST /api/git-accounts` `{ provider, name, host?, token, totp }` | Crear y vincular un token | TOTP nuevo; `host` obligatorio en GitLab; 400 si el token se rechaza, 409 si el nombre existe |
+| `PATCH /api/git-accounts/:id` `{ name?, token?, totp? }` | Renombrar o reemplazar el token | Reemplazar pide TOTP nuevo y vuelve a validar; 404 si no existe |
+| `DELETE /api/git-accounts/:id` | Borrar la cuenta | 409 si un proyecto la usa |
+| `POST /api/projects` `{ repo, gitAccountId?, … }` | Alta con URL de GitHub o GitLab | GitLab exige `gitAccountId` de su host |
+| `PATCH /api/projects/:id` `{ gitAccountId }` | Cambiar (o quitar, en GitHub) la cuenta | Debe ser del mismo proveedor y host |
+
+Las operaciones sobre un trabajo (Crear PR, pull, push, descartar, borrar) funcionan igual en ambos proveedores y siguen las reglas de «Servicio de acciones y paridad manual». No hay variable nueva de entorno: el timeout de la API del proveedor es una constante (30 s).
+
 ### Indicador de uso de los proveedores (D24)
 
 El uso de la cuenta activa se ve desde un icono del header en todas las pantallas (`apps/web/src/app/usage/`). Muestra el porcentaje de la ventana de 5 h con su tono (un guion si no hay dato); al abrirlo (popover en escritorio, hoja inferior en celular) muestra una barra por ventana (5 h, semanal y las semanales por modelo si vienen) con porcentaje, hora local de reinicio, «actualizado hace X» y un aviso discreto cuando el dato está degradado. Se recarga al iniciar, al cambiar de cuenta y cada 3 minutos con la pestaña visible (sin saltar la caché de la API).

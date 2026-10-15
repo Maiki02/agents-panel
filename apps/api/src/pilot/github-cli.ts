@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { authForPath } from '../git-accounts/credentials.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -20,10 +21,13 @@ export interface PilotGh {
 
 async function gh(cwd: string, args: string[]): Promise<string> {
   try {
+    // A project with a GitHub account runs gh with its token (GH_TOKEN) instead of the global login.
+    const auth = authForPath(cwd);
     const { stdout } = await execFileAsync('gh', args, {
       cwd,
       timeout: GH_TIMEOUT_MS,
       maxBuffer: 4 * 1024 * 1024,
+      ...(auth.env ? { env: auth.env } : {}),
     });
     return stdout;
   } catch (error) {

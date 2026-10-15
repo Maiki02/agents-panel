@@ -10,7 +10,11 @@ import { ChatEventBus } from '../src/chats/events.js';
 import { ChatRepository } from '../src/chats/repo.js';
 import { ConfigError, loadConfig } from '../src/config.js';
 import { openDatabase } from '../src/db/index.js';
+import type { FetchLike } from '../src/forge/gitlab-api.js';
+import { ForgeRegistry } from '../src/forge/provider.js';
 import { prStateOf, type PrState } from '../src/pilot/github-cli.js';
+import { PrLookup } from '../src/pilot/pr-lookup.js';
+import { fakeGitlab } from './fake-gitlab.js';
 import { PrWatcher } from '../src/pilot/pr-watcher.js';
 import { AutopilotRunRepository } from '../src/pilot/runs-repo.js';
 import { ProjectRepository } from '../src/projects/repo.js';
@@ -257,5 +261,92 @@ describe('PR checks in the app', () => {
     expect(loadConfig({ ...TEST_ENV, PILOT_PR_POLL_MINUTES: '2' }).pilotPrPollMs).toBe(2 * 60_000);
     expect(loadConfig(TEST_ENV).pilotPrPollMs).toBe(0);
     expect(() => loadConfig({ ...TEST_ENV, PILOT_PR_POLL_MINUTES: '-1' })).toThrow(ConfigError);
+  });
+});
+
+describe('PrWatcher in a GitLab project', () => {
+  const GL_TOKEN = 'glpat-xyz';
+
+  function gitlabSetup(fetchOverride?: FetchLike) {
+    const db = openDatabase(':memory:');
+    const chats = new ChatRepository(db);
+    const states = new WorktreeStateRepository(db, chats, new ChatEventBus());
+    const projects = new ProjectRepository(db);
+    const project = projects.insertGithub({
+      name: 'lab',
+      displayName: null,
+      repoUrl: 'https://gitlab.example.com/g/repo',
+      gitProvider: 'gitlab',
+      repoPath: makeKyroRepo(),
+      baseBranch: 'main',
+      setupCommand: null,
+      status: 'ready',
+      statusDetail: null,
+    });
+    const gitlab = fakeGitlab('gitlab.example.com', GL_TOKEN);
+    const forge = new ForgeRegistry({
+      projects,
+      credentials: {
+        forProject: () => ({ host: 'gitlab.example.com', username: 'u', token: GL_TOKEN }),
+      },
+      fetch: fetchOverride ?? gitlab.fetchImpl,
+    });
+    const prs = new PrLookup({ runs: new AutopilotRunRepository(db), states, projects, forge });
+    const logs: string[] = [];
+    const watcher = new PrWatcher({
+      chats,
+      states,
+      projects,
+      prs,
+      forge,
+      log: (message) => logs.push(message),
+    });
+    const newChat = (slug: string, mrState: 'opened' | 'merged' | 'closed') => {
+      const chat = chats.create({
+        projectId: project.id,
+        kind: 'work',
+        slug,
+        title: slug,
+        worktreePath: mkdtempSync(join(tmpdir(), 'panel-wt-')),
+        branch: `feature/${slug}`,
+        status: 'idle',
+      });
+      states.transition(chat.id, { state: 'pr_lista', actor: 'pilot' });
+      gitlab.mrs.push({
+        iid: gitlab.mrs.length + 1,
+        project: 'g/repo',
+        source_branch: `feature/${slug}`,
+        target_branch: 'main',
+        state: mrState,
+        title: 't',
+        description: '',
+      });
+      return chat;
+    };
+    return { watcher, states, newChat, logs };
+  }
+
+  it('takes the work to mergeada when the MR is merged, to revisar when closed, and waits while open', async () => {
+    const { watcher, states, newChat } = gitlabSetup();
+    const merged = newChat('m', 'merged');
+    const closed = newChat('c', 'closed');
+    const open = newChat('o', 'opened');
+    expect(await watcher.check(merged)).toBe('merged');
+    expect(await watcher.check(closed)).toBe('closed');
+    expect(await watcher.check(open)).toBe('open');
+    expect(states.get(merged.id)?.state).toBe('mergeada');
+    expect(states.get(closed.id)?.state).toBe('revisar');
+    expect(states.get(open.id)?.state).toBe('pr_lista');
+  });
+
+  it('a GitLab failure changes nothing and leaves no token in the log or the Timeline', async () => {
+    const { watcher, states, newChat, logs } = gitlabSetup(() =>
+      Promise.reject(new Error(`connection reset (${GL_TOKEN})`)),
+    );
+    const chat = newChat('f', 'merged');
+    expect(await watcher.check(chat)).toBe('none');
+    expect(states.get(chat.id)?.state).toBe('pr_lista');
+    expect(JSON.stringify(states.timeline(chat.id))).not.toContain(GL_TOKEN);
+    expect(logs.join('\n')).not.toContain(GL_TOKEN);
   });
 });

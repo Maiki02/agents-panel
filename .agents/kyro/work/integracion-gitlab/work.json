@@ -1,0 +1,753 @@
+{
+  "schemaVersion": 1,
+  "kind": "organic-work",
+  "id": "integracion-gitlab",
+  "title": "Proyectos de GitLab y cuentas de GitHub/GitLab vinculadas",
+  "objective": "Que el panel, además de proyectos de GitHub, acepte proyectos de **GitLab** (gitlab.com y GitLab privados accesibles por HTTPS), y que en la sección **Cuentas** se puedan vincular **varias cuentas de GitHub y de GitLab** con un token de acceso personal. Cada proyecto usa la cuenta vinculada que le corresponde para clonar, traer cambios, pushear y abrir PRs / Merge Requests, con la misma paridad que hoy tiene GitHub.",
+  "brief": {
+    "path": "brief.md",
+    "digest": "bb84148ffd3538f833f61240597da823dfd2a6ee2075e2e8ffe4ee5b0b4b6413",
+    "sourceIdea": null
+  },
+  "state": "closed",
+  "revision": 21,
+  "createdAt": "2026-10-15T22:04:21.801Z",
+  "updatedAt": "2026-10-15T22:58:13.069Z",
+  "handoff": {
+    "nextAction": "done",
+    "nextTaskId": null,
+    "blockedReason": null
+  },
+  "tasks": [
+    {
+      "id": "W1",
+      "title": "Cuentas de git en la API: tabla, token cifrado y rutas",
+      "description": "Migración 24: tabla git_accounts (id, provider github|gitlab, name único, host, username, token cifrado con AES-256-GCM —clave derivada de PANEL_SECRET_KEY con propósito propio y AAD <id>:<provider>:<host>—, created_at, updated_at) y projects.provider (github|gitlab, default github) + projects.git_account_id nulo (FK, ON DELETE RESTRICT). GitAccountRepository y GitAccountService: alta, renombrar, reemplazar token y borrar. Al dar de alta o reemplazar el token se valida contra la API del proveedor (GitHub: GET https://api.github.com/user; GitLab: GET https://<host>/api/v4/user con PRIVATE-TOKEN) con timeout, y se guarda el username que devuelve. El host se normaliza (minúsculas, sin puerto ni path, solo https; github solo github.com). Rutas GET/POST /api/git-accounts y PATCH/DELETE /api/git-accounts/:id; alta y cambio de token exigen TOTP (reauth, como /api/projects/:id/env). Borrar una cuenta usada por un proyecto responde 409. Tipos GitAccount y NewGitAccount en packages/shared (sin token).",
+      "context": "Decisión propia (sin ADR posible: kyro adr exige un scope de Forge y el Work no debe tocar estado de Forge): el cliente HTTP del proveedor se inyecta para que los tests nunca llamen a GitHub/GitLab. Decisión propia: el token cifrado vive en la base del panel, igual que los .env (env-files/repo.ts usa encryptParts con AAD), no en archivos de la VM. La cuenta global de gh no es una fila: un proyecto con git_account_id NULL y provider github sigue usando el gh global. Rutas con sesión y CSRF (guard global).",
+      "filesToTouch": [
+        "apps/api/src/db/migrations.ts",
+        "apps/api/src/git-accounts/repo.ts",
+        "apps/api/src/git-accounts/service.ts",
+        "apps/api/src/git-accounts/provider-api.ts",
+        "apps/api/src/git-accounts/routes.ts",
+        "apps/api/src/app.ts",
+        "packages/shared/src/index.ts",
+        "apps/api/test/git-accounts.test.ts",
+        "apps/api/test/db.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "Tras migrar no hay cuentas de git, todos los proyectos existentes quedan con provider github y sin cuenta, y nada cambia en su comportamiento",
+        "El alta rechaza un token que el proveedor no acepta, un host que no es https o tiene path/puerto, un host distinto de github.com para GitHub y un nombre repetido",
+        "El token se guarda cifrado; GET /api/git-accounts devuelve proveedor, nombre, host y usuario, nunca el token ni partes de él",
+        "Alta y cambio de token exigen TOTP; todas las rutas exigen sesión y las que escriben exigen CSRF",
+        "Borrar una cuenta asignada a un proyecto responde 409"
+      ],
+      "dependsOn": [],
+      "definitionRevision": 1,
+      "status": "verified",
+      "blocker": null,
+      "evidence": {
+        "summary": "Cuentas de git en la API: migración 24 (git_accounts, projects.git_provider, projects.git_account_id con ON DELETE RESTRICT), GitAccountRepository (token cifrado AES-256-GCM, clave HKDF con propósito git-accounts-v1, AAD <id>:<provider>:<host>), GitAccountService (normalización de host, validación del token contra el proveedor con cliente inyectable y timeout), cliente HttpGitProviderApi, rutas GET/POST /api/git-accounts y PATCH/DELETE /api/git-accounts/:id (TOTP en alta y cambio de token, 409 si un proyecto usa la cuenta) y tipos GitAccount/NewGitAccount en shared.",
+        "validations": [
+          {
+            "command": "npm run typecheck",
+            "result": "passed",
+            "note": "shared, api y web sin errores"
+          },
+          {
+            "command": "npm run lint",
+            "result": "passed",
+            "note": "eslint . sin errores"
+          },
+          {
+            "command": "npm run test -w apps/api",
+            "result": "passed",
+            "note": "86 archivos, 1331 tests; la única falla inicial (lista de rutas en cli.test.ts) se corrigió y cli, git-accounts y db se re-corrieron en verde"
+          }
+        ],
+        "filesChanged": [
+          "apps/api/src/db/migrations.ts",
+          "apps/api/src/git-accounts/repo.ts",
+          "apps/api/src/git-accounts/service.ts",
+          "apps/api/src/git-accounts/provider-api.ts",
+          "apps/api/src/git-accounts/routes.ts",
+          "apps/api/src/app.ts",
+          "packages/shared/src/index.ts",
+          "apps/api/test/git-accounts.test.ts",
+          "apps/api/test/db.test.ts",
+          "apps/api/test/helpers.ts",
+          "apps/api/test/cli.test.ts"
+        ],
+        "notes": "Desviación: projects.provider ya existe (migración 8, proveedor de IA), por eso la columna nueva se llama git_provider (default github). helpers.ts y cli.test.ts no estaban en la lista de archivos: helpers inyecta un proveedor falso por defecto (los tests nunca llaman a GitHub/GitLab) y cli.test.ts enumera las rutas que mutan. Alta o cambio de token sin TOTP responde 401; una escritura sin CSRF responde 403.",
+        "by": "maker-agent",
+        "recordedAt": "2026-10-15T22:18:24.436Z",
+        "definitionRevision": 1,
+        "materialDigest": "6c7c1c3ed9221b2937ba3ba58597d7c48f6b50963dd60a773659b7067bb19dca"
+      },
+      "verdict": {
+        "result": "pass",
+        "checkedCriteria": [
+          "Tras migrar no hay cuentas de git, todos los proyectos existentes quedan con provider github y sin cuenta, y nada cambia en su comportamiento",
+          "El alta rechaza un token que el proveedor no acepta, un host que no es https o tiene path/puerto, un host distinto de github.com para GitHub y un nombre repetido",
+          "El token se guarda cifrado; GET /api/git-accounts devuelve proveedor, nombre, host y usuario, nunca el token ni partes de él",
+          "Alta y cambio de token exigen TOTP; todas las rutas exigen sesión y las que escriben exigen CSRF",
+          "Borrar una cuenta asignada a un proyecto responde 409"
+        ],
+        "findings": [],
+        "by": "checker-agent",
+        "reviewedAt": "2026-10-15T22:18:32.095Z",
+        "definitionRevision": 1,
+        "evidenceDigest": "69645610e28bfc97a18089b4f9b6e23d66653631ad768a642de88be23b03a463",
+        "reviewedMaterialDigest": "6c7c1c3ed9221b2937ba3ba58597d7c48f6b50963dd60a773659b7067bb19dca"
+      },
+      "disposition": null
+    },
+    {
+      "id": "W2",
+      "title": "Credenciales por proyecto para clonar, traer y pushear",
+      "description": "Módulo git-credentials: dado un proyecto devuelve el entorno para los procesos git/gh de ese proyecto. Sin cuenta (GitHub global): entorno sin cambios. Con cuenta: GIT_ASKPASS apuntando a un script del repo (apps/api/scripts/git-askpass.sh, LF, set -euo pipefail) que responde el usuario y el token leídos de variables de entorno del proceso (PANEL_GIT_USERNAME / PANEL_GIT_TOKEN), GIT_TERMINAL_PROMPT=0, y para gh además GH_TOKEN. Se anula el credential helper global solo para ese host (-c credential.https://<host>.helper=) para que no gane el login de gh. Lo usan: el clon del alta (git clone https://<host>/<path>.git en vez de gh repo clone cuando hay cuenta o es GitLab), projects/git.ts (fetch y pull --ff-only), projects/pull.ts, pilot/git-ops.ts (push, pull, delete de rama), kyro-branch push y WorktreeOps. El token nunca va en argv, en la URL del remoto ni en .git/config.",
+      "context": "Decisión propia: credencial por entorno del proceso + GIT_ASKPASS, porque escribir el token en .git/config o en un credential store lo dejaría en disco dentro del clon. Decisión propia: los turnos del agente reciben el mismo entorno del proyecto en el env del SDK (sdk-runner buildQueryOptions), así el agente puede hacer git push en un proyecto de GitLab; es la misma exposición que hoy tiene con el login global de gh (gh auth token). pilot/secrets.ts suma el patrón de token de GitLab (glpat-) para que no aparezca en textos del piloto.",
+      "filesToTouch": [
+        "apps/api/src/git-accounts/credentials.ts",
+        "apps/api/scripts/git-askpass.sh",
+        "apps/api/src/projects/service.ts",
+        "apps/api/src/projects/git.ts",
+        "apps/api/src/projects/pull.ts",
+        "apps/api/src/projects/kyro-branch.ts",
+        "apps/api/src/pilot/git-ops.ts",
+        "apps/api/src/worktrees/ops.ts",
+        "apps/api/src/agent/sdk-runner.ts",
+        "apps/api/src/agent/manager.ts",
+        "apps/api/src/pilot/secrets.ts",
+        "apps/api/test/git-credentials.test.ts",
+        "apps/api/test/pilot-secrets.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "Un proyecto sin cuenta corre git y gh con el entorno de hoy (tests existentes sin cambios)",
+        "Con cuenta, clone/fetch/pull/push reciben GIT_ASKPASS, GIT_TERMINAL_PROMPT=0 y el token solo por entorno; ningún argv, URL de remoto ni .git/config contiene el token",
+        "Un test corre el script askpass con los prompts 'Username for ...' y 'Password for ...' y comprueba que responde el usuario y el token del entorno, y nada si faltan",
+        "El turno del agente de un proyecto con cuenta recibe el entorno de credenciales y el de un proyecto sin cuenta no",
+        "pilot/secrets detecta tokens glpat- de GitLab"
+      ],
+      "dependsOn": [
+        "W1"
+      ],
+      "definitionRevision": 1,
+      "status": "verified",
+      "blocker": null,
+      "evidence": {
+        "summary": "Credenciales por proyecto para git/gh: módulo git-accounts/credentials.ts (GitCredentialResolver proyecto/ruta -> cuenta, credentialEnv con GIT_ASKPASS, GIT_TERMINAL_PROMPT=0, PANEL_GIT_USERNAME/PANEL_GIT_TOKEN y GH_TOKEN solo para github.com, -c credential.https://<host>.helper= solo para ese host) y script apps/api/scripts/git-askpass.sh. Lo usan projects/git.ts (y por lo tanto pull.ts), pilot/git-ops.ts (push, pull, delete de rama; también kyro-branch push y WorktreeOps, que pasan por realGit), pilot/github-cli.ts (gh con GH_TOKEN), el clon del alta (ProjectService + ghCloner: git clone de la URL https sin credenciales cuando hay cuenta) y el turno del agente (AgentManager -> RunParams.gitEnv -> env del SDK en buildQueryOptions). pilot/secrets.ts detecta glpat-. Sin cuenta el entorno y el argv son los de hoy.",
+        "validations": [
+          {
+            "command": "npm run typecheck",
+            "result": "passed",
+            "note": "shared, api y web sin errores"
+          },
+          {
+            "command": "npm run lint",
+            "result": "passed",
+            "note": "eslint . sin errores"
+          },
+          {
+            "command": "npm run test -w apps/api",
+            "result": "passed",
+            "note": "87 archivos, 1347 tests, incluidos los existentes sin cambios y los nuevos de git-credentials y pilot-secrets"
+          }
+        ],
+        "filesChanged": [
+          "apps/api/src/git-accounts/credentials.ts",
+          "apps/api/scripts/git-askpass.sh",
+          "apps/api/src/projects/service.ts",
+          "apps/api/src/projects/git.ts",
+          "apps/api/src/pilot/git-ops.ts",
+          "apps/api/src/pilot/github-cli.ts",
+          "apps/api/src/agent/sdk-runner.ts",
+          "apps/api/src/agent/runner.ts",
+          "apps/api/src/agent/manager.ts",
+          "apps/api/src/pilot/secrets.ts",
+          "apps/api/src/app.ts",
+          "apps/api/test/git-credentials.test.ts",
+          "apps/api/test/pilot-secrets.test.ts"
+        ],
+        "notes": "Diseño: la credencial se resuelve por carpeta (clon base o <worktreesDir>/<proyecto>/...) con un resolver registrado por la app (setGitCredentialLookup, se limpia en onClose), así no hay que pasar el proyecto por cada llamada. pull.ts, kyro-branch.ts y worktrees/ops.ts no necesitaron cambios: pasan por projects/git.ts y realGit. Se agregaron pilot/github-cli.ts, agent/runner.ts y app.ts, que no estaban en la lista. GH_TOKEN se pone solo para github.com para no mandar un token de GitLab a GitHub. El agente recibe además GIT_CONFIG_COUNT/KEY_0/VALUE_0 para anular el helper del host. git-askpass.sh queda con modo 755 en el índice y el módulo restaura el bit si un checkout lo pierde. El clon con cuenta de GitLab (URL no github.com) queda para la tarea del alta, que hoy solo parsea URLs de GitHub.",
+        "by": "maker-agent",
+        "recordedAt": "2026-10-15T22:26:58.964Z",
+        "definitionRevision": 1,
+        "materialDigest": "1ecdaf37d4f0fa2e408b6374a83dc40f4d2b71e5ac8917bc5ba7a5fde9334a0e"
+      },
+      "verdict": {
+        "result": "pass",
+        "checkedCriteria": [
+          "Un proyecto sin cuenta corre git y gh con el entorno de hoy (tests existentes sin cambios)",
+          "Con cuenta, clone/fetch/pull/push reciben GIT_ASKPASS, GIT_TERMINAL_PROMPT=0 y el token solo por entorno; ningún argv, URL de remoto ni .git/config contiene el token",
+          "Un test corre el script askpass con los prompts 'Username for ...' y 'Password for ...' y comprueba que responde el usuario y el token del entorno, y nada si faltan",
+          "El turno del agente de un proyecto con cuenta recibe el entorno de credenciales y el de un proyecto sin cuenta no",
+          "pilot/secrets detecta tokens glpat- de GitLab"
+        ],
+        "findings": [],
+        "by": "checker-agent",
+        "reviewedAt": "2026-10-15T22:27:05.844Z",
+        "definitionRevision": 1,
+        "evidenceDigest": "c707e73a067398318fee48c631b2058d9c411bbaee03ea63ddf694a3722f54c2",
+        "reviewedMaterialDigest": "1ecdaf37d4f0fa2e408b6374a83dc40f4d2b71e5ac8917bc5ba7a5fde9334a0e"
+      },
+      "disposition": null
+    },
+    {
+      "id": "W3",
+      "title": "Alta de proyectos de GitLab y elección de cuenta",
+      "description": "projects/github.ts pasa a un parser de remotos por proveedor (projects/remote.ts): GitHub (owner/repo, /tree/<rama>) y GitLab (https://<host>/<grupo>[/<subgrupo>...]/<repo>, .git opcional, /-/tree/<rama>), con host de una cuenta de GitLab vinculada o gitlab.com. normalizeOrigin acepta https y ssh de ambos. POST /api/projects acepta gitAccountId opcional: para GitLab es obligatorio y tiene que ser una cuenta de GitLab del mismo host; para GitHub opcional (sin cuenta usa el gh global). El proyecto guarda provider, repoUrl canónico y git_account_id. PATCH /api/projects/:id acepta gitAccountId (cuenta del mismo proveedor y host; 409 si el agente o el piloto están activos). findByRepoUrl compara en minúsculas para ambos. El CLI project:add sigue igual.",
+      "context": "Decisión propia: el nombre interno se deriva del último segmento del path (como hoy del repo). El slug de GitLab incluye subgrupos. La clonación de GitLab usa git clone con las credenciales de W2 (no se instala glab).",
+      "filesToTouch": [
+        "apps/api/src/projects/remote.ts",
+        "apps/api/src/projects/github.ts",
+        "apps/api/src/projects/service.ts",
+        "apps/api/src/projects/repo.ts",
+        "apps/api/src/projects/routes.ts",
+        "packages/shared/src/index.ts",
+        "apps/api/test/github.test.ts",
+        "apps/api/test/project-service.test.ts",
+        "apps/api/test/projects.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "Se acepta https://gitlab.com/grupo/sub/repo, con .git y con /-/tree/<rama>, y un GitLab privado cuyo host tenga cuenta vinculada",
+        "Se rechaza un host de GitLab sin cuenta vinculada, credenciales en la URL, http y una cuenta de otro proveedor u otro host",
+        "Un proyecto de GitLab se clona con la cuenta del proyecto y queda ready tras verificar origin y rama base",
+        "Las URLs de GitHub y el alta sin cuenta funcionan como hoy",
+        "Cambiar la cuenta de un proyecto valida proveedor y host y responde 409 si el agente o el piloto están activos"
+      ],
+      "dependsOn": [
+        "W1",
+        "W2"
+      ],
+      "definitionRevision": 1,
+      "status": "verified",
+      "blocker": null,
+      "evidence": {
+        "summary": "Alta de proyectos de GitLab y elección de cuenta: projects/remote.ts (parseRemote y normalizeOrigin para GitHub y GitLab, subgrupos, .git opcional, /-/tree/<rama>, host de una cuenta de GitLab vinculada o gitlab.com; rechaza http, credenciales, puerto, query y hosts sin cuenta). github.ts conserva el parser de GitHub y pierde normalizeOrigin. ProjectService resuelve la cuenta (GitLab obligatoria; mismo proveedor y host; GitHub opcional, sin cuenta usa el gh global), clona GitLab con git clone y la credencial de la cuenta, verifica origin y rama base, y deriva el nombre del último segmento del path. ProjectRepository guarda git_provider y git_account_id; findByRepoUrl compara en minúsculas. POST /api/projects acepta gitAccountId; PATCH /api/projects/:id lo acepta (null solo para GitHub) y responde 409 si el agente o el piloto del proyecto están activos, hay mantenimiento de Kyro o el proyecto se está clonando. Project expone gitProvider y gitAccountId. El enlace de PR de la rama chore/kyro-init apunta a merge_requests/new para GitLab.",
+        "validations": [
+          {
+            "command": "npm run -w apps/api typecheck",
+            "result": "passed",
+            "note": "sin errores"
+          },
+          {
+            "command": "npm run lint",
+            "result": "passed",
+            "note": "eslint . sin errores"
+          },
+          {
+            "command": "npm run -w apps/api test",
+            "result": "passed",
+            "note": "87 archivos, 1391 tests; incluyen parseRemote/normalizeOrigin, alta de GitLab con cuenta, rechazos 400 y PATCH con 409"
+          }
+        ],
+        "filesChanged": [
+          "apps/api/src/projects/remote.ts",
+          "apps/api/src/projects/github.ts",
+          "apps/api/src/projects/service.ts",
+          "apps/api/src/projects/repo.ts",
+          "apps/api/src/projects/routes.ts",
+          "apps/api/src/app.ts",
+          "packages/shared/src/index.ts",
+          "apps/api/test/github.test.ts",
+          "apps/api/test/project-service.test.ts",
+          "apps/api/test/projects.test.ts",
+          "apps/api/test/worktrees.test.ts"
+        ],
+        "notes": "Desviaciones: app.ts (inyecta accounts e isBusy en ProjectService) y test/worktrees.test.ts (fixture de Project con los campos nuevos) no estaban en la lista. La columna se llama git_provider (W1) y el tipo Project expone gitProvider para no chocar con models.provider. parseBranch de github.ts se exporta y sus mensajes de error pasan a ser genericos para servir a GitLab. Un proyecto en cloning tambien responde 409 al cambiar de cuenta. El CLI project:add no cambia.",
+        "by": "maker-agent",
+        "recordedAt": "2026-10-15T22:37:04.358Z",
+        "definitionRevision": 1,
+        "materialDigest": "d15ca427fff1cda8636e8179e00f7d6d4f61f76a29753952b7230ce9034a8819"
+      },
+      "verdict": {
+        "result": "pass",
+        "checkedCriteria": [
+          "Se acepta https://gitlab.com/grupo/sub/repo, con .git y con /-/tree/<rama>, y un GitLab privado cuyo host tenga cuenta vinculada",
+          "Se rechaza un host de GitLab sin cuenta vinculada, credenciales en la URL, http y una cuenta de otro proveedor u otro host",
+          "Un proyecto de GitLab se clona con la cuenta del proyecto y queda ready tras verificar origin y rama base",
+          "Las URLs de GitHub y el alta sin cuenta funcionan como hoy",
+          "Cambiar la cuenta de un proyecto valida proveedor y host y responde 409 si el agente o el piloto están activos"
+        ],
+        "findings": [],
+        "by": "checker-agent",
+        "reviewedAt": "2026-10-15T22:37:08.129Z",
+        "definitionRevision": 1,
+        "evidenceDigest": "fb2006a0dc2b23d574135626c2f3782a9945e7b8c08dc7454a58c48888ee5cae",
+        "reviewedMaterialDigest": "d15ca427fff1cda8636e8179e00f7d6d4f61f76a29753952b7230ce9034a8819"
+      },
+      "disposition": null
+    },
+    {
+      "id": "W4",
+      "title": "PRs y Merge Requests por proveedor en el piloto y en WorktreeOps",
+      "description": "Interfaz ForgeProvider (openPr, openPrsOf, allPrsOf, createPr, prStateOf) elegida por proyecto: GitHub = gh actual (con GH_TOKEN si hay cuenta) y GitLab = API REST v4 (GET /projects/:id/merge_requests?source_branch=&target_branch=&state=opened, POST /projects/:id/merge_requests, GET de una MR por iid; :id es el path URL-encoded) con fetch, timeout y el token en el header PRIVATE-TOKEN. prStateOf de GitLab mapea opened/merged/closed/locked a OPEN/MERGED/CLOSED y solo acepta URLs https://<host>/<path>/-/merge_requests/<iid> del host del proyecto. pr-lookup, pr-watcher, merge, merge-phase, autopilot y WorktreeOps (Crear PR) piden el proveedor del proyecto en vez de importar realGh. El cuerpo de la MR respeta el límite de GitLab. El link de la web 'abrir la PR' de shared apunta a /-/merge_requests/new?merge_request[source_branch]=... para GitLab.",
+      "context": "Decisión propia: GitLab por API REST con fetch y no con glab, para no instalar nada en la VM (regla de oro: sin cambios en la VM). PARITY_CATALOG no suma acciones nuevas: Crear PR ya existe y ahora resuelve el proveedor. Los tests inyectan un proveedor falso: nunca llaman a GitHub ni a GitLab.",
+      "filesToTouch": [
+        "apps/api/src/forge/provider.ts",
+        "apps/api/src/forge/gitlab-api.ts",
+        "apps/api/src/pilot/github-cli.ts",
+        "apps/api/src/pilot/pr-lookup.ts",
+        "apps/api/src/pilot/pr-watcher.ts",
+        "apps/api/src/pilot/merge.ts",
+        "apps/api/src/pilot/merge-phase.ts",
+        "apps/api/src/pilot/autopilot.ts",
+        "apps/api/src/pilot/pr-body.ts",
+        "apps/api/src/worktrees/ops.ts",
+        "apps/api/src/app.ts",
+        "packages/shared/src/index.ts",
+        "apps/api/test/gitlab-api.test.ts",
+        "apps/api/test/pr-lookup.test.ts",
+        "apps/api/test/pr-watcher.test.ts",
+        "apps/api/test/worktree-pr.test.ts",
+        "apps/api/test/pilot-merge.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "En un proyecto de GitLab el piloto abre la MR, la encuentra por rama y el watcher la lleva a mergeada o cerrada, con un GitLab falso",
+        "Crear PR desde la web en un proyecto de GitLab abre una MR y el Timeline la registra con su actor",
+        "prStateOf rechaza URLs de otro host o que no sean de una MR",
+        "Los proyectos de GitHub siguen usando gh con los mismos argv (tests existentes en verde)",
+        "El token de GitLab solo viaja en el header y no aparece en errores ni en el Timeline"
+      ],
+      "dependsOn": [
+        "W2",
+        "W3"
+      ],
+      "definitionRevision": 1,
+      "status": "verified",
+      "blocker": null,
+      "evidence": {
+        "summary": "PRs y MRs por proveedor. forge/provider.ts define ForgeProvider (PilotGh + allPrsOf + prStateOf), githubForge (gh con GH_TOKEN vía authForPath, mismos argv), ForgeResolver y ForgeRegistry, que elige por proyecto (gitProvider) y para GitLab arma GitlabForge con host y path del repoUrl y el token de la cuenta leído por llamada. forge/gitlab-api.ts implementa la API REST v4 con fetch: GET /projects/:id/merge_requests (source_branch, target_branch, state=opened|all), POST de la MR y GET por iid, con :id = path URL-encoded, timeout de 30 s, redirect 'error' y el token solo en el header PRIVATE-TOKEN; los errores cortan el detalle y reemplazan el token. prStateOf mapea opened/locked a OPEN, merged a MERGED y closed a CLOSED, y solo acepta https://<host>/<path>/-/merge_requests/<iid> del host del proyecto (sin query, credenciales ni segmentos raros). pr-lookup, pr-watcher, autopilot (merge-phase y merge reciben el proveedor del proyecto) y WorktreeOps (openPr, prPreview, createPr) piden el proveedor del proyecto en vez de importar realGh; los overrides gh/prsOf/prState de los tests siguen funcionando. app.ts crea el ForgeRegistry con el resolver de credenciales y lo pasa a ops, piloto, lookup y watcher (deps.forge para tests). El cuerpo de la MR se recorta a MR_BODY_MAX (pr-body.ts). shared exporta newPrLink (pull/new para GitHub, /-/merge_requests/new?merge_request[source_branch]= para GitLab) y projects/repo.ts lo usa.",
+        "validations": [
+          {
+            "command": "npm run -w apps/api typecheck",
+            "result": "passed",
+            "note": "sin errores"
+          },
+          {
+            "command": "npm run lint",
+            "result": "passed",
+            "note": "eslint . sin errores"
+          },
+          {
+            "command": "npm run -w apps/api test",
+            "result": "passed",
+            "note": "88 archivos, 1405 tests; GitLab falso en memoria (test/fake-gitlab.ts): alta y búsqueda de MR, watcher a mergeada/revisar, Crear PR con actor en el Timeline, rechazo de URLs de otro host o que no son MR, token solo en el header y fuera de errores, log y Timeline; los tests de GitHub existentes siguen en verde"
+          }
+        ],
+        "filesChanged": [
+          "apps/api/src/forge/provider.ts",
+          "apps/api/src/forge/gitlab-api.ts",
+          "apps/api/src/pilot/pr-lookup.ts",
+          "apps/api/src/pilot/pr-watcher.ts",
+          "apps/api/src/pilot/autopilot.ts",
+          "apps/api/src/pilot/pr-body.ts",
+          "apps/api/src/worktrees/ops.ts",
+          "apps/api/src/app.ts",
+          "apps/api/src/projects/repo.ts",
+          "packages/shared/src/index.ts",
+          "apps/api/test/fake-gitlab.ts",
+          "apps/api/test/gitlab-api.test.ts",
+          "apps/api/test/pr-lookup.test.ts",
+          "apps/api/test/pr-watcher.test.ts",
+          "apps/api/test/worktree-pr.test.ts",
+          "apps/api/test/pilot-merge.test.ts"
+        ],
+        "notes": "Desviaciones: github-cli.ts no cambia (sigue exportando PilotGh, realGh, allPrsOf y prStateOf, que githubForge reúne) y merge.ts / merge-phase.ts no cambian: ya reciben el proveedor por dependencia (PilotGh, que ForgeProvider extiende) y el autopilot les pasa el del proyecto. Se suman test/fake-gitlab.ts y apps/api/src/projects/repo.ts (usa newPrLink). Límite: el proveedor de GitLab opera sobre el repo del proyecto (path de repoUrl); openPrsOf del merge-dev no mira repos hijos con otro remoto. Prettier --check marca forge/*, fake-gitlab.ts y app.ts (app.ts y otros ya venían marcados de W1-W3); no se corrió prettier --write para no tocar archivos fuera del alcance.",
+        "by": "maker-agent",
+        "recordedAt": "2026-10-15T22:47:06.575Z",
+        "definitionRevision": 1,
+        "materialDigest": "5e1bbe8db5d63e5a451157a14000a7cf860de46ad336ef0338fd98e9ace71971"
+      },
+      "verdict": {
+        "result": "pass",
+        "checkedCriteria": [
+          "En un proyecto de GitLab el piloto abre la MR, la encuentra por rama y el watcher la lleva a mergeada o cerrada, con un GitLab falso",
+          "Crear PR desde la web en un proyecto de GitLab abre una MR y el Timeline la registra con su actor",
+          "prStateOf rechaza URLs de otro host o que no sean de una MR",
+          "Los proyectos de GitHub siguen usando gh con los mismos argv (tests existentes en verde)",
+          "El token de GitLab solo viaja en el header y no aparece en errores ni en el Timeline"
+        ],
+        "findings": [],
+        "by": "checker-agent",
+        "reviewedAt": "2026-10-15T22:47:10.205Z",
+        "definitionRevision": 1,
+        "evidenceDigest": "d86e964204afc9c1ff0b77a6e80cd452f5fe96b82ca9a970d95554a1ec1b9f73",
+        "reviewedMaterialDigest": "5e1bbe8db5d63e5a451157a14000a7cf860de46ad336ef0338fd98e9ace71971"
+      },
+      "disposition": null
+    },
+    {
+      "id": "W5",
+      "title": "Web: cuentas de GitHub/GitLab, alta de proyectos de GitLab y cuenta del proyecto",
+      "description": "Página Cuentas con dos secciones: Claude (como hoy) y GitHub/GitLab. La sección nueva lista las cuentas vinculadas (proveedor, nombre, host, usuario) más la cuenta global de gh como 'Principal (login de la VM)', y permite vincular (proveedor, nombre, host para GitLab —gitlab.com por defecto—, token, código TOTP), renombrar, reemplazar token y desvincular (aviso si está en uso). Nuevo proyecto acepta URL de GitHub o GitLab (repo-input.ts espejo del parser de W3), detecta el proveedor y muestra un selector de cuenta filtrado por proveedor y host (obligatorio para GitLab). Configuración → General permite cambiar la cuenta del proyecto. Los textos 'GitHub' de proyectos, repo-actions y PR pasan a nombrar el proveedor del proyecto (GitHub o GitLab, PR o MR).",
+      "context": "Identidad visual según docs/identidad-visual.md. Los tests de la web cubren lógica pura (vitest, entorno node): parser de URL, filtrado de cuentas y textos por proveedor. Reusar el modal de TOTP de env-files.",
+      "filesToTouch": [
+        "apps/web/src/app/accounts/accounts.page.ts",
+        "apps/web/src/app/accounts/git-accounts.section.ts",
+        "apps/web/src/app/accounts/git-accounts.service.ts",
+        "apps/web/src/app/accounts/add-git-account.modal.ts",
+        "apps/web/src/app/accounts/git-accounts-logic.ts",
+        "apps/web/src/app/accounts/git-accounts.spec.ts",
+        "apps/web/src/app/projects/add-project.form.ts",
+        "apps/web/src/app/projects/repo-input.ts",
+        "apps/web/src/app/projects/repo-input.spec.ts",
+        "apps/web/src/app/projects/project-settings.ts",
+        "apps/web/src/app/projects/project-label.ts",
+        "apps/web/src/app/projects/project-repos.section.ts",
+        "apps/web/src/app/projects/repo-actions.section.ts",
+        "apps/web/src/app/projects/repo-actions.ts",
+        "apps/web/src/app/projects/repos-logic.ts",
+        "apps/web/src/app/projects/projects.service.ts",
+        "apps/web/src/app/chats/approval-logic.ts"
+      ],
+      "acceptanceCriteria": [
+        "Desde Cuentas se vincula una cuenta de GitLab privada con host, token y TOTP; la lista muestra el usuario que devolvió el proveedor y nunca el token",
+        "Nuevo proyecto acepta una URL de GitLab con subgrupos y exige elegir una cuenta de ese host; una URL de GitHub funciona sin cuenta como hoy",
+        "La cuenta de un proyecto se cambia desde Configuración → General",
+        "Los textos de un proyecto de GitLab dicen GitLab y MR; los de GitHub no cambian",
+        "npm run build y los tests de la web pasan"
+      ],
+      "dependsOn": [
+        "W1",
+        "W3",
+        "W4"
+      ],
+      "definitionRevision": 1,
+      "status": "verified",
+      "blocker": null,
+      "evidence": {
+        "summary": "Web de cuentas y proveedores: la página Cuentas suma la sección GitHub/GitLab (lista con proveedor, nombre, host y usuario devuelto por el proveedor, fila 'Principal (login de la VM)', vincular con proveedor/nombre/host/token y TOTP reusando TotpModal, renombrar, reemplazar token y desvincular con aviso de proyectos que la usan; el token nunca se guarda ni se muestra). repo-input.ts espeja el parser de la API: URL de GitHub o GitLab (subgrupos, /-/tree/rama, hosts de cuentas vinculadas). Nuevo proyecto detecta el proveedor y muestra un selector de cuenta filtrado por proveedor y host (obligatorio en GitLab, opcional en GitHub). Configuración → General cambia la cuenta del proyecto. Los textos de repo-actions, clon base, ajustes y la tarjeta de PR nombran el proveedor del proyecto (GitHub/GitLab, PR/MR); los de GitHub quedan igual.",
+        "validations": [
+          {
+            "command": "npm run build",
+            "result": "passed",
+            "note": "shared, api y web compilan (ng build sin errores)"
+          },
+          {
+            "command": "npm run test -w @agents-panel/web",
+            "result": "passed",
+            "note": "40 archivos, 395 tests, incluidos parser de URL de GitLab, filtrado de cuentas y textos por proveedor"
+          },
+          {
+            "command": "npm run lint",
+            "result": "passed",
+            "note": "eslint . sin errores"
+          }
+        ],
+        "filesChanged": [
+          "apps/web/src/app/accounts/accounts.page.ts",
+          "apps/web/src/app/accounts/git-accounts.section.ts",
+          "apps/web/src/app/accounts/git-accounts.service.ts",
+          "apps/web/src/app/accounts/add-git-account.modal.ts",
+          "apps/web/src/app/accounts/git-accounts-logic.ts",
+          "apps/web/src/app/accounts/git-accounts.spec.ts",
+          "apps/web/src/app/projects/add-project.form.ts",
+          "apps/web/src/app/projects/repo-input.ts",
+          "apps/web/src/app/projects/repo-input.spec.ts",
+          "apps/web/src/app/projects/project-settings.ts",
+          "apps/web/src/app/projects/project-label.ts",
+          "apps/web/src/app/projects/project-repos.section.ts",
+          "apps/web/src/app/projects/repo-actions.section.ts",
+          "apps/web/src/app/projects/repo-actions.ts",
+          "apps/web/src/app/projects/repos-logic.ts",
+          "apps/web/src/app/projects/projects.service.ts",
+          "apps/web/src/app/chats/approval-logic.ts",
+          "apps/web/src/app/chats/chat.page.ts"
+        ],
+        "notes": "Desviación: chat.page.ts no estaba en la lista; se tocó para que la tarjeta de PR use prCardTexts (MR en GitLab). Desvincular avisa qué proyectos usan la cuenta y la API responde 409 mientras alguno la use. La fila 'Principal (login de la VM)' es informativa: no se edita. No se probó con un GitLab real; la validación es de compilación y de lógica pura.",
+        "by": "maker-agent",
+        "recordedAt": "2026-10-15T22:56:15.649Z",
+        "definitionRevision": 1,
+        "materialDigest": "a61a6f6bd89f3096539162e5d20e11e165194374c47edf71ecc09ad2c6477d9d"
+      },
+      "verdict": {
+        "result": "pass",
+        "checkedCriteria": [
+          "Desde Cuentas se vincula una cuenta de GitLab privada con host, token y TOTP; la lista muestra el usuario que devolvió el proveedor y nunca el token",
+          "Nuevo proyecto acepta una URL de GitLab con subgrupos y exige elegir una cuenta de ese host; una URL de GitHub funciona sin cuenta como hoy",
+          "La cuenta de un proyecto se cambia desde Configuración → General",
+          "Los textos de un proyecto de GitLab dicen GitLab y MR; los de GitHub no cambian",
+          "npm run build y los tests de la web pasan"
+        ],
+        "findings": [],
+        "by": "checker-agent",
+        "reviewedAt": "2026-10-15T22:56:20.096Z",
+        "definitionRevision": 1,
+        "evidenceDigest": "135181dec7df5a9935552f50c42ab4d01d70faa27612a2bbe912da223820934b",
+        "reviewedMaterialDigest": "a61a6f6bd89f3096539162e5d20e11e165194374c47edf71ecc09ad2c6477d9d"
+      },
+      "disposition": null
+    },
+    {
+      "id": "W6",
+      "title": "Documentación de proyectos de GitLab y cuentas de git",
+      "description": "docs/plan.md (decisión: cuentas de git, token cifrado, credenciales por entorno, proveedor por proyecto, GitLab por API REST, rutas), docs/panel-desarrollo.md (cómo crear un token de GitHub y de GitLab con los permisos mínimos —repo / api, read_repository, write_repository— y vincularlo), docs/estados.md si alguna señal de PR cambia de nombre, CLAUDE.md (alta de proyectos con GitHub o GitLab y regla breve de cuentas de git) y apps/api/.env.example si suma alguna variable (timeout de la API del proveedor). Sin cambios en la VM: no suma línea a la bitácora de vm-setup.md.",
+      "context": "Los docs se escriben en español; los secretos no se pegan en docs: se describe dónde están (tabla git_accounts cifrada), no qué valen.",
+      "filesToTouch": [
+        "docs/plan.md",
+        "docs/panel-desarrollo.md",
+        "docs/estados.md",
+        "CLAUDE.md",
+        "apps/api/.env.example"
+      ],
+      "acceptanceCriteria": [
+        "docs/plan.md describe el diseño de cuentas de git y proyectos de GitLab con sus rutas",
+        "docs/panel-desarrollo.md explica cómo crear y vincular un token de GitHub y de GitLab con permisos mínimos",
+        "CLAUDE.md menciona que el alta acepta GitHub y GitLab y la regla de cuentas de git",
+        "Ningún doc contiene un token ni un valor secreto"
+      ],
+      "dependsOn": [
+        "W4",
+        "W5"
+      ],
+      "definitionRevision": 1,
+      "status": "verified",
+      "blocker": null,
+      "evidence": {
+        "summary": "Documentación de cuentas de git y proyectos de GitLab: plan.md suma la sección 'Cuentas de git y proyectos de GitLab' (proveedor por proyecto, tabla git_accounts con token cifrado AES-256-GCM, credenciales por entorno con GIT_ASKPASS, GitLab por API REST v4 sin glab, tabla de rutas); panel-desarrollo.md explica cómo crear el token de GitHub (repo / fine-grained) y de GitLab (api, read_repository, write_repository) y vincularlo desde la web o la API; estados.md aclara que la MR hace de PR sin renombrar estados; CLAUDE.md acepta GitHub o GitLab en el alta y suma la regla breve 'Cuentas de git'; .env.example solo actualiza el comentario del sondeo (no hay variable nueva: el timeout de 30 s es una constante).",
+        "validations": [
+          {
+            "command": "grep -n -E \"glpat|ghp_|github_pat\" docs/plan.md docs/panel-desarrollo.md docs/estados.md CLAUDE.md apps/api/.env.example",
+            "result": "passed",
+            "note": "Solo aparece una línea previa de plan.md que describe prefijos que busca el escáner de secretos; ningún token ni valor secreto en lo nuevo"
+          },
+          {
+            "command": "Contraste manual de rutas, campos y reglas con apps/api/src/git-accounts, forge/gitlab-api.ts, projects/service.ts y la migración git_accounts",
+            "result": "passed",
+            "note": "Rutas, códigos 400/401/404/409, cifrado, askpass y mapeo de estados de MR coinciden con el código"
+          }
+        ],
+        "filesChanged": [
+          "docs/plan.md",
+          "docs/panel-desarrollo.md",
+          "docs/estados.md",
+          "CLAUDE.md",
+          "apps/api/.env.example"
+        ],
+        "notes": "Solo documentación; sin cambios en la VM, no suma línea a la bitácora de vm-setup.md. No se corrió build porque no cambió código.",
+        "by": "maker-agent",
+        "recordedAt": "2026-10-15T22:57:55.290Z",
+        "definitionRevision": 1,
+        "materialDigest": "ef89565aa54f620ad98e651db5e267e40558b7a771ee29008a8df8bcd055088c"
+      },
+      "verdict": {
+        "result": "pass",
+        "checkedCriteria": [
+          "docs/plan.md describe el diseño de cuentas de git y proyectos de GitLab con sus rutas",
+          "docs/panel-desarrollo.md explica cómo crear y vincular un token de GitHub y de GitLab con permisos mínimos",
+          "CLAUDE.md menciona que el alta acepta GitHub y GitLab y la regla de cuentas de git",
+          "Ningún doc contiene un token ni un valor secreto"
+        ],
+        "findings": [],
+        "by": "checker-agent",
+        "reviewedAt": "2026-10-15T22:58:04.852Z",
+        "definitionRevision": 1,
+        "evidenceDigest": "c8730e308dca9eb7f1cf5230cb2800e4e1c414f6569ac6364222d05c1bc4a680",
+        "reviewedMaterialDigest": "ef89565aa54f620ad98e651db5e267e40558b7a771ee29008a8df8bcd055088c"
+      },
+      "disposition": null
+    }
+  ],
+  "activity": [
+    {
+      "seq": 1,
+      "at": "2026-10-15T22:04:21.801Z",
+      "event": "created",
+      "taskId": null,
+      "by": "claude",
+      "reason": "Created through the Work CLI.",
+      "revision": 1
+    },
+    {
+      "seq": 2,
+      "at": "2026-10-15T22:05:38.590Z",
+      "event": "tasks_planned",
+      "taskId": null,
+      "by": "claude",
+      "reason": "Planned 6 Work tasks.",
+      "revision": 2
+    },
+    {
+      "seq": 3,
+      "at": "2026-10-15T22:06:03.866Z",
+      "event": "task_started",
+      "taskId": "W1",
+      "by": "cli",
+      "reason": "Task started through the Work CLI.",
+      "revision": 3
+    },
+    {
+      "seq": 4,
+      "at": "2026-10-15T22:18:24.436Z",
+      "event": "evidence_recorded",
+      "taskId": "W1",
+      "by": "maker-agent",
+      "reason": "Evidence recorded with 3 validation results.",
+      "revision": 4
+    },
+    {
+      "seq": 5,
+      "at": "2026-10-15T22:18:32.095Z",
+      "event": "review_recorded",
+      "taskId": "W1",
+      "by": "checker-agent",
+      "reason": "Task review recorded with pass.",
+      "revision": 5
+    },
+    {
+      "seq": 6,
+      "at": "2026-10-15T22:18:51.110Z",
+      "event": "task_started",
+      "taskId": "W2",
+      "by": "cli",
+      "reason": "Task started through the Work CLI.",
+      "revision": 6
+    },
+    {
+      "seq": 7,
+      "at": "2026-10-15T22:26:58.964Z",
+      "event": "evidence_recorded",
+      "taskId": "W2",
+      "by": "maker-agent",
+      "reason": "Evidence recorded with 3 validation results.",
+      "revision": 7
+    },
+    {
+      "seq": 8,
+      "at": "2026-10-15T22:27:05.844Z",
+      "event": "review_recorded",
+      "taskId": "W2",
+      "by": "checker-agent",
+      "reason": "Task review recorded with pass.",
+      "revision": 8
+    },
+    {
+      "seq": 9,
+      "at": "2026-10-15T22:27:25.479Z",
+      "event": "task_started",
+      "taskId": "W3",
+      "by": "cli",
+      "reason": "Task started through the Work CLI.",
+      "revision": 9
+    },
+    {
+      "seq": 10,
+      "at": "2026-10-15T22:37:04.358Z",
+      "event": "evidence_recorded",
+      "taskId": "W3",
+      "by": "maker-agent",
+      "reason": "Evidence recorded with 3 validation results.",
+      "revision": 10
+    },
+    {
+      "seq": 11,
+      "at": "2026-10-15T22:37:08.129Z",
+      "event": "review_recorded",
+      "taskId": "W3",
+      "by": "checker-agent",
+      "reason": "Task review recorded with pass.",
+      "revision": 11
+    },
+    {
+      "seq": 12,
+      "at": "2026-10-15T22:37:28.072Z",
+      "event": "task_started",
+      "taskId": "W4",
+      "by": "cli",
+      "reason": "Task started through the Work CLI.",
+      "revision": 12
+    },
+    {
+      "seq": 13,
+      "at": "2026-10-15T22:47:06.575Z",
+      "event": "evidence_recorded",
+      "taskId": "W4",
+      "by": "maker-agent",
+      "reason": "Evidence recorded with 3 validation results.",
+      "revision": 13
+    },
+    {
+      "seq": 14,
+      "at": "2026-10-15T22:47:10.205Z",
+      "event": "review_recorded",
+      "taskId": "W4",
+      "by": "checker-agent",
+      "reason": "Task review recorded with pass.",
+      "revision": 14
+    },
+    {
+      "seq": 15,
+      "at": "2026-10-15T22:47:30.471Z",
+      "event": "task_started",
+      "taskId": "W5",
+      "by": "cli",
+      "reason": "Task started through the Work CLI.",
+      "revision": 15
+    },
+    {
+      "seq": 16,
+      "at": "2026-10-15T22:56:15.649Z",
+      "event": "evidence_recorded",
+      "taskId": "W5",
+      "by": "maker-agent",
+      "reason": "Evidence recorded with 3 validation results.",
+      "revision": 16
+    },
+    {
+      "seq": 17,
+      "at": "2026-10-15T22:56:20.096Z",
+      "event": "review_recorded",
+      "taskId": "W5",
+      "by": "checker-agent",
+      "reason": "Task review recorded with pass.",
+      "revision": 17
+    },
+    {
+      "seq": 18,
+      "at": "2026-10-15T22:56:36.057Z",
+      "event": "task_started",
+      "taskId": "W6",
+      "by": "cli",
+      "reason": "Task started through the Work CLI.",
+      "revision": 18
+    },
+    {
+      "seq": 19,
+      "at": "2026-10-15T22:57:55.290Z",
+      "event": "evidence_recorded",
+      "taskId": "W6",
+      "by": "maker-agent",
+      "reason": "Evidence recorded with 2 validation results.",
+      "revision": 19
+    },
+    {
+      "seq": 20,
+      "at": "2026-10-15T22:58:04.852Z",
+      "event": "review_recorded",
+      "taskId": "W6",
+      "by": "checker-agent",
+      "reason": "Task review recorded with pass.",
+      "revision": 20
+    },
+    {
+      "seq": 21,
+      "at": "2026-10-15T22:58:13.069Z",
+      "event": "work_closed",
+      "taskId": null,
+      "by": "pilot",
+      "reason": "Trabajo completado por el piloto",
+      "revision": 21
+    }
+  ],
+  "closure": {
+    "outcome": "completed",
+    "reason": "Trabajo completado por el piloto",
+    "by": "pilot",
+    "closedAt": "2026-10-15T22:58:13.069Z",
+    "briefDigest": "bb84148ffd3538f833f61240597da823dfd2a6ee2075e2e8ffe4ee5b0b4b6413",
+    "finalRevision": 21
+  },
+  "promotion": null
+}
