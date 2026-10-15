@@ -437,6 +437,8 @@ export interface WorktreeState {
   taskDone: number | null;
   taskTotal: number | null;
   openDebt: number | null;
+  /** Current task id as printed by the Kyro CLI (`nextTaskId`); null when Kyro has none. */
+  taskId: string | null;
   blockedReason: BlockedReason | null;
   actor: Actor;
   role: ModelRole | null;

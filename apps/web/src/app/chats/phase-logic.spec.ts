@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { WORKTREE_STATE_IDS } from '@agents-panel/shared';
-import { PHASES, phaseOf, sessionLabel, stepperView } from './phase-logic';
+import { PHASES, currentTaskView, phaseOf, sessionLabel, stepperView } from './phase-logic';
 
 const base = {
   previousState: null,
+  taskId: null,
+  blockedReason: null,
+  detail: null,
   sprintCurrent: null,
   sprintTotal: null,
   taskDone: null,
@@ -108,5 +111,71 @@ describe('stepperView', () => {
     ).toBe('Pensante · opus');
     expect(stepperView({ ...base, state: 'planificando' }).session).toBeNull();
     expect(sessionLabel('executor', null)).toBe('Ejecutor');
+  });
+});
+
+describe('currentTaskView', () => {
+  it('has a readable activity for every fine state of plan, execution and QA', () => {
+    for (const state of WORKTREE_STATE_IDS) {
+      const phase = phaseOf(state);
+      if (phase !== 'plan' && phase !== 'execution' && phase !== 'qa') continue;
+      expect(currentTaskView({ ...base, state })?.activity, state).toBeTruthy();
+    }
+    expect(currentTaskView({ ...base, state: 'buildeando' })?.activity).toBe('Buildeando');
+    expect(currentTaskView({ ...base, state: 'qa' })?.activity).toBe('QA');
+  });
+
+  it('shows id, activity and tone for a scope task', () => {
+    expect(
+      currentTaskView({
+        ...base,
+        state: 'corrigiendo',
+        taskId: 'T1.1',
+        taskDone: 1,
+        taskTotal: 4,
+        sprintCurrent: 2,
+        sprintTotal: 3,
+      }),
+    ).toEqual({
+      id: 'T1.1',
+      activity: 'Corrigiendo',
+      tone: 'neutral',
+      progress: '1/4',
+      sprint: 'Sprint 2/3',
+    });
+  });
+
+  it('shows a work task without sprint', () => {
+    expect(
+      currentTaskView({ ...base, state: 'probando', taskId: 'W2', taskDone: 1, taskTotal: 4 }),
+    ).toMatchObject({ id: 'W2', activity: 'Probando', progress: '1/4', sprint: null });
+  });
+
+  it('shows the activity alone without a task id and no progress without numbers', () => {
+    const view = currentTaskView({ ...base, state: 'escribiendo_codigo', taskDone: 2 });
+    expect(view).toMatchObject({ id: null, activity: 'Escribiendo código', progress: null });
+    expect(currentTaskView({ ...base, state: 'qa', taskDone: 0, taskTotal: 0 })?.progress).toBeNull();
+  });
+
+  it('is null without a task or task activity', () => {
+    expect(currentTaskView(null)).toBeNull();
+    expect(currentTaskView({ ...base, state: 'abriendo_pr' })).toBeNull();
+    expect(currentTaskView({ ...base, state: 'bloqueado' })).toBeNull();
+  });
+
+  it('shows the reason and tone of a state that interrupts', () => {
+    expect(
+      currentTaskView({
+        ...base,
+        state: 'bloqueado',
+        previousState: 'buildeando',
+        blockedReason: 'build_roto',
+        taskId: 'T2.1',
+      }),
+    ).toMatchObject({ id: 'T2.1', activity: 'Bloqueada: build roto', tone: 'danger' });
+    expect(
+      currentTaskView({ ...base, state: 'pausado', previousState: 'probando', detail: 'a pedido' }),
+    ).toMatchObject({ activity: 'Pausada: a pedido', tone: 'warn' });
+    expect(currentTaskView({ ...base, state: 'esperando_permiso' })?.tone).toBe('warn');
   });
 });

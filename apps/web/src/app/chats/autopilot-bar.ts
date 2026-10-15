@@ -12,12 +12,20 @@ import type { AutopilotInfo, ChatKind, WorktreeStateId } from '@agents-panel/sha
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
 import { Modal } from '../ui/modal';
-import { PILOT_LABEL, pilotControls, pilotStatus, type PilotControl } from './autopilot-logic';
+import {
+  PILOT_LABEL,
+  pilotControls,
+  pilotIdleReason,
+  pilotStatus,
+  visiblePilotActions,
+  type PilotControl,
+} from './autopilot-logic';
 import { ChatsService, apiErrorMessage } from './chats.service';
 
 /**
- * Pilot controls of a scope or work: switch on, pause, resume and switch off. Every action that
- * does not apply is disabled with its reason; switching off asks first because it leaves the work
+ * Pilot controls of a scope or work: switch on, pause, resume and switch off, as a compact row.
+ * Only the actions that apply are shown; with none, the status carries its one-line reason.
+ * Switching off asks first because it leaves the work
  * in manual mode. The server has the last word: its 409 message is shown as it is.
  */
 @Component({
@@ -26,7 +34,7 @@ import { ChatsService, apiErrorMessage } from './chats.service';
   imports: [Badge, Button, Modal],
   template: `
     <section
-      class="my-3 flex flex-col gap-2 rounded-card border border-border bg-surface px-3 py-2"
+      class="my-2 flex flex-col gap-1 rounded-card border border-border bg-surface px-3 py-1.5"
       aria-label="Piloto automático"
     >
       <div class="flex flex-wrap items-center gap-2">
@@ -34,14 +42,17 @@ import { ChatsService, apiErrorMessage } from './chats.service';
         @if (status().sessions; as sessions) {
           <span class="text-xs text-muted">{{ sessions }}</span>
         }
-        <div class="ml-auto flex flex-wrap gap-2">
-          @for (action of actions; track action) {
+        @if (idleReason(); as why) {
+          <span class="text-xs text-muted">{{ why }}</span>
+        }
+        <div class="ml-auto flex flex-wrap gap-1">
+          @for (action of visible(); track action) {
             <button
               appButton
+              size="sm"
               type="button"
-              [variant]="action === 'off' ? 'danger' : 'primary'"
-              [disabled]="controls()[action].disabled || busy()"
-              [title]="controls()[action].reason ?? ''"
+              [variant]="action === 'off' ? 'ghost-danger' : 'secondary'"
+              [disabled]="busy()"
               (click)="press(action)"
             >
               {{ label[action] }}
@@ -50,15 +61,8 @@ import { ChatsService, apiErrorMessage } from './chats.service';
         </div>
       </div>
       @if (status().stopReason; as reason) {
-        <p class="m-0 text-sm text-warn">{{ reason }}</p>
+        <p class="m-0 text-xs text-warn">{{ reason }}</p>
       }
-      <ul class="m-0 list-none p-0 text-xs text-muted">
-        @for (action of actions; track action) {
-          @if (controls()[action].reason; as why) {
-            <li>{{ label[action] }}: {{ why }}</li>
-          }
-        }
-      </ul>
       @if (error(); as message) {
         <p class="error m-0" role="alert">{{ message }}</p>
       }
@@ -86,7 +90,6 @@ export class AutopilotBar {
   /** An action went through: the page reads the state again. */
   readonly changed = output();
 
-  protected readonly actions: readonly PilotControl[] = ['on', 'resume', 'pause', 'off'];
   protected readonly label = PILOT_LABEL;
   protected readonly info = signal<AutopilotInfo | null>(null);
   protected readonly busy = signal(false);
@@ -100,6 +103,8 @@ export class AutopilotBar {
       workState: this.workState(),
     }),
   );
+  protected readonly visible = computed(() => visiblePilotActions(this.controls()));
+  protected readonly idleReason = computed(() => pilotIdleReason(this.controls()));
   protected readonly status = computed(() =>
     pilotStatus(this.info()?.run ?? null, this.info()?.maxSessionsPerSprint ?? 0),
   );

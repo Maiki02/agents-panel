@@ -89,6 +89,15 @@ describe('mapKyroState rules', () => {
     }
   });
 
+  it('carries the next task id of a scope and of a work, null when Kyro has none', () => {
+    expect(mapKyroState(base).taskId).toBe(base.nextTaskId);
+    expect(mapKyroState({ ...base, nextTaskId: 'T9' }).taskId).toBe('T9');
+    expect(mapKyroState({ ...base, nextTaskId: null }).taskId).toBeNull();
+    const w = parseWorkState(load('work-status.execute_task.json'));
+    expect(mapKyroState(w).taskId).toBe(w.nextTaskId);
+    expect(mapKyroState({ ...w, nextTaskId: null }).taskId).toBeNull();
+  });
+
   it('turns a Kyro blocker into bloqueado with kyro_bloqueado, except when done', () => {
     const blocked: KyroScopeState = { ...base, blockers: ['active plan needs repair'] };
     expect(mapKyroState(blocked)).toMatchObject({
