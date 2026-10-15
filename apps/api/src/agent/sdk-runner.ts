@@ -70,7 +70,7 @@ export function buildQueryOptions(params: RunParams, abortController: AbortContr
   return {
     cwd: params.cwd,
     model: params.model,
-    env: accountEnv(params.configDir),
+    env: { ...accountEnv(params.configDir), ...params.gitEnv },
     settingSources: ['project', 'user'],
     permissionMode: 'acceptEdits',
     allowedTools: ALLOWED_TOOLS,

@@ -8,6 +8,7 @@ import { makeGitRepo } from './helpers.js';
 // Fake values with the right format, built by concatenation so the repo scan does not flag this file.
 const GH = 'gh' + 'p_' + 'a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8';
 const PAT = 'github' + '_pat_' + '11ABCDEFG0abcdefghijklmnopqrstuvwxyz';
+const GLPAT = 'glp' + 'at-' + 'abcdefghij0123456789';
 const ANT = 'sk' + '-ant-' + 'api03-abcdefghijklmnopqrstuvwxyz0123';
 const AWS = 'AK' + 'IA' + 'ABCDEFGHIJKLMNOP';
 const SLACK = 'xo' + 'xb-' + '1234567890-abcdefghij';
@@ -22,6 +23,19 @@ const added = (file: string, ...lines: string[]) =>
     '@@ -0,0 +1 @@',
     ...lines.map((l) => `+${l}`),
   ].join('\n');
+
+describe('scanSecrets GitLab', () => {
+  it('flags a glpat- token and names it without the value', () => {
+    const findings = scanSecrets(added('src/c.ts', `const t = '${GLPAT}';`));
+    expect(findings).toEqual([{ file: 'src/c.ts', kind: 'gitlab_token' }]);
+    expect(describeSecrets(findings)).toBe('src/c.ts (token de GitLab)');
+    expect(describeSecrets(findings)).not.toContain(GLPAT);
+  });
+
+  it('ignores a glpat- prefix too short to be a token', () => {
+    expect(scanSecrets(added('src/c.ts', "const t = 'glpat-x';"))).toEqual([]);
+  });
+});
 
 describe('scanSecrets', () => {
   it('flags a .env, a .pem, a private key in a .ts and a ghp_ token', () => {

@@ -572,6 +572,29 @@ export const migrations: readonly Migration[] = [
     // Current task (nextTaskId of the Kyro CLI); the activity is deduced from the fine state.
     sql: `ALTER TABLE worktree_state ADD COLUMN task_id TEXT;`,
   },
+  {
+    version: 24,
+    name: 'git_accounts',
+    // Git provider accounts; the token is AES-256-GCM encrypted (AAD <id>:<provider>:<host>).
+    // A project with git_account_id NULL and git_provider github keeps using the global gh login.
+    sql: `
+      CREATE TABLE git_accounts (
+        id INTEGER PRIMARY KEY,
+        provider TEXT NOT NULL CHECK (provider IN ('github', 'gitlab')),
+        name TEXT NOT NULL UNIQUE,
+        host TEXT NOT NULL,
+        username TEXT NOT NULL,
+        ciphertext BLOB NOT NULL,
+        iv BLOB NOT NULL,
+        tag BLOB NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+      -- projects.provider already holds the AI provider (migration 8): the git one is git_provider.
+      ALTER TABLE projects ADD COLUMN git_provider TEXT NOT NULL DEFAULT 'github' CHECK (git_provider IN ('github', 'gitlab'));
+      ALTER TABLE projects ADD COLUMN git_account_id INTEGER REFERENCES git_accounts(id) ON DELETE RESTRICT;
+    `,
+  },
 ];
 
 /** Applies pending migrations in order, each in its own transaction. Safe to run repeatedly. */

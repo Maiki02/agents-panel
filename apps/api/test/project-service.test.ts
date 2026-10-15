@@ -12,6 +12,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { openDatabase } from '../src/db/index.js';
+import { GitAccountRepository } from '../src/git-accounts/repo.js';
 import { ProjectConflictError, ProjectError, ProjectRepository } from '../src/projects/repo.js';
 import {
   KYRO_SKILLS_SCRIPT,
@@ -97,6 +98,68 @@ describe('concurrent adds of the same repo (debt-3)', () => {
     expect((rejected?.reason as Error).message).toContain('ya existe');
     expect(repo.list()).toHaveLength(1);
     expect(calls).toHaveLength(1);
+  });
+});
+
+describe('add from GitLab', () => {
+  function gitlabSetup() {
+    const projectsDir = tmp('panel-projects-');
+    const db = openDatabase(':memory:');
+    const repo = new ProjectRepository(db);
+    const accounts = new GitAccountRepository(db, Buffer.from('k'.repeat(32)));
+    const account = accounts.create({
+      provider: 'gitlab',
+      name: 'lab',
+      host: 'gitlab.com',
+      username: 'u',
+      token: 't',
+    });
+    const bare = join(tmp('panel-bare-'), 'remote.git');
+    execFileSync('git', ['clone', '-q', '--bare', makeGitRepo(), bare]);
+    const cloner = vi.fn<Cloner>((_slug, dest, source) => {
+      execFileSync('git', ['clone', '-q', bare, dest], { stdio: 'pipe' });
+      git(dest, 'remote', 'set-url', 'origin', source?.url ?? '');
+      return Promise.resolve();
+    });
+    const service = new ProjectService({
+      repo,
+      config: { projectsDir, minFreeDiskGb: 1 },
+      cloner,
+      freeSpace: () => Promise.resolve(100 * 1024 ** 3),
+      kyroInit: () => Promise.resolve(),
+      accounts,
+      credentials: { forProject: () => ({ host: 'gitlab.com', username: 'u', token: 't' }) },
+    });
+    return { service, repo, cloner, account };
+  }
+
+  it('names the project after the last path segment and detects duplicates ignoring case', async () => {
+    const { service, repo, cloner, account } = gitlabSetup();
+    await service.add({ repo: 'https://gitlab.com/Grupo/Sub/Mi_Repo', gitAccountId: account.id });
+    await service.whenIdle();
+    expect(repo.list()).toMatchObject([
+      { name: 'mi-repo', gitProvider: 'gitlab', status: 'ready', gitAccountId: account.id },
+    ]);
+    expect(cloner).toHaveBeenCalledWith(
+      'Grupo/Sub/Mi_Repo',
+      expect.any(String),
+      expect.objectContaining({ url: 'https://gitlab.com/Grupo/Sub/Mi_Repo.git' }),
+    );
+    await expect(
+      service.add({
+        repo: 'https://gitlab.com/grupo/sub/mi_repo.git',
+        name: 'otro',
+        gitAccountId: account.id,
+      }),
+    ).rejects.toBeInstanceOf(ProjectConflictError);
+  });
+
+  it('requires an account for GitLab', async () => {
+    const { service, repo } = gitlabSetup();
+    await expect(service.add({ repo: 'https://gitlab.com/g/r' })).rejects.toBeInstanceOf(
+      ProjectError,
+    );
+    expect(repo.list()).toHaveLength(0);
   });
 });
 

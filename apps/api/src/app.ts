@@ -44,6 +44,7 @@ import { scanIdeaDocuments, type IdeaScanner } from './chats/idea.js';
 import { IdeaActions } from './chats/idea-actions.js';
 import { DebtAcceptance } from './pilot/accept-debt.js';
 import type { MergeGit, PilotGit, RepoGit } from './pilot/git-ops.js';
+import { ForgeRegistry, type ForgeResolver } from './forge/provider.js';
 import type { PilotGh } from './pilot/github-cli.js';
 import { PrLookup, type BranchPrs } from './pilot/pr-lookup.js';
 import { PrWatcher, type PrStateReader } from './pilot/pr-watcher.js';
@@ -67,6 +68,15 @@ import {
 } from './auth/security.js';
 import { EnvFileRepository } from './env-files/repo.js';
 import { registerEnvFileRoutes } from './env-files/routes.js';
+import { HttpGitProviderApi, type GitProviderApi } from './git-accounts/provider-api.js';
+import {
+  GitCredentialResolver,
+  agentCredentialEnv,
+  setGitCredentialLookup,
+} from './git-accounts/credentials.js';
+import { GitAccountRepository } from './git-accounts/repo.js';
+import { registerGitAccountRoutes } from './git-accounts/routes.js';
+import { GitAccountService } from './git-accounts/service.js';
 import { ProjectRepository } from './projects/repo.js';
 import { ProjectRepoRepository } from './projects/repos-repo.js';
 import { ProjectService } from './projects/service.js';
@@ -132,6 +142,10 @@ export interface AppDeps {
   pilotGit?: PilotGit & MergeGit;
   /** `gh` of the merge phase; tests replace it so nothing calls GitHub. */
   pilotGh?: PilotGh;
+  /** PR/MR provider of each project; tests replace it so nothing calls GitHub or GitLab. */
+  forge?: ForgeResolver;
+  /** Validates git account tokens against GitHub/GitLab; tests inject a fake. */
+  gitProviderApi?: GitProviderApi;
   /** Lookup of the PRs of a finished work's branch; tests never call GitHub. */
   branchPrs?: BranchPrs;
   /** State of a PR in GitHub for the PR watcher; tests never call GitHub. */
@@ -230,6 +244,17 @@ export function buildApp(deps: AppDeps, options: FastifyServerOptions = {}): Fas
   panelSteps.closeOpen('interrupted');
   const accounts = new AccountService(new AccountRepository(deps.db, now), deps.accountsHome);
   const usageRepo = new UsageRepository(deps.db, now);
+  // Projects on a git account run git and gh with its credential (environment only).
+  const gitAccountRepo = new GitAccountRepository(deps.db, deps.config.secretKey, now);
+  const gitCredentials = new GitCredentialResolver(
+    deps.db,
+    gitAccountRepo,
+    deps.config.worktreesDir,
+  );
+  setGitCredentialLookup(gitCredentials);
+  app.addHook('onClose', () => {
+    setGitCredentialLookup(null);
+  });
   const manager =
     deps.manager ??
     new AgentManager(
@@ -243,6 +268,10 @@ export function buildApp(deps: AppDeps, options: FastifyServerOptions = {}): Fas
       (projectId) => projects.getBashExtras(projectId),
       () => accounts.activeForRun(),
       usageRepo,
+      (projectId) => {
+        const credential = gitCredentials.forProject(projectId);
+        return credential ? agentCredentialEnv(credential) : undefined;
+      },
     );
   // Nothing survives a restart: sessions that were running when the server stopped are interrupted
   // and the questions they were waiting on are cancelled (the resumed agent asks again).
@@ -272,6 +301,8 @@ export function buildApp(deps: AppDeps, options: FastifyServerOptions = {}): Fas
     }
     flags.set(CANCELLED_EVENTS_BACKFILL);
   }
+  const forge: ForgeResolver =
+    deps.forge ?? new ForgeRegistry({ projects, credentials: gitCredentials });
   const envFiles = new EnvFileRepository(deps.db, deps.config.secretKey, now);
   const projectRepos = new ProjectRepoRepository(deps.db, now);
   // The single action service (D26): the pilot and the git routes both go through it.
@@ -287,6 +318,7 @@ export function buildApp(deps: AppDeps, options: FastifyServerOptions = {}): Fas
     // The injected fakes of the tests only implement what the pilot uses.
     ...(deps.pilotGit ? { git: deps.pilotGit as PilotGit & MergeGit & RepoGit } : {}),
     ...(deps.pilotGh ? { gh: deps.pilotGh } : {}),
+    forge,
   });
   const pilot = new Autopilot({
     actions: worktreeOps,
@@ -303,6 +335,7 @@ export function buildApp(deps: AppDeps, options: FastifyServerOptions = {}): Fas
     projectOf: (chat) => projects.findById(chat.projectId),
     validateTimeoutMs: deps.config.pilotValidateTimeoutMs,
     ...(deps.pilotGh ? { gh: deps.pilotGh } : {}),
+    forge,
     maxSessionsPerSprint: deps.config.pilotMaxSessionsPerSprint,
     now,
   });
@@ -364,6 +397,20 @@ export function buildApp(deps: AppDeps, options: FastifyServerOptions = {}): Fas
       config: deps.config,
       kyroLock,
       projectRepos,
+      credentials: gitCredentials,
+      accounts: gitAccountRepo,
+      // Changing the account under a running agent or pilot would swap its credential mid-run.
+      isBusy: (projectId) => {
+        for (const chat of chats.list(projectId)) {
+          if (manager.isRunning(chat.id))
+            return 'El agente de un trabajo del proyecto está corriendo';
+          const run = autopilotRuns.get(chat.id);
+          if (run && ['active', 'queued', 'waiting_quota'].includes(run.status)) {
+            return `El piloto automático de un trabajo del proyecto está ${run.status}`;
+          }
+        }
+        return manager.inMaintenance ? 'Hay una actualización de Kyro en curso' : null;
+      },
     });
   // Clones that were running when the server stopped can never finish: mark them as errors.
   app.addHook('onReady', async () => {
@@ -437,6 +484,13 @@ export function buildApp(deps: AppDeps, options: FastifyServerOptions = {}): Fas
   });
   void app.register((instance) => {
     registerEnvFileRoutes(instance, { projects, envFiles, reauth, chats });
+    registerGitAccountRoutes(instance, {
+      accounts: new GitAccountService(
+        gitAccountRepo,
+        deps.gitProviderApi ?? new HttpGitProviderApi(),
+      ),
+      reauth,
+    });
     registerPermissionRoutes(instance, { projects, reauth });
   });
   void app.register((instance) => {
@@ -489,6 +543,7 @@ export function buildApp(deps: AppDeps, options: FastifyServerOptions = {}): Fas
     runs: autopilotRuns,
     states: worktreeState,
     projects,
+    forge,
     ...(deps.branchPrs ? { prsOf: deps.branchPrs } : {}),
   });
   // Follows the open PRs of the finished works until GitHub reports them merged (or closed).
@@ -497,6 +552,7 @@ export function buildApp(deps: AppDeps, options: FastifyServerOptions = {}): Fas
     states: worktreeState,
     projects,
     prs: prLookup,
+    forge,
     ...(deps.prState ? { prState: deps.prState } : {}),
     log: (message) => {
       app.log.warn(message);

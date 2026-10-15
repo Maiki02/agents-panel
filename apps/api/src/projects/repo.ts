@@ -6,6 +6,8 @@ import {
   DEFAULT_MODELS,
   DEFAULT_PROVIDER,
   MODEL_CATALOG,
+  newPrLink,
+  type GitProvider,
   type ModelProvider,
   type ModelSelection,
   type KyroInitPending,
@@ -26,6 +28,8 @@ interface ProjectRow {
   validate_command: string | null;
   display_name: string | null;
   repo_url: string | null;
+  git_provider: GitProvider;
+  git_account_id: number | null;
   status: ProjectStatus;
   status_detail: string | null;
   provider: ModelProvider | null;
@@ -72,12 +76,20 @@ function hasRef(repoPath: string, ref: string): boolean {
  * The init branch is waiting when the clone has no Kyro but still has `chore/kyro-init` (worktree
  * branches live in the base clone's refs). Local refs only: listing projects never hits the network.
  */
-export function pendingKyroInit(repoPath: string, repoUrl: string | null): KyroInitPending | null {
+export function pendingKyroInit(
+  repoPath: string,
+  repoUrl: string | null,
+  gitProvider: GitProvider = 'github',
+): KyroInitPending | null {
   if (!hasRef(repoPath, `refs/heads/${KYRO_INIT_BRANCH}`)) return null;
+  let prUrl: string | null = null;
+  if (repoUrl !== null) {
+    prUrl = newPrLink(gitProvider, repoUrl, KYRO_INIT_BRANCH);
+  }
   return {
     branch: KYRO_INIT_BRANCH,
     pushed: hasRef(repoPath, `refs/remotes/origin/${KYRO_INIT_BRANCH}`),
-    prUrl: repoUrl === null ? null : `${repoUrl}/pull/new/${KYRO_INIT_BRANCH}`,
+    prUrl,
   };
 }
 
@@ -92,10 +104,12 @@ function toProject(row: ProjectRow): Project {
     validateCommand: row.validate_command,
     displayName: row.display_name,
     repoUrl: row.repo_url,
+    gitProvider: row.git_provider,
+    gitAccountId: row.git_account_id,
     status: row.status,
     statusDetail: row.status_detail,
     hasKyro,
-    kyroInit: hasKyro ? null : pendingKyroInit(row.repo_path, row.repo_url),
+    kyroInit: hasKyro ? null : pendingKyroInit(row.repo_path, row.repo_url, row.git_provider),
     // A ready project only carries a detail when Kyro setup failed after registering.
     kyroWarning: row.status === 'ready' ? row.status_detail : null,
     models: {
@@ -149,6 +163,10 @@ export interface GithubProjectInput {
   name: string;
   displayName: string | null;
   repoUrl: string;
+  /** Git provider of the repo; GitHub when omitted. */
+  gitProvider?: GitProvider;
+  /** Account whose token acts on the repo; null/omitted: the global `gh` login (GitHub only). */
+  gitAccountId?: number | null;
   repoPath: string;
   baseBranch: string;
   setupCommand: string | null;
@@ -202,7 +220,7 @@ export class ProjectRepository {
     return row ? toProject(row) : undefined;
   }
 
-  /** GitHub names are case-insensitive, so the canonical URL is compared lowercased. */
+  /** GitHub and GitLab names are case-insensitive, so the canonical URL is compared lowercased. */
   findByRepoUrl(repoUrl: string): Project | undefined {
     const row = this.db
       .prepare('SELECT * FROM projects WHERE lower(repo_url) = lower(?)')
@@ -218,19 +236,21 @@ export class ProjectRepository {
     ).map(toProject);
   }
 
-  /** Inserts a project coming from GitHub; the caller already validated everything. */
+  /** Inserts a project coming from GitHub or GitLab; the caller already validated everything. */
   insertGithub(input: GithubProjectInput): Project {
     try {
       const result = this.db
         .prepare(
           `INSERT INTO projects
-            (name, display_name, repo_url, repo_path, base_branch, setup_command, status, status_detail, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            (name, display_name, repo_url, git_provider, git_account_id, repo_path, base_branch, setup_command, status, status_detail, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           input.name,
           input.displayName,
           input.repoUrl,
+          input.gitProvider ?? 'github',
+          input.gitAccountId ?? null,
           input.repoPath,
           input.baseBranch,
           input.setupCommand,
@@ -277,8 +297,14 @@ export class ProjectRepository {
       baseBranch?: string;
       setupCommand?: string | null;
       validateCommand?: string | null;
+      gitAccountId?: number | null;
     },
   ): void {
+    if (fields.gitAccountId !== undefined) {
+      this.db
+        .prepare('UPDATE projects SET git_account_id = ? WHERE id = ?')
+        .run(fields.gitAccountId, id);
+    }
     if (fields.displayName !== undefined) {
       this.db
         .prepare('UPDATE projects SET display_name = ? WHERE id = ?')

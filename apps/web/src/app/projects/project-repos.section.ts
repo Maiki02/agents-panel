@@ -13,6 +13,7 @@ import type { Project, ProjectRepo, RepoPullResult } from '@agents-panel/shared'
 import { apiErrorMessage } from '../chats/chats.service';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
+import { providerTexts } from './project-label';
 import { ProjectsService } from './projects.service';
 import { canSaveBase, mergeRepoRows, pullFailureOf, pullOutcomeOf, repoTitle } from './repos-logic';
 
@@ -29,12 +30,12 @@ import { canSaveBase, mergeRepoRows, pullFailureOf, pullOutcomeOf, repoTitle } f
     <h3>Clon base</h3>
     <p class="hint">
       Los worktrees nuevos salen del clon de la VM, cada repo desde su rama base. Traé lo último de
-      GitHub antes de empezar un trabajo. Solo avanza (fast-forward): si un repo tiene cambios
-      locales o se desvió, no lo toca y lo marca.
+      {{ texts().name }} antes de empezar un trabajo. Solo avanza (fast-forward): si un repo tiene
+      cambios locales o se desvió, no lo toca y lo marca.
     </p>
     <div class="flex flex-wrap items-center gap-2">
       <button appButton type="button" [disabled]="pulling() || !ready()" (click)="pull()">
-        {{ pulling() ? 'Trayendo…' : 'Traer cambios de GitHub' }}
+        {{ pulling() ? 'Trayendo…' : 'Traer cambios de ' + texts().name }}
       </button>
       <button
         appButton
@@ -114,7 +115,10 @@ export class ProjectRepos {
   private readonly pullResults = signal<RepoPullResult[] | null>(null);
   private readonly typed = signal<Record<number, string>>({});
 
-  protected readonly rows = computed(() => mergeRepoRows(this.repos(), this.pullResults()));
+  protected readonly texts = computed(() => providerTexts(this.project()));
+  protected readonly rows = computed(() =>
+    mergeRepoRows(this.repos(), this.pullResults(), this.texts()),
+  );
   protected readonly title = repoTitle;
 
   constructor() {

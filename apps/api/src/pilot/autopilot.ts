@@ -40,7 +40,8 @@ import {
 } from './prompts.js';
 import { WorktreeOps, type PilotActions } from '../worktrees/ops.js';
 import { realGit, type MergeGit, type PilotGit } from './git-ops.js';
-import { realGh, type PilotGh } from './github-cli.js';
+import { forgeOf, type ForgeResolver } from '../forge/provider.js';
+import type { PilotGh } from './github-cli.js';
 import { runMergePhase, type MergePhaseOutcome } from './merge-phase.js';
 import { readPrText, type PrDataReader } from './pr-body.js';
 import type { SecretFinding } from './secrets.js';
@@ -87,8 +88,10 @@ export interface AutopilotDeps {
   questions: QuestionRepository;
   /** Git operations the pilot runs itself; the real ones by default. */
   git?: PilotGit & MergeGit;
-  /** `gh` for the PRs of the merge phase; the real one by default. */
+  /** Replaces the PR provider of every project (tests); by default each project's own. */
   gh?: PilotGh;
+  /** The PR/MR provider of each project (GitHub or GitLab); GitHub when absent. */
+  forge?: ForgeResolver;
   /** The action service (D26) that the pilot's push, commit of Kyro and PR go through, as actor `pilot`. */
   actions?: PilotActions;
   /** Base branch and validate command of the chat's project (R14, the push and merge checks). */
@@ -232,6 +235,7 @@ export class Autopilot {
         chats: deps.chats,
         ...(deps.git ? { git: deps.git } : {}),
         ...(deps.gh ? { gh: deps.gh } : {}),
+        ...(deps.forge ? { forge: deps.forge } : {}),
       });
     this.max = deps.maxSessionsPerSprint ?? DEFAULT_MAX_SESSIONS_PER_SPRINT;
     this.now = deps.now ?? Date.now;
@@ -623,7 +627,7 @@ export class Autopilot {
     const outcome: MergePhaseOutcome = await runMergePhase(
       {
         git: this.deps.git ?? realGit,
-        gh: this.deps.gh ?? realGh,
+        gh: this.deps.gh ?? forgeOf(this.deps.forge, chat.projectId),
         mark: (markState, reason, extra) => {
           tracker.pilotMark(chat, {
             state: markState,

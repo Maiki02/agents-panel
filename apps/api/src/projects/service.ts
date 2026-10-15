@@ -4,12 +4,18 @@ import { access, mkdir, realpath, rm, statfs } from 'node:fs/promises';
 import { join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
-import type { Project } from '@agents-panel/shared';
+import type { GitAccount, Project } from '@agents-panel/shared';
 import { notifyDiskChanged } from '../capacity/disk.js';
+import {
+  processAuth,
+  type GitCredential,
+  type GitCredentialLookup,
+} from '../git-accounts/credentials.js';
 import type { Config } from '../config.js';
 import { KyroLock } from '../maintenance/lock.js';
 import { splitCommand } from '../worktrees/create.js';
-import { normalizeOrigin, parseGithubRepo, type GithubRepo } from './github.js';
+import type { GitAccountRepository } from '../git-accounts/repo.js';
+import { normalizeOrigin, parseRemote, type RemoteRepo } from './remote.js';
 import { detectRepos } from './repos.js';
 import type { ProjectRepoRepository } from './repos-repo.js';
 import {
@@ -26,13 +32,32 @@ const DETAIL_MAX = 500;
 const GB = 1024 ** 3;
 const SETUP_SCRIPT = 'scripts/panel-setup.sh';
 
+/** Where to clone from and as whom, when it is not the global `gh` login. */
+export interface CloneSource {
+  /** https URL of the repo, without credentials. */
+  url: string;
+  credential: GitCredential | null;
+}
+
 /** Clones `slug` (owner/repo, already validated) into `dest`. Rejects when the clone fails. */
-export type Cloner = (slug: string, dest: string) => Promise<void>;
+export type Cloner = (slug: string, dest: string, source?: CloneSource) => Promise<void>;
 export type FreeSpace = (path: string) => Promise<number>;
 
-/** Default cloner: `gh repo clone owner/repo dest` through execFile (no shell). */
-export const ghCloner: Cloner = async (slug, dest) => {
-  await execFileAsync('gh', ['repo', 'clone', slug, dest]);
+/**
+ * Default cloner through execFile (no shell). Without a source: `gh repo clone owner/repo dest`
+ * (the global login). With one: `git clone <url> dest`, the credential only in the environment, so
+ * neither the URL nor .git/config ever hold the token.
+ */
+export const ghCloner: Cloner = async (slug, dest, source) => {
+  if (!source) {
+    await execFileAsync('gh', ['repo', 'clone', slug, dest]);
+    return;
+  }
+  const auth = processAuth(source.credential);
+  await execFileAsync('git', [...auth.configArgs, 'clone', '--', source.url, dest], {
+    maxBuffer: 10 * 1024 * 1024,
+    ...(auth.env ? { env: auth.env } : {}),
+  });
 };
 
 /** Initializes Kyro in a repo that already ships `.agents/kyro/`; rejects when it fails. */
@@ -86,9 +111,13 @@ export interface AddProjectInput {
   displayName?: string | undefined;
   baseBranch?: string | undefined;
   setupCommand?: string | undefined;
+  /** Required for GitLab (an account of the same host); optional for GitHub (none: global `gh`). */
+  gitAccountId?: number | null | undefined;
 }
 
 export interface UpdateProjectInput {
+  /** An account of the project's provider and host; null leaves a GitHub project on the global `gh`. */
+  gitAccountId?: number | null | undefined;
   /** null or '' clears it. */
   displayName?: string | null | undefined;
   baseBranch?: string | undefined;
@@ -108,6 +137,21 @@ export interface ProjectServiceDeps {
   kyroLock?: KyroLock;
   /** When present, repos (root + children) are detected each time a project becomes ready. */
   projectRepos?: ProjectRepoRepository;
+  /** Credential of a project's git account; without it every clone uses the global `gh` login. */
+  credentials?: Pick<GitCredentialLookup, 'forProject'>;
+  /** Git accounts: their GitLab hosts are the ones a project URL may use besides gitlab.com. */
+  accounts?: Pick<GitAccountRepository, 'list' | 'findById'>;
+  /** Why the project cannot change account right now (agent or pilot running), or null. */
+  isBusy?: (projectId: number) => string | null;
+}
+
+/** Host of a stored canonical repo URL. */
+function hostOf(repoUrl: string): string {
+  try {
+    return new URL(repoUrl).hostname.toLowerCase();
+  } catch {
+    return '';
+  }
 }
 
 function trimDetail(text: string): string {
@@ -162,9 +206,14 @@ export class ProjectService {
   private readonly kyroInit: KyroInitializer;
   private readonly kyroLock: KyroLock;
   private readonly projectRepos: ProjectRepoRepository | undefined;
+  private readonly credentials: Pick<GitCredentialLookup, 'forProject'> | undefined;
+  private readonly accounts: Pick<GitAccountRepository, 'list' | 'findById'> | undefined;
+  private readonly isBusy: ((projectId: number) => string | null) | undefined;
   private readonly pending = new Map<number, Promise<void>>();
 
   constructor(deps: ProjectServiceDeps) {
+    this.accounts = deps.accounts;
+    this.isBusy = deps.isBusy;
     this.repo = deps.repo;
     this.config = deps.config;
     this.cloner = deps.cloner ?? ghCloner;
@@ -172,6 +221,7 @@ export class ProjectService {
     this.kyroInit = deps.kyroInit ?? kyroInstall;
     this.kyroLock = deps.kyroLock ?? new KyroLock();
     this.projectRepos = deps.projectRepos;
+    this.credentials = deps.credentials;
   }
 
   /**
@@ -205,8 +255,12 @@ export class ProjectService {
 
   /** Returns the project right away: `cloning` for a new clone, `ready` for an adopted folder. */
   async add(input: AddProjectInput): Promise<Project> {
-    const github = parseGithubRepo(input.repo);
-    const name = input.name ?? deriveProjectName(github.repo);
+    const github = parseRemote(
+      input.repo,
+      (this.accounts?.list() ?? []).filter((a) => a.provider === 'gitlab').map((a) => a.host),
+    );
+    const account = this.resolveAccount(github, input.gitAccountId);
+    const name = input.name ?? deriveProjectName(github.name);
     if (!PROJECT_NAME_RE.test(name)) {
       throw new ProjectError('Project name must be kebab-case (max 50 characters)');
     }
@@ -226,6 +280,8 @@ export class ProjectService {
         name,
         displayName,
         repoUrl: github.httpsUrl,
+        gitProvider: github.provider,
+        gitAccountId: account?.id ?? null,
         repoPath: dest,
         baseBranch: branch,
         setupCommand,
@@ -241,6 +297,8 @@ export class ProjectService {
       name,
       displayName,
       repoUrl: github.httpsUrl,
+      gitProvider: github.provider,
+      gitAccountId: account?.id ?? null,
       repoPath: dest,
       baseBranch: baseBranch ?? '',
       setupCommand,
@@ -256,8 +314,8 @@ export class ProjectService {
     if (project.status !== 'error') {
       throw new ProjectConflictError(`Project is not in error: ${project.name}`);
     }
-    if (project.repoUrl === null) throw new ProjectError('Project has no GitHub repository');
-    const github = parseGithubRepo(project.repoUrl);
+    if (project.repoUrl === null) throw new ProjectError('Project has no remote repository');
+    const github = parseRemote(project.repoUrl, [hostOf(project.repoUrl)]);
     if (await this.exists(project.repoPath)) {
       // Not created by this attempt: never delete it, only try to adopt it.
       try {
@@ -301,6 +359,17 @@ export class ProjectService {
         throw new ProjectError(error instanceof Error ? error.message : 'Invalid validate command');
       }
     }
+    let gitAccountId: number | null | undefined;
+    if (input.gitAccountId !== undefined) {
+      if (project.repoUrl === null) throw new ProjectError('Project has no remote repository');
+      const remote = parseRemote(project.repoUrl, [hostOf(project.repoUrl)]);
+      gitAccountId = this.resolveAccount(remote, input.gitAccountId)?.id ?? null;
+      if (project.status === 'cloning') {
+        throw new ProjectConflictError(`El proyecto se está clonando: ${project.name}`);
+      }
+      const busy = this.isBusy?.(id) ?? null;
+      if (busy) throw new ProjectConflictError(busy);
+    }
     let baseBranch: string | undefined;
     if (input.baseBranch !== undefined) {
       baseBranch = input.baseBranch.trim();
@@ -314,6 +383,7 @@ export class ProjectService {
       ...(setupCommand !== undefined ? { setupCommand } : {}),
       ...(validateCommand !== undefined ? { validateCommand } : {}),
       ...(baseBranch !== undefined ? { baseBranch } : {}),
+      ...(gitAccountId !== undefined ? { gitAccountId } : {}),
     });
     if (baseBranch !== undefined && this.projectRepos) {
       const root = this.projectRepos.listByProject(id).find((repo) => repo.path === '.');
@@ -327,6 +397,30 @@ export class ProjectService {
     return (await this.exists(join(project.repoPath, SETUP_SCRIPT)))
       ? `bash ${SETUP_SCRIPT}`
       : null;
+  }
+
+  /**
+   * The account for a repo: GitLab needs one of GitLab on the same host; GitHub may go without
+   * (the global `gh`) or use a GitHub one. Anything else is a ProjectError (400).
+   */
+  private resolveAccount(
+    remote: RemoteRepo,
+    accountId: number | null | undefined,
+  ): GitAccount | null {
+    if (accountId === undefined || accountId === null) {
+      if (remote.provider === 'gitlab') {
+        throw new ProjectError(`Elegí una cuenta de GitLab de ${remote.host} para este proyecto`);
+      }
+      return null;
+    }
+    const account = this.accounts?.findById(accountId);
+    if (!account) throw new ProjectError(`Cuenta de git no encontrada: ${String(accountId)}`);
+    if (account.provider !== remote.provider || account.host !== remote.host) {
+      throw new ProjectError(
+        `La cuenta ${account.name} no es de ${remote.provider} en ${remote.host}`,
+      );
+    }
+    return account;
   }
 
   private require(id: number): Project {
@@ -347,7 +441,7 @@ export class ProjectService {
   /** Adopts an existing folder only if it is a git repo root whose origin is the requested repo. */
   private async verifyExisting(
     dest: string,
-    github: GithubRepo,
+    github: RemoteRepo,
     wantedBranch: string | null,
   ): Promise<string> {
     const conflict = (): never => {
@@ -363,7 +457,10 @@ export class ProjectService {
     } catch {
       return conflict();
     }
-    if (normalizeOrigin(origin) !== normalizeOrigin(github.httpsUrl)) return conflict();
+    const hosts = [github.host];
+    if (normalizeOrigin(origin, hosts) !== normalizeOrigin(github.httpsUrl, hosts)) {
+      return conflict();
+    }
     return this.resolveBranch(dest, wantedBranch);
   }
 
@@ -390,7 +487,7 @@ export class ProjectService {
   }
 
   /** Checks disk space, then clones in the background. The returned project is `cloning` or `error`. */
-  private async begin(project: Project, github: GithubRepo): Promise<Project> {
+  private async begin(project: Project, github: RemoteRepo): Promise<Project> {
     try {
       await mkdir(this.config.projectsDir, { recursive: true });
       const free = await this.freeSpace(this.config.projectsDir);
@@ -410,7 +507,7 @@ export class ProjectService {
     return project;
   }
 
-  private async runClone(project: Project, github: GithubRepo): Promise<void> {
+  private async runClone(project: Project, github: RemoteRepo): Promise<void> {
     const dest = project.repoPath;
     // Created here (non-recursive mkdir fails with EEXIST), so only a folder we made is ever deleted.
     let created = false;
@@ -424,9 +521,19 @@ export class ProjectService {
         throw error;
       }
       created = true;
-      await this.cloner(github.slug, dest);
+      const credential = this.credentials?.forProject(project.id) ?? null;
+      if (github.provider === 'gitlab' && !credential) {
+        // No glab and no global login for GitLab: the project's account is the only way in.
+        throw new ProjectError('El proyecto de GitLab no tiene una cuenta con token');
+      }
+      if (credential) {
+        await this.cloner(github.slug, dest, { url: `${github.httpsUrl}.git`, credential });
+      } else {
+        await this.cloner(github.slug, dest);
+      }
       const origin = await git(dest, ['config', '--get', 'remote.origin.url']);
-      if (normalizeOrigin(origin) !== normalizeOrigin(github.httpsUrl)) {
+      const hosts = [github.host];
+      if (normalizeOrigin(origin, hosts) !== normalizeOrigin(github.httpsUrl, hosts)) {
         throw new ProjectError(`El origin del clon no es ${github.slug}`);
       }
       const branch = await this.resolveBranch(

@@ -51,12 +51,12 @@ function splitPath(path: string, allowBranch: boolean): [string, string, string 
 const BAD_REF_CHARS = /[\s~^:?*[\\\p{Cc}]/u;
 
 /** A git branch name taken from a URL: strict, because it becomes an argv value. */
-function parseBranch(segments: string[]): string {
+export function parseBranch(segments: string[]): string {
   let branch: string;
   try {
     branch = segments.map((segment) => decodeURIComponent(segment)).join('/');
   } catch {
-    return invalid('malformed branch in the URL');
+    throw new ProjectError('Invalid branch in the URL: malformed');
   }
   if (
     branch === '' ||
@@ -71,7 +71,7 @@ function parseBranch(segments: string[]): string {
     branch.endsWith('.') ||
     branch === '@'
   ) {
-    return invalid('invalid branch in the URL');
+    throw new ProjectError('Invalid branch in the URL');
   }
   return branch;
 }
@@ -106,34 +106,7 @@ export function parseGithubRepo(input: string): GithubRepo {
   return build(...splitPath(path, isUrl));
 }
 
-/**
- * Brings the https and ssh forms of a GitHub remote (with or without `.git`) to
- * `https://github.com/owner/repo`, lowercased (GitHub names are case-insensitive).
- * Returns null for anything that is not a GitHub remote.
- */
-export function normalizeOrigin(url: string): string | null {
-  const text = url.trim();
-  let path: string | undefined;
-  const scp = /^(?:[^@/\s]+@)?github\.com:(.+)$/i.exec(text);
-  if (scp) {
-    path = scp[1];
-  } else {
-    try {
-      const parsed = new URL(text);
-      if (
-        (parsed.protocol === 'https:' || parsed.protocol === 'ssh:') &&
-        parsed.hostname.toLowerCase() === GITHUB_HOST
-      ) {
-        path = parsed.pathname.slice(1);
-      }
-    } catch {
-      return null;
-    }
-  }
-  if (path === undefined) return null;
-  try {
-    return build(...splitPath(path, false)).httpsUrl.toLowerCase();
-  } catch {
-    return null;
-  }
+/** `owner/repo[/tree/<branch>]` already cut out of a URL or an origin; throws ProjectError. */
+export function parseGithubPath(path: string, allowBranch: boolean): GithubRepo {
+  return build(...splitPath(path, allowBranch));
 }

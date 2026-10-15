@@ -1,5 +1,6 @@
 import type {
   ChatKind,
+  GitProvider,
   IdeaAction,
   IdeaDocument,
   WorktreeStateId,
@@ -21,7 +22,26 @@ export function approvalCard(
   return null;
 }
 
-/** The PR card shows in `pr_lista` even without links; in `terminado` only when GitHub has one. */
+/** Texts of the PR card: a GitLab project talks about its MR, everything else about its PR. */
+export function prCardTexts(provider: GitProvider | null | undefined): {
+  label: string;
+  heading: string;
+  empty: string;
+} {
+  return provider === 'gitlab'
+    ? {
+        label: 'Merge request',
+        heading: 'El MR está listo para revisar',
+        empty: 'Todavía no hay un link del MR para mostrar.',
+      }
+    : {
+        label: 'Pull request',
+        heading: 'La PR está lista para revisar',
+        empty: 'Todavía no hay un link de la PR para mostrar.',
+      };
+}
+
+/** The PR card shows in `pr_lista` even without links; in `terminado` only when the host has one. */
 export function showPrCard(
   state: WorktreeStateId | null | undefined,
   urls: readonly string[],

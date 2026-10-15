@@ -26,7 +26,28 @@ export function projectStatusTone(status: ProjectStatus): BadgeTone {
   return STATUS_TONE[status];
 }
 
-/** What a card shows for the repo: the full GitHub URL as a link, or the local path (CLI-added). */
+/** Words that change with the git provider of a project. */
+export interface ProviderTexts {
+  /** `GitHub` or `GitLab`. */
+  name: string;
+  /** `PR` or `MR`. */
+  pr: string;
+  /** `la PR` or `el MR`: with its article. */
+  thePr: string;
+  /** `una PR` or `un MR`. */
+  aPr: string;
+}
+
+/** Provider words of a project; a project without provider (added by path) counts as GitHub. */
+export function providerTexts(
+  project?: Partial<Pick<Project, 'gitProvider'>> | null,
+): ProviderTexts {
+  return project?.gitProvider === 'gitlab'
+    ? { name: 'GitLab', pr: 'MR', thePr: 'el MR', aPr: 'un MR' }
+    : { name: 'GitHub', pr: 'PR', thePr: 'la PR', aPr: 'una PR' };
+}
+
+/** What a card shows for the repo: the full repo URL as a link, or the local path (CLI-added). */
 export function repoDisplay(project: Pick<Project, 'repoUrl' | 'repoPath' | 'baseBranch'>): {
   url: string | null;
   text: string;

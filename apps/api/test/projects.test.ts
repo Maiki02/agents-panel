@@ -7,6 +7,7 @@ import type { FastifyInstance } from 'fastify';
 import { SESSION_COOKIE, SessionService } from '../src/auth/sessions.js';
 import { UserRepository } from '../src/auth/users.js';
 import { CliError, runCli, type CliIo } from '../src/cli/commands.js';
+import { GitAccountRepository } from '../src/git-accounts/repo.js';
 import { ProjectRepository } from '../src/projects/repo.js';
 import { ProjectService, type Cloner } from '../src/projects/service.js';
 import { openDatabase } from '../src/db/index.js';
@@ -379,5 +380,224 @@ describe('project routes (GitHub)', () => {
       const res = await app.inject({ method, url, headers: { origin: ORIGIN } });
       expect(res.statusCode, `${method} ${url}`).toBe(401);
     }
+  });
+});
+
+describe('project routes (GitLab and accounts)', () => {
+  const git = (cwd: string, ...args: string[]) =>
+    execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: 'pipe' }).trim();
+
+  async function setup() {
+    const db = openDatabase(':memory:');
+    const bare = join(mkdtempSync(join(tmpdir(), 'panel-bare-')), 'remote.git');
+    execFileSync('git', ['clone', '-q', '--bare', makeGitRepo(), bare]);
+    const sources: unknown[] = [];
+    const cloner = vi.fn<Cloner>((slug, dest, source) => {
+      sources.push(source);
+      execFileSync('git', ['clone', '-q', bare, dest], { stdio: 'pipe' });
+      const host = source ? new URL(source.url).hostname : 'github.com';
+      git(dest, 'remote', 'set-url', 'origin', `https://${host}/${slug}.git`);
+      return Promise.resolve();
+    });
+    const accounts = new GitAccountRepository(db, Buffer.from(TEST_ENV.PANEL_SECRET_KEY));
+    const lab = accounts.create({
+      provider: 'gitlab',
+      name: 'lab',
+      host: 'gitlab.com',
+      username: 'u',
+      token: 't1',
+    });
+    const lab2 = accounts.create({
+      provider: 'gitlab',
+      name: 'lab2',
+      host: 'gitlab.com',
+      username: 'u2',
+      token: 't2',
+    });
+    const acme = accounts.create({
+      provider: 'gitlab',
+      name: 'acme',
+      host: 'git.acme.io',
+      username: 'u3',
+      token: 't3',
+    });
+    const hub = accounts.create({
+      provider: 'github',
+      name: 'hub',
+      host: 'github.com',
+      username: 'u4',
+      token: 't4',
+    });
+    const busy = { reason: null as string | null };
+    const projectsDir = mkdtempSync(join(tmpdir(), 'panel-projects-'));
+    const projectService = new ProjectService({
+      repo: new ProjectRepository(db),
+      config: { projectsDir, minFreeDiskGb: 1 },
+      cloner,
+      freeSpace: () => Promise.resolve(100 * 1024 ** 3),
+      kyroInit: () => Promise.resolve(),
+      accounts,
+      credentials: {
+        forProject: (id) => {
+          const row = db
+            .prepare('SELECT git_account_id AS a FROM projects WHERE id = ?')
+            .get(id) as { a: number | null } | undefined;
+          const account = row?.a ? accounts.findById(row.a) : undefined;
+          return account
+            ? { host: account.host, username: account.username, token: 'secret' }
+            : null;
+        },
+      },
+      isBusy: () => busy.reason,
+    });
+    const made = makeApp({ PANEL_PROJECTS_DIR: projectsDir }, undefined, { db, projectService });
+    app = made.app;
+    await app.ready();
+    const user = await new UserRepository(db).create('alice', PASSWORD);
+    const { token, csrfToken } = new SessionService(db, {
+      idleTtlSeconds: 1800,
+      absoluteTtlSeconds: 43200,
+    }).create(user.id);
+    const headers = {
+      cookie: `${SESSION_COOKIE}=${token}`,
+      origin: ORIGIN,
+      'x-csrf-token': csrfToken,
+    };
+    return { app: made.app, headers, projectService, sources, busy, lab, lab2, acme, hub };
+  }
+
+  const post = (ctx: Awaited<ReturnType<typeof setup>>, payload: Record<string, unknown>) =>
+    ctx.app.inject({ method: 'POST', url: '/api/projects', headers: ctx.headers, payload });
+
+  it('clones a gitlab.com project with its account and ends ready', async () => {
+    const ctx = await setup();
+    const res = await post(ctx, {
+      repo: 'https://gitlab.com/Grupo/sub/Repo.git/-/tree/main',
+      gitAccountId: ctx.lab.id,
+    });
+    expect(res.statusCode).toBe(202);
+    expect(res.json()).toMatchObject({
+      name: 'repo',
+      status: 'cloning',
+      repoUrl: 'https://gitlab.com/Grupo/sub/Repo',
+      gitProvider: 'gitlab',
+      gitAccountId: ctx.lab.id,
+    });
+    await ctx.projectService.whenIdle();
+    const detail = await ctx.app.inject({
+      url: `/api/projects/${String(idOf(res))}`,
+      headers: ctx.headers,
+    });
+    expect(detail.json()).toMatchObject({
+      status: 'ready',
+      baseBranch: 'main',
+      statusDetail: null,
+    });
+    expect(ctx.sources).toMatchObject([
+      {
+        url: 'https://gitlab.com/Grupo/sub/Repo.git',
+        credential: { host: 'gitlab.com', username: 'u' },
+      },
+    ]);
+  });
+
+  it('accepts a private GitLab whose host has a linked account', async () => {
+    const ctx = await setup();
+    const res = await post(ctx, {
+      repo: 'https://git.acme.io/team/app',
+      gitAccountId: ctx.acme.id,
+    });
+    expect(res.statusCode).toBe(202);
+    await ctx.projectService.whenIdle();
+    expect(res.json()).toMatchObject({
+      repoUrl: 'https://git.acme.io/team/app',
+      gitProvider: 'gitlab',
+    });
+  });
+
+  it.each([
+    ['a GitLab host without a linked account', { repo: 'https://git.other.io/team/app' }],
+    ['gitlab.com without an account', { repo: 'https://gitlab.com/g/r' }],
+    ['credentials in the URL', { repo: 'https://oauth2:tok@gitlab.com/g/r', gitAccountId: 'lab' }],
+    ['http', { repo: 'http://gitlab.com/g/r', gitAccountId: 'lab' }],
+    ['an account of another host', { repo: 'https://gitlab.com/g/r', gitAccountId: 'acme' }],
+    ['a GitHub account on a GitLab URL', { repo: 'https://gitlab.com/g/r', gitAccountId: 'hub' }],
+    ['a GitLab account on a GitHub repo', { repo: 'o/r', gitAccountId: 'lab' }],
+    ['an unknown account', { repo: 'https://gitlab.com/g/r', gitAccountId: 999 }],
+  ] as const)('rejects %s with 400 and creates nothing', async (_label, payload) => {
+    const ctx = await setup();
+    const ids = { lab: ctx.lab.id, acme: ctx.acme.id, hub: ctx.hub.id } as Record<string, number>;
+    const body: Record<string, unknown> = { ...payload };
+    const account = body['gitAccountId'];
+    if (typeof account === 'string') body['gitAccountId'] = ids[account];
+    const res = await post(ctx, body);
+    expect(res.statusCode).toBe(400);
+    expect((await ctx.app.inject({ url: '/api/projects', headers: ctx.headers })).json()).toEqual(
+      [],
+    );
+  });
+
+  it('keeps GitHub working with no account and with a GitHub one', async () => {
+    const ctx = await setup();
+    const plain = await post(ctx, { repo: 'o/plain' });
+    const withAccount = await post(ctx, { repo: 'o/with', gitAccountId: ctx.hub.id });
+    expect(plain.statusCode).toBe(202);
+    expect(plain.json()).toMatchObject({ gitProvider: 'github', gitAccountId: null });
+    expect(withAccount.json()).toMatchObject({ gitProvider: 'github', gitAccountId: ctx.hub.id });
+    await ctx.projectService.whenIdle();
+    expect(ctx.sources[0]).toBeUndefined();
+    expect(ctx.sources[1]).toMatchObject({ url: 'https://github.com/o/with.git' });
+  });
+
+  it('PATCH changes the account within provider and host, and checks both', async () => {
+    const ctx = await setup();
+    const created = await post(ctx, { repo: 'https://gitlab.com/g/r', gitAccountId: ctx.lab.id });
+    await ctx.projectService.whenIdle();
+    const url = `/api/projects/${String(idOf(created))}`;
+    const patch = (payload: Record<string, unknown>) =>
+      ctx.app.inject({ method: 'PATCH', url, headers: ctx.headers, payload });
+
+    const ok = await patch({ gitAccountId: ctx.lab2.id });
+    expect(ok.statusCode).toBe(200);
+    expect(ok.json()).toMatchObject({ gitAccountId: ctx.lab2.id });
+    expect((await patch({ gitAccountId: ctx.acme.id })).statusCode).toBe(400);
+    expect((await patch({ gitAccountId: ctx.hub.id })).statusCode).toBe(400);
+    expect((await patch({ gitAccountId: null })).statusCode).toBe(400);
+    const detail = await ctx.app.inject({ url, headers: ctx.headers });
+    expect(detail.json()).toMatchObject({ gitAccountId: ctx.lab2.id });
+  });
+
+  it('PATCH answers 409 while the agent or the pilot is active', async () => {
+    const ctx = await setup();
+    const created = await post(ctx, { repo: 'https://gitlab.com/g/r', gitAccountId: ctx.lab.id });
+    await ctx.projectService.whenIdle();
+    ctx.busy.reason = 'El agente de un trabajo del proyecto está corriendo';
+    const res = await ctx.app.inject({
+      method: 'PATCH',
+      url: `/api/projects/${String(idOf(created))}`,
+      headers: ctx.headers,
+      payload: { gitAccountId: ctx.lab2.id },
+    });
+    expect(res.statusCode).toBe(409);
+    ctx.busy.reason = null;
+    const detail = await ctx.app.inject({
+      url: `/api/projects/${String(idOf(created))}`,
+      headers: ctx.headers,
+    });
+    expect(detail.json()).toMatchObject({ gitAccountId: ctx.lab.id });
+  });
+
+  it('a GitHub project can go back to the global login with null', async () => {
+    const ctx = await setup();
+    const created = await post(ctx, { repo: 'o/with', gitAccountId: ctx.hub.id });
+    await ctx.projectService.whenIdle();
+    const res = await ctx.app.inject({
+      method: 'PATCH',
+      url: `/api/projects/${String(idOf(created))}`,
+      headers: ctx.headers,
+      payload: { gitAccountId: null },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ gitAccountId: null });
   });
 });

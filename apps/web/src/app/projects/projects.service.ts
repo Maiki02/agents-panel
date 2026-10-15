@@ -18,9 +18,13 @@ export interface AddProjectInput {
   displayName?: string;
   baseBranch?: string;
   setupCommand?: string;
+  /** Git account to clone and push as; required for GitLab, optional for GitHub. */
+  gitAccountId?: number;
 }
 
 export interface PatchProjectInput {
+  /** `null` goes back to the global `gh` login (GitHub only). */
+  gitAccountId?: number | null;
   displayName?: string | null;
   baseBranch?: string;
   setupCommand?: string | null;

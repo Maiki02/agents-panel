@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs';
 import type { Chat, WorktreeStateId } from '@agents-panel/shared';
 import type { ProjectRepository } from '../projects/repo.js';
 import type { WorktreeStateRepository } from '../worktrees/state-repo.js';
-import { allPrsOf } from './github-cli.js';
+import { forgeOf, type ForgeResolver } from '../forge/provider.js';
 import type { AutopilotRunRepository } from './runs-repo.js';
 
 /** Every PR of a branch in GitHub (any state); injectable so tests never call GitHub. */
@@ -15,6 +15,9 @@ export interface PrLookupDeps {
   runs: Pick<AutopilotRunRepository, 'get' | 'setPrUrls'>;
   states: Pick<WorktreeStateRepository, 'get'>;
   projects: Pick<ProjectRepository, 'findById'>;
+  /** The provider of each project (GitHub or GitLab); GitHub when absent. */
+  forge?: ForgeResolver;
+  /** Replaces the provider's lookup; tests use it so nothing calls a host. */
   prsOf?: BranchPrs;
 }
 
@@ -24,11 +27,7 @@ export interface PrLookupDeps {
  * the agent's text. A failing lookup is an empty list: the card simply does not show.
  */
 export class PrLookup {
-  private readonly prsOf: BranchPrs;
-
-  constructor(private readonly deps: PrLookupDeps) {
-    this.prsOf = deps.prsOf ?? allPrsOf;
-  }
+  constructor(private readonly deps: PrLookupDeps) {}
 
   async urls(chat: Pick<Chat, 'id' | 'projectId' | 'worktreePath' | 'branch'>): Promise<string[]> {
     const { runs, states, projects } = this.deps;
@@ -43,7 +42,10 @@ export class PrLookup {
     if (cwd === undefined || !existsSync(cwd)) return [];
     let urls: string[];
     try {
-      urls = await this.prsOf(cwd, chat.branch);
+      const prsOf: BranchPrs =
+        this.deps.prsOf ??
+        ((dir, head) => forgeOf(this.deps.forge, chat.projectId).allPrsOf(dir, head));
+      urls = await prsOf(cwd, chat.branch);
     } catch {
       return [];
     }

@@ -16,9 +16,52 @@ describe('parseRepoInput', () => {
     expect(parseRepoInput(input)).toMatchObject({ ok: true, slug, branch });
   });
 
+  it.each([
+    ['https://gitlab.com/group/repo', 'group/repo', null],
+    ['https://gitlab.com/group/sub/deep/repo.git', 'group/sub/deep/repo', null],
+    ['https://gitlab.com/group/sub/repo/', 'group/sub/repo', null],
+    ['https://gitlab.com/group/sub/repo/-/tree/feature/x', 'group/sub/repo', 'feature/x'],
+    ['https://GitLab.com/group/repo', 'group/repo', null],
+  ])('accepts GitLab %s', (input, slug, branch) => {
+    expect(parseRepoInput(input)).toMatchObject({
+      ok: true,
+      provider: 'gitlab',
+      host: 'gitlab.com',
+      slug,
+      branch,
+    });
+  });
+
+  it('accepts a linked self-hosted GitLab only when its host is known', () => {
+    const url = 'https://git.acme.io/team/sub/app';
+    expect(parseRepoInput(url).ok).toBe(false);
+    expect(parseRepoInput(url, ['git.acme.io'])).toEqual({
+      ok: true,
+      provider: 'gitlab',
+      host: 'git.acme.io',
+      owner: 'team/sub',
+      repo: 'app',
+      slug: 'team/sub/app',
+      branch: null,
+    });
+  });
+
+  it.each([
+    'https://gitlab.com/group',
+    'https://gitlab.com/group/repo/-/blob/main/x',
+    'https://gitlab.com/group/repo/-/tree',
+    'https://gitlab.com/group/../repo',
+    'https://gitlab.com:8443/group/repo',
+    'https://gitlab.com/group/repo?x=1',
+  ])('rejects GitLab %j', (input) => {
+    expect(parseRepoInput(input).ok).toBe(false);
+  });
+
   it('splits owner and repo', () => {
     expect(parseRepoInput('https://github.com/o/r/tree/dev')).toEqual({
       ok: true,
+      provider: 'github',
+      host: 'github.com',
       owner: 'o',
       repo: 'r',
       slug: 'o/r',
@@ -34,7 +77,7 @@ describe('parseRepoInput', () => {
     'git@github.com:owner/repo.git',
     'ssh://git@github.com/owner/repo',
     'http://github.com/owner/repo',
-    'https://gitlab.com/owner/repo',
+    'https://bitbucket.org/owner/repo',
     'https://github.com:8080/owner/repo',
     'https://user:pw@github.com/owner/repo',
     'https://github.com/owner/repo?x=1',
