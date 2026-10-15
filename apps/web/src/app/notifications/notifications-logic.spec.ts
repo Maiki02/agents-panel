@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   addDeviceAvailability,
   canActivateDevice,
+  canRenameDevice,
   pushSupport,
   subscriptionBody,
   suggestedName,
@@ -83,6 +84,18 @@ describe('canActivateDevice', () => {
     expect(canActivateDevice(false, '  ', ready)).toBe(false);
     expect(canActivateDevice(false, 'PC', null)).toBe(false);
     expect(canActivateDevice(false, 'PC', pushSupport({ ...ok, isIos: true }))).toBe(false);
+  });
+});
+
+describe('canRenameDevice', () => {
+  it('needs a new, non-blank name and nothing in flight', () => {
+    expect(canRenameDevice(false, 'Casa', 'PC')).toBe(true);
+    expect(canRenameDevice(false, '  Casa  ', 'PC')).toBe(true);
+    expect(canRenameDevice(false, '', 'PC')).toBe(false);
+    expect(canRenameDevice(false, '   ', 'PC')).toBe(false);
+    expect(canRenameDevice(false, 'PC', 'PC')).toBe(false);
+    expect(canRenameDevice(false, ' PC ', 'PC')).toBe(false);
+    expect(canRenameDevice(true, 'Casa', 'PC')).toBe(false);
   });
 });
 

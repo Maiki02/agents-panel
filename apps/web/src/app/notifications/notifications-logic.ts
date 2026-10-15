@@ -83,6 +83,12 @@ export function canActivateDevice(
   return !busy && name.trim() !== '' && addDeviceAvailability(support).available;
 }
 
+/** The rename modal's Confirmar needs a new, non-blank name and no request in flight. */
+export function canRenameDevice(busy: boolean, name: string, current: string): boolean {
+  const trimmed = name.trim();
+  return !busy && trimmed !== '' && trimmed !== current;
+}
+
 /** "Chrome en Windows": a name for the device the user can recognize in the list. */
 export function suggestedName(userAgent: string): string {
   const os = userAgent.includes('iPhone')
