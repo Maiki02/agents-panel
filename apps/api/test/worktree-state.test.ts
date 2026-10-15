@@ -7,7 +7,12 @@ import { AgentManager } from '../src/agent/manager.js';
 import { QuestionRepository } from '../src/chats/questions-repo.js';
 import { AgentSessionRepository } from '../src/chats/sessions-repo.js';
 import type { KyroReadResult } from '../src/kyro/reader.js';
-import { parseScopeState, type KyroScopeState } from '../src/kyro/state.js';
+import {
+  parseScopeState,
+  parseWorkState,
+  type KyroScopeState,
+  type KyroWorkState,
+} from '../src/kyro/state.js';
 import { WorktreeStateTracker, type KyroStateReader } from '../src/worktrees/state-tracker.js';
 import { FakeRunner } from './fake-runner.js';
 import { SESSION_COOKIE, SessionService } from '../src/auth/sessions.js';
@@ -372,6 +377,123 @@ describe('WorktreeStateTracker', () => {
       role: 'thinker',
       model: 'claude-opus-5-5',
       data: { nextAction: 'execute_task', waitingOn: 'user' },
+    });
+  });
+
+  describe('Kyro read during the turn', () => {
+    const kyroTurn = [
+      { type: 'system:init', payload: { session_id: 's' }, sessionId: 's' },
+      {
+        type: 'assistant',
+        payload: {
+          message: {
+            content: [
+              { type: 'tool_use', id: 'x1', name: 'Bash', input: { command: 'ls' } },
+              {
+                type: 'tool_use',
+                id: 'k1',
+                name: 'Bash',
+                input: { command: 'kyro work record-evidence --work w' },
+              },
+            ],
+          },
+        },
+      },
+      {
+        type: 'user',
+        payload: {
+          message: {
+            content: [
+              { type: 'tool_result', tool_use_id: 'x1' },
+              { type: 'tool_result', tool_use_id: 'k1' },
+            ],
+          },
+        },
+      },
+      { type: 'result:success', payload: {} },
+    ];
+    const baseWork = parseWorkState(load('work-status.in_progress.json'));
+    const at = (taskId: string, done: number): KyroReadResult<KyroWorkState> => ({
+      ok: true,
+      state: { ...baseWork, nextTaskId: taskId, tasks: { done, total: 6 } },
+    });
+
+    it('updates the task and progress when a kyro command ends, before the turn ends', async () => {
+      const seen: unknown[] = [];
+      let reads = 0;
+      const probe: { read?: () => unknown } = {};
+      const reader: KyroStateReader = {
+        readScope: () => Promise.resolve({ ok: false, error: { kind: 'no_target', message: '' } }),
+        readWork: () => {
+          reads++;
+          if (reads === 2) seen.push(probe.read?.());
+          return Promise.resolve(reads === 1 ? at('W5', 4) : at('W6', 5));
+        },
+      };
+      const w = await wire(reader, 'work');
+      probe.read = () => w.states.get(w.chat.id);
+      w.tracker.created(w.chat);
+      w.runner.script = () => kyroTurn;
+      w.manager.start(w.chat.id, 'go');
+      await w.manager.waitForIdle(w.chat.id);
+
+      expect(reads).toBe(2);
+      expect(seen[0]).toMatchObject({ taskId: 'W5', taskDone: 4, taskTotal: 6 });
+      expect(w.states.get(w.chat.id)).toMatchObject({ taskId: 'W6', taskDone: 5, taskTotal: 6 });
+    });
+
+    it('a failed read during the turn changes nothing and does not break the turn', async () => {
+      let reads = 0;
+      const reader: KyroStateReader = {
+        readScope: () => Promise.resolve({ ok: false, error: { kind: 'no_target', message: '' } }),
+        readWork: () => {
+          reads++;
+          if (reads === 1) return Promise.reject(new Error('boom'));
+          return Promise.resolve(at('W2', 1));
+        },
+      };
+      const w = await wire(reader, 'work');
+      w.tracker.created(w.chat);
+      w.runner.script = () => kyroTurn;
+      w.manager.start(w.chat.id, 'go');
+      await w.manager.waitForIdle(w.chat.id);
+
+      expect(reads).toBe(2);
+      expect(w.chats.findById(w.chat.id)?.status).toBe('idle');
+      expect(w.states.timeline(w.chat.id).map((t) => t.toState)).not.toContain('error');
+      expect(w.states.get(w.chat.id)).toMatchObject({ taskId: 'W2', taskDone: 1 });
+    });
+
+    it('a non-kyro Bash command does not read Kyro', async () => {
+      let reads = 0;
+      const reader: KyroStateReader = {
+        readScope: () => Promise.resolve({ ok: false, error: { kind: 'no_target', message: '' } }),
+        readWork: () => {
+          reads++;
+          return Promise.resolve(at('W2', 1));
+        },
+      };
+      const w = await wire(reader, 'work');
+      w.tracker.created(w.chat);
+      w.runner.script = () => [
+        { type: 'system:init', payload: {}, sessionId: 's' },
+        {
+          type: 'assistant',
+          payload: {
+            message: {
+              content: [{ type: 'tool_use', id: 'a', name: 'Bash', input: { command: 'ls kyrox' } }],
+            },
+          },
+        },
+        {
+          type: 'user',
+          payload: { message: { content: [{ type: 'tool_result', tool_use_id: 'a' }] } },
+        },
+        { type: 'result:success', payload: {} },
+      ];
+      w.manager.start(w.chat.id, 'go');
+      await w.manager.waitForIdle(w.chat.id);
+      expect(reads).toBe(1);
     });
   });
 

@@ -81,6 +81,44 @@ function initModel(payload: unknown): string | undefined {
   return typeof payload.model === 'string' ? payload.model : undefined;
 }
 
+/** Content blocks of an SDK assistant or user message payload. */
+function contentBlocks(payload: unknown): Record<string, unknown>[] {
+  if (typeof payload !== 'object' || payload === null || !('message' in payload)) return [];
+  const message = payload.message;
+  if (typeof message !== 'object' || message === null || !('content' in message)) return [];
+  const content = message.content;
+  if (!Array.isArray(content)) return [];
+  return content.filter(
+    (block): block is Record<string, unknown> => typeof block === 'object' && block !== null,
+  );
+}
+
+const KYRO_COMMAND = /(^|[\s;&|(])kyro(\s|$)/;
+
+/** Ids of the Bash tool calls in an assistant message whose command runs kyro. */
+function kyroBashCalls(payload: unknown): string[] {
+  const ids: string[] = [];
+  for (const block of contentBlocks(payload)) {
+    if (block['type'] !== 'tool_use' || block['name'] !== 'Bash') continue;
+    const input = block['input'];
+    const command =
+      typeof input === 'object' && input !== null && 'command' in input ? input.command : null;
+    if (typeof block['id'] === 'string' && typeof command === 'string' && KYRO_COMMAND.test(command)) {
+      ids.push(block['id']);
+    }
+  }
+  return ids;
+}
+
+/** Ids of the tool calls a user message returns a result for. */
+function toolResultIds(payload: unknown): string[] {
+  return contentBlocks(payload).flatMap((block) =>
+    block['type'] === 'tool_result' && typeof block['tool_use_id'] === 'string'
+      ? [block['tool_use_id']]
+      : [],
+  );
+}
+
 /** Runs one agent turn per chat in the background, persisting and publishing every event. */
 export class AgentManager {
   private readonly active = new Map<number, ActiveSession>();
@@ -314,6 +352,14 @@ export class AgentManager {
     // Loaded per turn so a change in the project's permissions applies to the next turn.
     const bashExtras = this.bashExtras?.(chat.projectId) ?? NO_BASH_EXTRAS;
     let final: ChatStatus = 'idle';
+    // Bash calls of this turn that run kyro, and the readings they trigger (one at a time, in order).
+    const kyroCalls = new Set<string>();
+    let readings: Promise<void> = Promise.resolve();
+    const turnInfo: TurnInfo = {
+      role: turn.role,
+      model: turn.model,
+      ...(turn.pilot ? { pilot: turn.pilot } : {}),
+    };
     try {
       const gitEnv = this.gitEnvOf?.(chat.projectId);
       const events = this.runner.run({
@@ -355,6 +401,21 @@ export class AgentManager {
           this.record(chatId, 'model_mismatch', { requested: turn.model, reported });
         }
         if (event.type.startsWith('result:') && event.type !== 'result:success') final = 'error';
+        if (event.type === 'assistant') {
+          for (const id of kyroBashCalls(event.payload)) kyroCalls.add(id);
+        } else if (event.type === 'user' && kyroCalls.size > 0) {
+          const finishedCalls = toolResultIds(event.payload).filter((id) => kyroCalls.delete(id));
+          if (finishedCalls.length > 0) {
+            // A failed reading changes nothing and never breaks the turn.
+            readings = readings.then(async () => {
+              try {
+                await this.observer?.kyroCommandFinished?.(chat, turnInfo);
+              } catch {
+                // The state is a view of the work.
+              }
+            });
+          }
+        }
       }
       if (controller.signal.aborted) final = 'cancelled';
     } catch (error) {
@@ -367,6 +428,8 @@ export class AgentManager {
         });
       }
     }
+    // A reading in flight must land before the final one, or it could overwrite it.
+    await readings;
     // A turn that ends cannot receive an answer anymore: drop its waiters (denying them so nothing
     // stays suspended) and cancel the stored questions, each one with its event.
     this.questions?.cancelPending(chatId);
@@ -376,11 +439,7 @@ export class AgentManager {
     const finished = this.chats.findById(chatId);
     if (finished && this.observer) {
       try {
-        await this.observer.turnFinished(
-          finished,
-          { role: turn.role, model: turn.model, ...(turn.pilot ? { pilot: turn.pilot } : {}) },
-          final,
-        );
+        await this.observer.turnFinished(finished, turnInfo, final);
       } catch {
         // The state is a view of the work: failing to update it must not break the chat.
       }

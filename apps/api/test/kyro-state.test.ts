@@ -177,6 +177,22 @@ describe('parseWorkState with real kyro work status output', () => {
     });
   });
 
+  it('follows the task in progress, then the one awaiting review, then Kyro nextTaskId', () => {
+    const raw = load('work-status.in_progress.json') as { data: Record<string, unknown> };
+    const withSummary = (summary: Record<string, unknown>) =>
+      parseWorkState({
+        ...raw,
+        data: {
+          ...raw.data,
+          nextTaskId: 'W2',
+          summary: { ...(raw.data['summary'] as object), ...summary },
+        },
+      }).nextTaskId;
+    expect(withSummary({ inProgress: ['W5'], awaitingReview: ['W4'] })).toBe('W5');
+    expect(withSummary({ inProgress: [], awaitingReview: ['W4'] })).toBe('W4');
+    expect(withSummary({ inProgress: [], awaitingReview: [] })).toBe('W2');
+  });
+
   it('covers every Work nextAction', () => {
     const seen = new Set(cases.map(([, action]) => action));
     expect(WORK_NEXT_ACTIONS.filter((action) => !seen.has(action))).toEqual([]);
