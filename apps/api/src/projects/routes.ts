@@ -27,6 +27,7 @@ const addBody = {
     displayName: { type: 'string', maxLength: 100 },
     baseBranch: { type: 'string', minLength: 1, maxLength: 200 },
     setupCommand: { type: 'string', maxLength: 500 },
+    gitAccountId: { type: 'integer', minimum: 1 },
   },
 } as const;
 
@@ -39,6 +40,7 @@ const patchBody = {
     baseBranch: { type: 'string', minLength: 1, maxLength: 200 },
     setupCommand: { type: ['string', 'null'], maxLength: 500 },
     validateCommand: { type: ['string', 'null'], maxLength: 500 },
+    gitAccountId: { type: ['integer', 'null'], minimum: 1 },
   },
 } as const;
 
@@ -59,9 +61,11 @@ interface AddBody {
   displayName?: string;
   baseBranch?: string;
   setupCommand?: string;
+  gitAccountId?: number;
 }
 
 interface PatchBody {
+  gitAccountId?: number | null;
   displayName?: string | null;
   baseBranch?: string;
   setupCommand?: string | null;

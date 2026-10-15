@@ -28,7 +28,8 @@ import { writeProjectEnv } from '../chats/service.js';
 import type { EnvFileRepository } from '../env-files/repo.js';
 import type { MergeGit, PilotGit, RepoGit } from '../pilot/git-ops.js';
 import { GitInputError, realGit } from '../pilot/git-ops.js';
-import { realGh, type PilotGh } from '../pilot/github-cli.js';
+import { forgeOf, type ForgeResolver } from '../forge/provider.js';
+import type { PilotGh } from '../pilot/github-cli.js';
 import { openOrReusePr } from '../pilot/merge.js';
 import { childRepos, MERGE_DEV_SKILL } from '../pilot/merge-phase.js';
 import { readPrText, type PrDataReader } from '../pilot/pr-body.js';
@@ -115,8 +116,10 @@ export interface WorktreeOpsDeps {
   state: Pick<WorktreeStateRepository, 'get' | 'transition'>;
   envFiles: Pick<EnvFileRepository, 'readAll'>;
   git?: PilotGit & MergeGit & RepoGit;
-  /** `gh` for the PRs; the real one by default. */
+  /** Replaces the PR provider of every project (tests); by default each project's own. */
   gh?: PilotGh;
+  /** The PR/MR provider of each project (GitHub or GitLab); GitHub when absent. */
+  forge?: ForgeResolver;
   /** Looks for secrets in what a repo would push; the real scan by default. */
   scan?: (cwd: string, base: string) => Promise<SecretFinding[]>;
   /** Reads the Kyro state for the preloaded PR body; without it the body lists the commits. */
@@ -157,15 +160,18 @@ function message(error: unknown): string {
 export class WorktreeOps {
   private readonly busy = new Set<number>();
   private readonly git: PilotGit & MergeGit & RepoGit;
-  private readonly gh: PilotGh;
   private readonly setup: typeof runSetup;
   private readonly scan: NonNullable<WorktreeOpsDeps['scan']>;
 
   constructor(private readonly deps: WorktreeOpsDeps) {
     this.git = deps.git ?? realGit;
-    this.gh = deps.gh ?? realGh;
     this.setup = deps.setup ?? runSetup;
     this.scan = deps.scan ?? scanWorktreeSecrets;
+  }
+
+  /** The PR/MR provider of the work's project. */
+  private forge(chat: Pick<Chat, 'projectId'>): PilotGh {
+    return this.deps.gh ?? forgeOf(this.deps.forge, chat.projectId);
   }
 
   /**
@@ -177,6 +183,7 @@ export class WorktreeOps {
     state?: WorktreeOpsDeps['state'];
     git?: PilotGit & MergeGit;
     gh?: PilotGh;
+    forge?: ForgeResolver;
   }): WorktreeOps {
     const unused = {} as never; // never read by pushBranch, commitKyro or openPr
     return new WorktreeOps({
@@ -188,6 +195,7 @@ export class WorktreeOps {
       state: deps.state ?? { get: () => undefined, transition: () => undefined as never },
       ...(deps.git ? { git: deps.git as PilotGit & MergeGit & RepoGit } : {}),
       ...(deps.gh ? { gh: deps.gh } : {}),
+      ...(deps.forge ? { forge: deps.forge } : {}),
     });
   }
 
@@ -389,7 +397,7 @@ export class WorktreeOps {
     return this.locked(chatId, actor, async (chat) => {
       let outcome: RepoOpOutcome;
       try {
-        const url = await openOrReusePr(this.gh, {
+        const url = await openOrReusePr(this.forge(chat), {
           cwd: chat.worktreePath,
           branch: chat.branch,
           ...pr,
@@ -446,7 +454,7 @@ export class WorktreeOps {
         const subjects = await this.git.subjectsOutside(target.cwd, target.baseBranch);
         let openPrUrl: string | null = null;
         try {
-          openPrUrl = await this.gh.openPr(target.cwd, branch, target.baseBranch);
+          openPrUrl = await this.forge(chat).openPr(target.cwd, branch, target.baseBranch);
         } catch {
           // gh unavailable or not logged in: the preview still works, the PR step reports it.
         }
@@ -526,10 +534,11 @@ export class WorktreeOps {
         };
       }
       await this.git.push(target.cwd, branch);
-      const existing = await this.gh.openPr(target.cwd, branch, target.baseBranch);
+      const forge = this.forge(chat);
+      const existing = await forge.openPr(target.cwd, branch, target.baseBranch);
       const url =
         existing ??
-        (await openOrReusePr(this.gh, {
+        (await openOrReusePr(forge, {
           cwd: target.cwd,
           branch,
           base: target.baseBranch,

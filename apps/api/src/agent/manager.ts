@@ -105,6 +105,8 @@ export class AgentManager {
     private readonly accountOf?: () => RunAccount,
     /** Where each rate_limit_event is kept, per account; absent saves nothing. */
     private readonly usage?: UsageRepository,
+    /** Git credential variables of a project's account; read at the start of every turn. */
+    private readonly gitEnvOf?: (projectId: number) => Record<string, string> | undefined,
   ) {}
 
   get runningCount(): number {
@@ -313,12 +315,14 @@ export class AgentManager {
     const bashExtras = this.bashExtras?.(chat.projectId) ?? NO_BASH_EXTRAS;
     let final: ChatStatus = 'idle';
     try {
+      const gitEnv = this.gitEnvOf?.(chat.projectId);
       const events = this.runner.run({
         cwd,
         prompt,
         model: turn.model,
         role: turn.role,
         configDir: turn.configDir,
+        ...(gitEnv ? { gitEnv } : {}),
         // A pilot step opens a new SDK session instead of continuing the previous one.
         ...(chat.sdkSessionId && !freshSession ? { resumeSessionId: chat.sdkSessionId } : {}),
         signal: controller.signal,

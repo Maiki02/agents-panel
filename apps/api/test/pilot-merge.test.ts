@@ -15,7 +15,9 @@ import {
   type MergePhaseInput,
 } from '../src/pilot/merge-phase.js';
 import type { SecretFinding } from '../src/pilot/secrets.js';
+import { GitlabForge } from '../src/forge/gitlab-api.js';
 import { makeGitRepo } from './helpers.js';
+import { fakeGitlab } from './fake-gitlab.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -68,6 +70,7 @@ function harness(
   opts: {
     validateCommand?: string | null;
     existingPr?: string | null;
+    gh?: PilotGh;
     resolve?: (conflicts: readonly string[]) => Promise<'done' | 'exit'>;
   } = {},
 ) {
@@ -80,7 +83,7 @@ function harness(
   const events: { type: string; payload: Record<string, unknown> }[] = [];
   const created: { base: string; head: string; title: string; body: string }[] = [];
   const sessions: (readonly string[])[] = [];
-  const gh: PilotGh = {
+  const gh: PilotGh = opts.gh ?? {
     openPr: () => Promise.resolve(opts.existingPr ?? null),
     openPrsOf: () => Promise.resolve([]),
     createPr: (_cwd, input) => {
@@ -121,6 +124,25 @@ function harness(
 const states = (marks: { state: WorktreeStateId }[]) => marks.map((m) => m.state);
 
 describe('generic merge', () => {
+  it('opens a merge request in a GitLab project and reuses it on the next run', async () => {
+    const r = repos();
+    const gitlab = fakeGitlab('gitlab.example.com', 'glpat-xyz');
+    const provider = new GitlabForge(
+      { host: 'gitlab.example.com', projectPath: 'g/repo', token: () => 'glpat-xyz' },
+      gitlab.fetchImpl,
+    );
+    const h = harness(r.wt, { gh: provider, validateCommand: null });
+    const url = 'https://gitlab.example.com/g/repo/-/merge_requests/1';
+    expect(await runGenericMerge(h.deps, h.input)).toEqual({ kind: 'pr', url });
+    expect(gitlab.mrs).toMatchObject([
+      { source_branch: 'feature/x', target_branch: 'main', title: 'feat: demo' },
+    ]);
+    expect(gitlab.mrs[0]?.description).toBe('Objetivo del scope\n\n- Sprint 1');
+    expect(r.remoteRef('refs/heads/feature/x')).not.toBe('');
+    expect(await runGenericMerge(h.deps, h.input)).toEqual({ kind: 'pr', url });
+    expect(gitlab.mrs).toHaveLength(1);
+  });
+
   it('uses the push and PR hooks of the action service instead of git and gh when given', async () => {
     const r = repos();
     const h = harness(r.wt);

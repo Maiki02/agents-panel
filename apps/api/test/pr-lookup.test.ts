@@ -7,7 +7,11 @@ import { SESSION_COOKIE, SessionService } from '../src/auth/sessions.js';
 import { UserRepository } from '../src/auth/users.js';
 import { ChatEventBus } from '../src/chats/events.js';
 import { ChatRepository } from '../src/chats/repo.js';
+import { ForgeRegistry } from '../src/forge/provider.js';
+import { openDatabase } from '../src/db/index.js';
+import { PrLookup } from '../src/pilot/pr-lookup.js';
 import { AutopilotRunRepository } from '../src/pilot/runs-repo.js';
+import { fakeGitlab } from './fake-gitlab.js';
 import { ProjectRepository } from '../src/projects/repo.js';
 import { WorktreeStateRepository } from '../src/worktrees/state-repo.js';
 import { PASSWORD, makeApp, makeKyroRepo } from './helpers.js';
@@ -115,5 +119,60 @@ describe('GET /api/chats/:id/pr', () => {
     const { newChat, pr } = await boot(() => Promise.resolve([PR]));
     const chat = newChat('f');
     expect((await pr(chat.id, {})).statusCode).toBe(401);
+  });
+});
+
+describe('PrLookup in a GitLab project', () => {
+  it('finds the merge requests of the branch through the project provider (not gh)', async () => {
+    const db = openDatabase(':memory:');
+    const projects = new ProjectRepository(db);
+    const project = projects.insertGithub({
+      name: 'lab',
+      displayName: null,
+      repoUrl: 'https://gitlab.example.com/g/repo',
+      gitProvider: 'gitlab',
+      repoPath: makeKyroRepo(),
+      baseBranch: 'main',
+      setupCommand: null,
+      status: 'ready',
+      statusDetail: null,
+    });
+    const gitlab = fakeGitlab('gitlab.example.com', 'glpat-xyz');
+    gitlab.mrs.push({
+      iid: 4,
+      project: 'g/repo',
+      source_branch: 'feature/a',
+      target_branch: 'main',
+      state: 'merged',
+      title: 't',
+      description: '',
+    });
+    const chats = new ChatRepository(db);
+    const states = new WorktreeStateRepository(db, chats, new ChatEventBus());
+    const chat = chats.create({
+      projectId: project.id,
+      kind: 'work',
+      slug: 'a',
+      title: 'a',
+      worktreePath: mkdtempSync(join(tmpdir(), 'panel-wt-')),
+      branch: 'feature/a',
+      status: 'idle',
+    });
+    states.transition(chat.id, { state: 'terminado', actor: 'agent' });
+    const lookup = new PrLookup({
+      runs: new AutopilotRunRepository(db),
+      states,
+      projects,
+      forge: new ForgeRegistry({
+        projects,
+        credentials: {
+          forProject: () => ({ host: 'gitlab.example.com', username: 'u', token: 'glpat-xyz' }),
+        },
+        fetch: gitlab.fetchImpl,
+      }),
+    });
+    expect(await lookup.urls(chat)).toEqual([
+      'https://gitlab.example.com/g/repo/-/merge_requests/4',
+    ]);
   });
 });

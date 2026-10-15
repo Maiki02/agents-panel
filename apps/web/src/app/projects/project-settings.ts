@@ -10,6 +10,15 @@ import {
 } from '@angular/core';
 import type { Project } from '@agents-panel/shared';
 import { apiErrorMessage } from '../chats/chats.service';
+import {
+  PRIMARY_GIT_ACCOUNT_LABEL,
+  accountProblem,
+  accountsFor,
+  gitAccountLabel,
+  projectHost,
+} from '../accounts/git-accounts-logic';
+import { GitAccountsService } from '../accounts/git-accounts.service';
+import { providerTexts } from './project-label';
 import { failedField, validateCommandValue } from './settings-logic';
 import { ProjectsService } from './projects.service';
 import { Button } from '../ui/button';
@@ -27,6 +36,33 @@ import { Button } from '../ui/button';
         [value]="displayName()"
         (input)="displayName.set(text($event))"
       />
+      <label for="cfg-account">Cuenta de {{ texts().name }} ({{ host() }})</label>
+      <select
+        id="cfg-account"
+        [class.invalid]="accountProblem() !== null"
+        [value]="accountValue()"
+        (change)="chooseAccount($event)"
+      >
+        @if (project().gitProvider === 'gitlab') {
+          <option value="">Elegí una cuenta…</option>
+        } @else {
+          <option value="">{{ primary }}</option>
+        }
+        @for (account of available(); track account.id) {
+          <option [value]="account.id" [selected]="account.id === accountId()">
+            {{ label(account) }}
+          </option>
+        }
+      </select>
+      <p class="hint">
+        Con esta cuenta el panel clona, pushea y abre {{ texts().thePr }} de este proyecto.
+        @if (project().gitProvider !== 'gitlab') {
+          Sin cuenta usa el login de gh de la VM.
+        }
+      </p>
+      @if (accountProblem(); as problem) {
+        <span class="error" role="alert">{{ problem }}</span>
+      }
       <label for="cfg-branch">Rama base</label>
       <input
         id="cfg-branch"
@@ -51,8 +87,9 @@ import { Button } from '../ui/button';
         (input)="validateCommand.set(text($event))"
       />
       <p class="hint">
-        Lo corre el piloto en el worktree, sin shell y con un tiempo máximo, antes de abrir la PR.
-        Si falla, frena y no abre la PR. Sin comando, el merge no valida y el Timeline lo anota.
+        Lo corre el piloto en el worktree, sin shell y con un tiempo máximo, antes de abrir
+        {{ texts().thePr }}. Si falla, frena y no abre {{ texts().thePr }}. Sin comando, el merge no
+        valida y el Timeline lo anota.
       </p>
       @if (validateProblem(); as problem) {
         <span class="error" role="alert">{{ problem }}</span>
@@ -62,7 +99,12 @@ import { Button } from '../ui/button';
       <button
         appButton
         type="submit"
-        [disabled]="busy() || baseBranch().trim() === '' || validateProblem() !== null"
+        [disabled]="
+          busy() ||
+          baseBranch().trim() === '' ||
+          validateProblem() !== null ||
+          accountProblem() !== null
+        "
       >
         {{ busy() ? 'Guardando…' : 'Guardar' }}
       </button>
@@ -81,6 +123,20 @@ export class ProjectGeneralSettings {
   readonly project = input.required<Project>();
   readonly changed = output<Project>();
 
+  private readonly gitAccounts = inject(GitAccountsService);
+
+  protected readonly primary = PRIMARY_GIT_ACCOUNT_LABEL;
+  protected readonly label = gitAccountLabel;
+  protected readonly texts = computed(() => providerTexts(this.project()));
+  protected readonly host = computed(() => projectHost(this.project()));
+  protected readonly available = computed(() =>
+    accountsFor(this.gitAccounts.accounts(), this.project().gitProvider, this.host()),
+  );
+  protected readonly accountId = signal<number | null>(null);
+  protected readonly accountValue = computed(() => String(this.accountId() ?? ''));
+  protected readonly accountProblem = computed(() =>
+    accountProblem(this.project().gitProvider, this.available(), this.accountId(), this.host()),
+  );
   protected readonly displayName = signal('');
   protected readonly baseBranch = signal('');
   protected readonly setupCommand = signal('');
@@ -101,7 +157,14 @@ export class ProjectGeneralSettings {
       this.baseBranch.set(p.baseBranch);
       this.setupCommand.set(p.setupCommand ?? '');
       this.validateCommand.set(p.validateCommand ?? '');
+      this.accountId.set(p.gitAccountId);
     });
+    void this.gitAccounts.refresh().catch(() => undefined);
+  }
+
+  protected chooseAccount(event: Event): void {
+    const value = (event.target as HTMLSelectElement).value;
+    this.accountId.set(value === '' ? null : Number(value));
   }
 
   protected text(event: Event): string {
@@ -130,6 +193,8 @@ export class ProjectGeneralSettings {
         baseBranch: this.baseBranch().trim(),
         setupCommand: command,
         validateCommand: validate,
+        // Only sent when it changed: saving a name must not re-check the account.
+        ...(this.accountId() === project.gitAccountId ? {} : { gitAccountId: this.accountId() }),
       });
       this.changed.emit(updated);
       this.saved.set(true);

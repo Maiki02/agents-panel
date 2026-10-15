@@ -36,6 +36,11 @@ export interface RunParams {
    * account (~/.claude), which runs with the variable unset.
    */
   configDir?: string | null;
+  /**
+   * Git credential variables of the project's account (askpass, token, helper override); absent
+   * for a project on the global GitHub login. They only live in the environment of the turn.
+   */
+  gitEnv?: Record<string, string>;
   /** SDK session to continue; absent for the first turn. */
   resumeSessionId?: string;
   signal: AbortSignal;

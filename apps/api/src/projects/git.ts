@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import type { PullResult } from '@agents-panel/shared';
+import { authForPath } from '../git-accounts/credentials.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -19,9 +20,12 @@ export class GitCommandError extends Error {
 
 export async function git(cwd: string, args: string[], timeout?: number): Promise<string> {
   try {
-    const { stdout } = await execFileAsync('git', ['-C', cwd, ...args], {
+    // A project with a git account gets its credential through the environment of the process.
+    const auth = authForPath(cwd);
+    const { stdout } = await execFileAsync('git', [...auth.configArgs, '-C', cwd, ...args], {
       maxBuffer: 10 * 1024 * 1024,
       ...(timeout === undefined ? {} : { timeout }),
+      ...(auth.env ? { env: auth.env } : {}),
     });
     return stdout.trim();
   } catch (error) {

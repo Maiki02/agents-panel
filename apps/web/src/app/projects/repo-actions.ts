@@ -6,17 +6,23 @@ import type {
   PullBaseResult,
   PullResult,
 } from '@agents-panel/shared';
+import { providerTexts, type ProviderTexts } from './project-label';
 
 /** One line saying what a pull did; repos that were rejected are named after the root's line. */
-export function pullSummary(result: PullResult & Partial<Pick<PullBaseResult, 'repos'>>): string {
+export function pullSummary(
+  result: PullResult & Partial<Pick<PullBaseResult, 'repos'>>,
+  provider: Pick<ProviderTexts, 'name'> = providerTexts(null),
+): string {
   const ahead =
-    result.ahead > 0 ? ` Hay ${String(result.ahead)} commit(s) locales que GitHub no tiene.` : '';
+    result.ahead > 0
+      ? ` Hay ${String(result.ahead)} commit(s) locales que ${provider.name} no tiene.`
+      : '';
   let text: string;
   if (result.status === 'up_to_date') {
-    text = `Ya está al día con GitHub.${ahead}`;
+    text = `Ya está al día con ${provider.name}.${ahead}`;
   } else {
     const plural = result.commits === 1 ? 'commit' : 'commits';
-    text = `Se trajeron ${String(result.commits)} ${plural} de GitHub.`;
+    text = `Se trajeron ${String(result.commits)} ${plural} de ${provider.name}.`;
   }
   const rejected = (result.repos ?? []).filter((repo) => repo.error !== null);
   const notes = rejected.map((repo) => ` ${repo.path}: ${repo.error ?? ''}.`);
@@ -52,7 +58,8 @@ export interface KyroInitView {
  * a second init would only fail with a conflict.
  */
 export function kyroInitView(
-  project: Pick<Project, 'hasKyro' | 'status' | 'baseBranch' | 'kyroInit'>,
+  project: Pick<Project, 'hasKyro' | 'status' | 'baseBranch' | 'kyroInit'> &
+    Partial<Pick<Project, 'gitProvider'>>,
   pushedNow = false,
 ): KyroInitView {
   if (project.hasKyro) {
@@ -66,6 +73,7 @@ export function kyroInitView(
       prUrl: null,
     };
   }
+  const texts = providerTexts(project);
   const pending = project.kyroInit ?? null;
   if (pending !== null) {
     const pushed = pending.pushed || pushedNow;
@@ -73,9 +81,9 @@ export function kyroInitView(
       state: 'pending',
       chip: pushed ? 'Pendiente de merge' : 'Pendiente de subir y mergear',
       steps: [
-        ...(pushed ? [] : [`Subí la rama ${pending.branch} a GitHub (botón de abajo).`]),
-        `Abrí la PR y mergeala a ${project.baseBranch}.`,
-        'Traé los cambios de GitHub (botón de arriba): recién ahí el proyecto pasa a tener Kyro.',
+        ...(pushed ? [] : [`Subí la rama ${pending.branch} a ${texts.name} (botón de abajo).`]),
+        `Abrí ${texts.thePr} y mergeala a ${project.baseBranch}.`,
+        `Traé los cambios de ${texts.name} (botón de arriba): recién ahí el proyecto pasa a tener Kyro.`,
       ],
       canInit: false,
       initReason: `Ya hay una inicialización pendiente (rama ${pending.branch}): falta mergearla.`,

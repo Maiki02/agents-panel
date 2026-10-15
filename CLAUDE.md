@@ -69,7 +69,7 @@ Lo mismo vale para **desplegar el panel desde la web**: cada corrida del botón 
 
 ## Proyectos registrados en el panel
 
-Los proyectos se dan de alta desde la web (**Proyectos → Nuevo proyecto**, con la URL completa de GitHub); `project:add` del CLI queda para carpetas ya clonadas. El setup de un proyecto (campo de la configuración en la web, o `project:add … ["comando de setup"]`) es opcional y se ejecuta sin shell dentro del worktree nuevo:
+Los proyectos se dan de alta desde la web (**Proyectos → Nuevo proyecto**, con la URL completa de GitHub o de GitLab; GitLab exige una cuenta de git del mismo host); `project:add` del CLI queda para carpetas ya clonadas. El setup de un proyecto (campo de la configuración en la web, o `project:add … ["comando de setup"]`) es opcional y se ejecuta sin shell dentro del worktree nuevo:
 
 - Si no necesita nada, no lleva comando.
 - Si alcanza con un comando, se pasa directo (por ejemplo `"npm ci"`).
@@ -88,6 +88,11 @@ Valen para cualquier cambio futuro en el panel (detalle en `docs/plan.md`, «Ser
 - Las rutas de operaciones piden sesión y CSRF y responden **409** si el agente del trabajo corre, hay mantenimiento de Kyro o el piloto está en `active`, `queued` o `waiting_quota` (para operar a mano se pausa el piloto); un trabajo `archivado` es de solo lectura.
 - Ninguna operación fuerza un push, hace rebase, pushea una rama que no sea la del trabajo, commitea o instala en el clon base del proyecto (solo se actualiza con `pull --ff-only`), ni lee o toca archivos ignorados (los `.env`).
 - El uso de los proveedores se mide por `account_id` (ver abajo); la API y la web usan el mismo `usageTone`.
+
+## Cuentas de git
+
+- Los tokens de GitHub y GitLab se cargan en **Cuentas** (`/api/git-accounts`, con TOTP), se guardan cifrados en la tabla `git_accounts` y nunca se devuelven, se loguean ni se escriben en docs, URLs de remotos, `.git/config` ni argumentos de comandos. Llegan a `git` y `gh` solo por el entorno del proceso (`GIT_ASKPASS`); `GH_TOKEN` solo para `github.com`.
+- Permisos mínimos: GitHub `repo` (o fine-grained con Contents y Pull requests en lectura y escritura); GitLab `api`, `read_repository` y `write_repository`. Un proyecto de GitHub sin cuenta usa el `gh` global; uno de GitLab necesita cuenta. Detalle en `docs/plan.md` y `docs/panel-desarrollo.md`.
 
 ## Cuentas de Claude
 

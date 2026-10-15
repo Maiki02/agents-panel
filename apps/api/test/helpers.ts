@@ -36,6 +36,7 @@ export function makeApp(
       | 'kyroRunner'
       | 'pilotGit'
       | 'pilotGh'
+      | 'gitProviderApi'
       | 'branchPrs'
       | 'prState'
       | 'panelDeploy'
@@ -78,6 +79,10 @@ export function makeApp(
     ...(extra.pilotGit ? { pilotGit: extra.pilotGit } : {}),
     ...(extra.pilotGh ? { pilotGh: extra.pilotGh } : {}),
     ...(extra.branchPrs ? { branchPrs: extra.branchPrs } : {}),
+    // Never GitHub/GitLab from a test: the provider API is a fake unless the test brings its own.
+    gitProviderApi: extra.gitProviderApi ?? {
+      fetchUsername: () => Promise.reject(new Error('the git provider is not called in tests')),
+    },
     // Never GitHub from a test: the PR state is a fake unless the test brings its own.
     prState: extra.prState ?? (() => Promise.reject(new Error('gh is not called in tests'))),
     // Never git (fetch) nor a restart from a test unless the test asks for it.

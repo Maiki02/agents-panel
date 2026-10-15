@@ -18,6 +18,17 @@ export type ModelRole = 'thinker' | 'executor';
 export type ModelProvider = 'claude';
 
 /** Models each provider offers. A model outside its provider's list is refused. */
+/**
+ * Link that opens the "new PR / new MR" form of a branch in the host's web, for the provider of the
+ * project. `repoUrl` is the canonical URL of the repo (no `.git`, no trailing slash).
+ */
+export function newPrLink(provider: 'github' | 'gitlab', repoUrl: string, branch: string): string {
+  const base = repoUrl.replace(/\/+$/, '');
+  return provider === 'gitlab'
+    ? `${base}/-/merge_requests/new?merge_request%5Bsource_branch%5D=${encodeURIComponent(branch)}`
+    : `${base}/pull/new/${branch}`;
+}
+
 export const MODEL_CATALOG: Record<ModelProvider, readonly string[]> = {
   claude: ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-fable-5-1', 'claude-haiku-4-5-20251001'],
 };
@@ -125,14 +136,42 @@ export interface AgentSession {
 }
 
 /** A registered project (a git repo the panel can open worktrees on). */
+export type GitProvider = 'github' | 'gitlab';
+
+/** A git provider account of the panel. The token is never part of this type. */
+export interface GitAccount {
+  id: number;
+  provider: GitProvider;
+  name: string;
+  host: string;
+  /** Username the provider returned when the token was validated. */
+  username: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** Body to create a git account; the token goes in, never out. */
+export interface NewGitAccount {
+  provider: GitProvider;
+  name: string;
+  /** Required for GitLab; GitHub is always github.com. */
+  host?: string;
+  token: string;
+  totp: string;
+}
+
 export interface Project {
   id: number;
   /** Internal kebab-case name: used in paths and worktrees, never changes. */
   name: string;
   /** Free-form name shown in the web; falls back to `name` when null. */
   displayName: string | null;
-  /** Canonical GitHub URL (https://github.com/owner/repo), null for projects added by path. */
+  /** Canonical URL (https://github.com/owner/repo or https://<host>/group/.../repo), null for projects added by path. */
   repoUrl: string | null;
+  /** Git provider of the repo; projects added by path count as GitHub. */
+  gitProvider: GitProvider;
+  /** Git account the project acts as; null: the global `gh` login (GitHub only). */
+  gitAccountId: number | null;
   repoPath: string;
   baseBranch: string;
   setupCommand: string | null;

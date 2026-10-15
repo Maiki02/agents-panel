@@ -4,7 +4,8 @@ import type { Chat, WorktreeStateId } from '@agents-panel/shared';
 import type { ChatRepository } from '../chats/repo.js';
 import type { ProjectRepository } from '../projects/repo.js';
 import type { WorktreeStateRepository } from '../worktrees/state-repo.js';
-import { prStateOf, type PrState } from './github-cli.js';
+import { forgeOf, type ForgeResolver } from '../forge/provider.js';
+import type { PrState } from './github-cli.js';
 import type { PrLookup } from './pr-lookup.js';
 
 /** State of one PR in GitHub; injectable so tests never call GitHub. */
@@ -18,6 +19,9 @@ export interface PrWatcherDeps {
   states: Pick<WorktreeStateRepository, 'get' | 'transition' | 'chatIdsIn'>;
   projects: Pick<ProjectRepository, 'findById'>;
   prs: Pick<PrLookup, 'urls'>;
+  /** The provider of each project (GitHub or GitLab); GitHub when absent. */
+  forge?: ForgeResolver;
+  /** Replaces the provider's reader; tests use it so nothing calls a host. */
   prState?: PrStateReader;
   log?: (message: string) => void;
 }
@@ -32,13 +36,10 @@ export type PrCheck = 'merged' | 'closed' | 'open' | 'none' | 'skipped' | 'faile
  * nothing and the next round tries again.
  */
 export class PrWatcher {
-  private readonly prState: PrStateReader;
   private readonly inFlight = new Set<number>();
   private timer: NodeJS.Timeout | undefined;
 
-  constructor(private readonly deps: PrWatcherDeps) {
-    this.prState = deps.prState ?? prStateOf;
-  }
+  constructor(private readonly deps: PrWatcherDeps) {}
 
   /** Checks every watched work now and then every `intervalMs`; 0 leaves the polling off. */
   start(intervalMs: number): void {
@@ -110,7 +111,7 @@ export class PrWatcher {
     try {
       // In parallel: a work with child repos must not make the chat slow to open.
       found = await Promise.all(
-        urls.map(async (url) => ({ url, state: await this.prState(cwd, url) })),
+        urls.map(async (url) => ({ url, state: await this.readState(chat, cwd, url) })),
       );
     } catch (error) {
       this.deps.log?.(
@@ -164,6 +165,13 @@ export class PrWatcher {
       data: { prUrls: urls },
     });
     return 'merged';
+  }
+
+  private readState(chat: Chat, cwd: string, url: string): Promise<PrState> {
+    const read: PrStateReader =
+      this.deps.prState ??
+      ((dir, pr) => forgeOf(this.deps.forge, chat.projectId).prStateOf(dir, pr));
+    return read(cwd, url);
   }
 
   /** Where `gh` runs: any existing folder works, since the PR goes by its full URL. */

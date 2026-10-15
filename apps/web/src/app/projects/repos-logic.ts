@@ -1,6 +1,7 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import type { ProjectRepo, PullBaseResult, RepoPullResult } from '@agents-panel/shared';
 import type { BadgeTone } from '../ui/badge';
+import { providerTexts, type ProviderTexts } from './project-label';
 
 /** What the last pull did to one repo. */
 export type PullRowState = 'updated' | 'up_to_date' | 'rejected';
@@ -24,7 +25,10 @@ export function repoTitle(path: string): string {
 }
 
 /** The row of one repo after a pull: updated, already up to date, or rejected with its reason. */
-export function pullRowView(result: RepoPullResult): PullRowView {
+export function pullRowView(
+  result: RepoPullResult,
+  provider: Pick<ProviderTexts, 'name'> = providerTexts(null),
+): PullRowView {
   if (result.error !== null || result.result === null) {
     return {
       state: 'rejected',
@@ -35,7 +39,7 @@ export function pullRowView(result: RepoPullResult): PullRowView {
   }
   const ahead =
     result.result.ahead > 0
-      ? ` · ${String(result.result.ahead)} commit(s) locales que GitHub no tiene`
+      ? ` · ${String(result.result.ahead)} commit(s) locales que ${provider.name} no tiene`
       : '';
   if (result.result.status === 'up_to_date') {
     return { state: 'up_to_date', tone: 'neutral', label: 'Sin cambios', detail: `Al día${ahead}` };
@@ -56,10 +60,11 @@ export function pullRowView(result: RepoPullResult): PullRowView {
 export function mergeRepoRows(
   repos: readonly ProjectRepo[],
   pull: readonly RepoPullResult[] | null,
+  provider: Pick<ProviderTexts, 'name'> = providerTexts(null),
 ): RepoRowView[] {
   return repos.map((repo) => {
     const result = pull?.find((r) => r.path === repo.path);
-    return { repo, pull: result ? pullRowView(result) : null };
+    return { repo, pull: result ? pullRowView(result, provider) : null };
   });
 }
 

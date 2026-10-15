@@ -3,6 +3,12 @@ import type { PrData, PrSprint, PrTask } from '../kyro/state.js';
 /** GitHub rejects a PR body longer than this many characters. */
 export const PR_BODY_MAX = 65536;
 
+/**
+ * GitLab rejects a MR description over 1 MiB (bytes). Characters can take up to 4 bytes, so this
+ * cut keeps any text under the limit.
+ */
+export const MR_BODY_MAX = 250_000;
+
 /** Footer the pilot ends every PR description with. */
 export const PR_FOOTER = 'Abierta por el piloto del panel. Revisá los cambios antes de mergear.';
 
@@ -58,6 +64,11 @@ function fit(body: string, max: number): string {
   if (newline > 0) cut = cut.slice(0, newline);
   const fences = cut.match(/^\s*```/gm)?.length ?? 0;
   return `${cut}${fences % 2 === 1 ? '\n```' : ''}\n${TRUNCATED}`;
+}
+
+/** A user-written body cut to the limit of the provider. */
+export function clipPrBody(body: string, max: number): string {
+  return fit(body, max);
 }
 
 /** The part of KyroReader that reads what a PR description is built from; tests inject a fake. */

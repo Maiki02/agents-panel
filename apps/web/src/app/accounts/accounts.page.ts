@@ -8,12 +8,13 @@ import { Icon } from '../ui/icon';
 import { accountWarnings, canActivate } from './accounts-logic';
 import { AddAccountModal } from './add-account.modal';
 import { AccountsService } from './accounts.service';
+import { GitAccountsSection } from './git-accounts.section';
 
-/** Cuentas: the Claude logins of the VM the panel can run sessions with. */
+/** Cuentas: the Claude logins of the VM, plus the GitHub and GitLab accounts of the projects. */
 @Component({
   selector: 'app-accounts',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [DatePipe, Badge, Button, Icon, AddAccountModal],
+  imports: [DatePipe, Badge, Button, Icon, AddAccountModal, GitAccountsSection],
   template: `
     <div class="mb-4 flex items-center justify-between gap-3">
       <h2 class="m-0">Cuentas de Claude</h2>
@@ -118,6 +119,8 @@ import { AccountsService } from './accounts.service';
     @if (adding()) {
       <app-add-account-modal (closed)="onModalClosed()" />
     }
+
+    <app-git-accounts />
   `,
 })
 export class AccountsPage {

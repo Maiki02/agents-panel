@@ -15,6 +15,8 @@ function setup(setupCommand: string | null = null) {
     name: 'demo',
     displayName: null,
     repoUrl: null,
+    gitProvider: 'github',
+    gitAccountId: null,
     repoPath,
     baseBranch: 'main',
     setupCommand,
