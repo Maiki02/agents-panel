@@ -1,0 +1,346 @@
+{
+  "schemaVersion": 1,
+  "kind": "organic-work",
+  "id": "ajustes-tarea-fases",
+  "title": "Ajustes de la tarjeta Tarea actual y de las fases",
+  "objective": "`WorktreeStateTracker` lee Kyro solo en `turnFinished`. Durante un turno largo en el que el agente avanza de W1 a W5, el estado guardado sigue con el `taskId` y el progreso del inicio. Además, para un Work, la tarea en curso es la que `kyro work status` lista en `summary.inProgress` (o `awaitingReview`), que es la señal verificable a preferir sobre `nextTaskId`.",
+  "brief": {
+    "path": "brief.md",
+    "digest": "06da40b126cd81bbad78d5110a9c20c4cd6db473e9da0922878bbc204cf4536a",
+    "sourceIdea": null
+  },
+  "state": "closed",
+  "revision": 12,
+  "createdAt": "2026-10-15T22:56:04.938Z",
+  "updatedAt": "2026-10-15T23:09:30.834Z",
+  "handoff": {
+    "nextAction": "done",
+    "nextTaskId": null,
+    "blockedReason": null
+  },
+  "tasks": [
+    {
+      "id": "W1",
+      "title": "API: seguir la tarea real durante el turno",
+      "description": "Para un Work, la tarea actual es la que kyro work status lista en summary.inProgress (o, si no hay, en awaitingReview); nextTaskId queda como respaldo. Además, cada vez que el agente termina un comando Bash que corre kyro dentro del turno, el tracker vuelve a leer Kyro y actualiza estado, tarea y progreso; una lectura fallida durante el turno no cambia nada ni rompe el turno.",
+      "context": "Causa: WorktreeStateTracker solo leía Kyro en turnFinished, así que un turno largo dejaba W1 y 0/6 aunque el agente ya estaba en W5. La señal sigue siendo la salida del CLI (R7), nunca el texto del agente.",
+      "filesToTouch": [
+        "apps/api/src/kyro/state.ts",
+        "apps/api/src/agent/manager.ts",
+        "apps/api/src/worktrees/state-tracker.ts",
+        "apps/api/test/kyro-state.test.ts",
+        "apps/api/test/worktree-state.test.ts",
+        "docs/estados.md"
+      ],
+      "acceptanceCriteria": [
+        "parseWorkState usa como nextTaskId la tarea en curso (inProgress, luego awaitingReview) y cae en nextTaskId de Kyro cuando no hay ninguna",
+        "Un comando Bash con kyro terminado dentro del turno dispara una nueva lectura de Kyro que actualiza taskId, taskDone y taskTotal sin esperar el fin del turno",
+        "Una lectura fallida durante el turno no cambia el estado ni corta el turno",
+        "docs/estados.md explica la lectura durante el turno",
+        "npm run build, lint y los tests de apps/api pasan"
+      ],
+      "dependsOn": [],
+      "definitionRevision": 1,
+      "status": "verified",
+      "blocker": null,
+      "evidence": {
+        "summary": "parseWorkState sigue la tarea en curso (inProgress, luego awaitingReview, luego nextTaskId). AgentManager detecta el tool_result de un Bash con kyro y llama a WorktreeStateTracker.kyroCommandFinished, que relee Kyro y actualiza estado, tarea y avance; una lectura fallida no cambia nada ni corta el turno. Documentado en docs/estados.md.",
+        "validations": [
+          {
+            "command": "npm run build",
+            "result": "passed",
+            "note": "api y web compilan"
+          },
+          {
+            "command": "npm run lint",
+            "result": "passed",
+            "note": "sin errores"
+          },
+          {
+            "command": "npm test -w @agents-panel/api",
+            "result": "passed",
+            "note": "1325 tests, más los nuevos de kyro-state y worktree-state"
+          }
+        ],
+        "filesChanged": [
+          "apps/api/src/kyro/state.ts",
+          "apps/api/src/agent/manager.ts",
+          "apps/api/src/worktrees/state-tracker.ts",
+          "apps/api/test/kyro-state.test.ts",
+          "apps/api/test/worktree-state.test.ts",
+          "docs/estados.md"
+        ],
+        "notes": "npm ci --include=dev hizo falta en el worktree (sin devDependencies).",
+        "by": "maker-agent",
+        "recordedAt": "2026-10-15T23:04:22.953Z",
+        "definitionRevision": 1,
+        "materialDigest": "10391846a01653cbbf8a2d908d59f95b4d06357a265cf80ed06ec39d8d4dbb0b"
+      },
+      "verdict": {
+        "result": "pass",
+        "checkedCriteria": [
+          "parseWorkState usa como nextTaskId la tarea en curso (inProgress, luego awaitingReview) y cae en nextTaskId de Kyro cuando no hay ninguna",
+          "Un comando Bash con kyro terminado dentro del turno dispara una nueva lectura de Kyro que actualiza taskId, taskDone y taskTotal sin esperar el fin del turno",
+          "Una lectura fallida durante el turno no cambia el estado ni corta el turno",
+          "docs/estados.md explica la lectura durante el turno",
+          "npm run build, lint y los tests de apps/api pasan"
+        ],
+        "findings": [],
+        "by": "checker-agent",
+        "reviewedAt": "2026-10-15T23:04:31.136Z",
+        "definitionRevision": 1,
+        "evidenceDigest": "c356d37af2734587b189093c8a501bf5febb6ec8b84e5a114091b740ff3f44d8",
+        "reviewedMaterialDigest": "10391846a01653cbbf8a2d908d59f95b4d06357a265cf80ed06ec39d8d4dbb0b"
+      },
+      "disposition": null
+    },
+    {
+      "id": "W2",
+      "title": "Web: sin id la tarjeta dice Planificando",
+      "description": "La tarjeta Tarea actual deja de mostrar 'Sin id'. Si la tarea no tiene id, la línea principal es la actividad (en el Plan, 'Planificando') y no se repite debajo.",
+      "context": "Pedido 1 del usuario: sin ID estamos en la parte del Plan.",
+      "filesToTouch": [
+        "apps/web/src/app/chats/work-info-panel.ts",
+        "apps/web/src/app/chats/work-info-panel.spec.ts"
+      ],
+      "acceptanceCriteria": [
+        "Con taskId null y estado planificando la tarjeta muestra 'Planificando' y no 'Sin id'",
+        "Con taskId presente la tarjeta sigue mostrando id y actividad",
+        "npm run build, lint y los tests de apps/web pasan"
+      ],
+      "dependsOn": [],
+      "definitionRevision": 1,
+      "status": "verified",
+      "blocker": null,
+      "evidence": {
+        "summary": "work-info-panel.ts: the Tarea actual card no longer renders 'Sin id'. New exported pure taskLines(task) returns title (the id, or null) and activity; the template shows the id line only when there is an id, and without id the activity becomes the main line (medium weight) and is not repeated. work-info-panel.spec.ts covers taskId null with planificando (title null, activity 'Planificando') and taskId W2 (id and activity kept). The repo has no DOM test environment, so the spec tests the pure lines function instead of rendering.",
+        "validations": [
+          {
+            "command": "npm run test --workspace apps/web",
+            "result": "passed",
+            "note": "368 tests"
+          },
+          {
+            "command": "npm run lint",
+            "result": "passed",
+            "note": null
+          },
+          {
+            "command": "npm run build --workspace apps/web",
+            "result": "passed",
+            "note": "bundle generado"
+          }
+        ],
+        "filesChanged": [
+          "apps/web/src/app/chats/work-info-panel.ts",
+          "apps/web/src/app/chats/work-info-panel.spec.ts"
+        ],
+        "notes": "No DOM test environment exists in apps/web, so the spec covers the pure taskLines function.",
+        "by": "maker-agent",
+        "recordedAt": "2026-10-15T23:07:04.231Z",
+        "definitionRevision": 1,
+        "materialDigest": "a962498cdcb8247b39ff809ca7b9c4b13d3ef35a2075626907f8def75b73942a"
+      },
+      "verdict": {
+        "result": "pass",
+        "checkedCriteria": [
+          "Con taskId null y estado planificando la tarjeta muestra 'Planificando' y no 'Sin id'",
+          "Con taskId presente la tarjeta sigue mostrando id y actividad",
+          "npm run build, lint y los tests de apps/web pasan"
+        ],
+        "findings": [],
+        "by": "checker-agent",
+        "reviewedAt": "2026-10-15T23:07:10.222Z",
+        "definitionRevision": 1,
+        "evidenceDigest": "e71ecba333b79aab31cff07db0f135c4861b1ec26af908f26328da94b5b8c404",
+        "reviewedMaterialDigest": "a962498cdcb8247b39ff809ca7b9c4b13d3ef35a2075626907f8def75b73942a"
+      },
+      "disposition": null
+    },
+    {
+      "id": "W3",
+      "title": "Web: fases como línea de tiempo vertical",
+      "description": "En modo vertical, el stepper de fases se dibuja como línea de tiempo: puntos unidos por una línea, fases hechas con check, la actual resaltada con la actividad de la tarea (por ejemplo 'W5 · Escribiendo código') y las que faltan en gris. El modo horizontal no cambia.",
+      "context": "Decisión del usuario (AskUserQuestion): línea de tiempo vertical, recomendada para la columna angosta del panel de información.",
+      "filesToTouch": [
+        "apps/web/src/app/chats/phase-stepper.ts",
+        "apps/web/src/app/chats/phase-stepper.spec.ts",
+        "apps/web/src/app/chats/work-info-panel.ts"
+      ],
+      "acceptanceCriteria": [
+        "En vertical cada fase es un punto de la línea de tiempo con estado hecho, actual o pendiente, y aria-current en la actual",
+        "La fase actual muestra el detalle de la tarea cuando lo hay",
+        "El modo horizontal sigue con píldoras y chevrons",
+        "npm run build, lint y los tests de apps/web pasan"
+      ],
+      "dependsOn": [],
+      "definitionRevision": 1,
+      "status": "verified",
+      "blocker": null,
+      "evidence": {
+        "summary": "phase-stepper.ts: en vertical el stepper dibuja una línea de tiempo (punto por fase unido por una línea, check en las hechas, la actual resaltada con aria-current y la pendiente en gris). La fase actual muestra 'W5 · Escribiendo código' vía el nuevo taskDetail(currentTaskView(state)). El modo horizontal conserva píldoras y chevrons. phase-stepper.spec.ts cubre taskDetail y el estado hecho/actual/pendiente de las fases. work-info-panel.ts ya usaba vertical, sin cambios.",
+        "validations": [
+          {
+            "command": "npm run build --workspace apps/web",
+            "result": "passed",
+            "note": "bundle generado"
+          },
+          {
+            "command": "npm run lint",
+            "result": "passed",
+            "note": "sin errores"
+          },
+          {
+            "command": "npm test --workspace apps/web",
+            "result": "passed",
+            "note": "372 tests"
+          }
+        ],
+        "filesChanged": [
+          "apps/web/src/app/chats/phase-stepper.ts",
+          "apps/web/src/app/chats/phase-stepper.spec.ts"
+        ],
+        "notes": "Sin entorno DOM en apps/web: el spec prueba las funciones puras. work-info-panel.ts no necesitó cambios.",
+        "by": "maker-agent",
+        "recordedAt": "2026-10-15T23:09:19.612Z",
+        "definitionRevision": 1,
+        "materialDigest": "7e9516fa4bfe613cfa0edd83dadc1d0e23cce4c4043ad33f00ee31501302a5e5"
+      },
+      "verdict": {
+        "result": "pass",
+        "checkedCriteria": [
+          "En vertical cada fase es un punto de la línea de tiempo con estado hecho, actual o pendiente, y aria-current en la actual",
+          "La fase actual muestra el detalle de la tarea cuando lo hay",
+          "El modo horizontal sigue con píldoras y chevrons",
+          "npm run build, lint y los tests de apps/web pasan"
+        ],
+        "findings": [],
+        "by": "checker-agent",
+        "reviewedAt": "2026-10-15T23:09:23.555Z",
+        "definitionRevision": 1,
+        "evidenceDigest": "caa1b442b0e2c8891d05d2fb9e01077c6e82dbb3e739f5cad72f6c7b509f1b34",
+        "reviewedMaterialDigest": "7e9516fa4bfe613cfa0edd83dadc1d0e23cce4c4043ad33f00ee31501302a5e5"
+      },
+      "disposition": null
+    }
+  ],
+  "activity": [
+    {
+      "seq": 1,
+      "at": "2026-10-15T22:56:04.938Z",
+      "event": "created",
+      "taskId": null,
+      "by": "claude",
+      "reason": "Created through the Work CLI.",
+      "revision": 1
+    },
+    {
+      "seq": 2,
+      "at": "2026-10-15T22:56:32.318Z",
+      "event": "tasks_planned",
+      "taskId": null,
+      "by": "claude",
+      "reason": "Planned 3 Work tasks.",
+      "revision": 2
+    },
+    {
+      "seq": 3,
+      "at": "2026-10-15T22:57:00.225Z",
+      "event": "task_started",
+      "taskId": "W1",
+      "by": "cli",
+      "reason": "Task started through the Work CLI.",
+      "revision": 3
+    },
+    {
+      "seq": 4,
+      "at": "2026-10-15T23:04:22.953Z",
+      "event": "evidence_recorded",
+      "taskId": "W1",
+      "by": "maker-agent",
+      "reason": "Evidence recorded with 3 validation results.",
+      "revision": 4
+    },
+    {
+      "seq": 5,
+      "at": "2026-10-15T23:04:31.136Z",
+      "event": "review_recorded",
+      "taskId": "W1",
+      "by": "checker-agent",
+      "reason": "Task review recorded with pass.",
+      "revision": 5
+    },
+    {
+      "seq": 6,
+      "at": "2026-10-15T23:04:48.338Z",
+      "event": "task_started",
+      "taskId": "W2",
+      "by": "cli",
+      "reason": "Task started through the Work CLI.",
+      "revision": 6
+    },
+    {
+      "seq": 7,
+      "at": "2026-10-15T23:07:04.231Z",
+      "event": "evidence_recorded",
+      "taskId": "W2",
+      "by": "maker-agent",
+      "reason": "Evidence recorded with 3 validation results.",
+      "revision": 7
+    },
+    {
+      "seq": 8,
+      "at": "2026-10-15T23:07:10.222Z",
+      "event": "review_recorded",
+      "taskId": "W2",
+      "by": "checker-agent",
+      "reason": "Task review recorded with pass.",
+      "revision": 8
+    },
+    {
+      "seq": 9,
+      "at": "2026-10-15T23:07:23.890Z",
+      "event": "task_started",
+      "taskId": "W3",
+      "by": "cli",
+      "reason": "Task started through the Work CLI.",
+      "revision": 9
+    },
+    {
+      "seq": 10,
+      "at": "2026-10-15T23:09:19.612Z",
+      "event": "evidence_recorded",
+      "taskId": "W3",
+      "by": "maker-agent",
+      "reason": "Evidence recorded with 3 validation results.",
+      "revision": 10
+    },
+    {
+      "seq": 11,
+      "at": "2026-10-15T23:09:23.555Z",
+      "event": "review_recorded",
+      "taskId": "W3",
+      "by": "checker-agent",
+      "reason": "Task review recorded with pass.",
+      "revision": 11
+    },
+    {
+      "seq": 12,
+      "at": "2026-10-15T23:09:30.834Z",
+      "event": "work_closed",
+      "taskId": null,
+      "by": "pilot",
+      "reason": "Trabajo completado por el piloto",
+      "revision": 12
+    }
+  ],
+  "closure": {
+    "outcome": "completed",
+    "reason": "Trabajo completado por el piloto",
+    "by": "pilot",
+    "closedAt": "2026-10-15T23:09:30.834Z",
+    "briefDigest": "06da40b126cd81bbad78d5110a9c20c4cd6db473e9da0922878bbc204cf4536a",
+    "finalRevision": 12
+  },
+  "promotion": null
+}
