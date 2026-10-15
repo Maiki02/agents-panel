@@ -46,6 +46,8 @@ describe('variant classes use tokens only', () => {
       buttonClasses('secondary'),
       buttonClasses('danger'),
       buttonClasses('icon'),
+      buttonClasses('ghost-danger', 'sm'),
+      buttonClasses('secondary', 'sm'),
       badgeClasses('ok'),
       badgeClasses('danger'),
     ].join(' ');

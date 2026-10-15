@@ -126,3 +126,99 @@ export function stepperView(
     session: state === null ? null : sessionLabel(state.role, state.model),
   };
 }
+
+export type TaskTone = 'neutral' | 'warn' | 'danger';
+
+export interface CurrentTaskView {
+  /** Task id as Kyro prints it (T1.1, W2); null when Kyro has none: nothing is invented. */
+  id: string | null;
+  /** Readable activity ("Corrigiendo"); an interruption carries its reason ("Bloqueada: build roto"). */
+  activity: string;
+  tone: TaskTone;
+  /** "n/m" of tasks; null unless both numbers are known. */
+  progress: string | null;
+  /** "Sprint 2/3"; null unless both numbers are known. */
+  sprint: string | null;
+}
+
+/** Fine states of the Plan, Execution and QA phases, as the panel shows them. */
+const TASK_ACTIVITY: Partial<Record<WorktreeStateId, string>> = {
+  planificando: 'Planificando',
+  esperando_aclaracion: 'Esperando respuesta',
+  escribiendo_codigo: 'Escribiendo código',
+  en_cola_build: 'En cola de build',
+  buildeando: 'Buildeando',
+  probando: 'Probando',
+  corrigiendo: 'Corrigiendo',
+  registrando_evidencia: 'Registrando evidencia',
+  revisando_tarea: 'Revisando',
+  esperando_permiso: 'Esperando permiso',
+  esperando_respuesta: 'Esperando respuesta',
+  qa: 'QA',
+};
+
+/** States that interrupt the flow, with their label and tone. */
+const INTERRUPTION: Partial<Record<WorktreeStateId, { label: string; tone: TaskTone }>> = {
+  pausado: { label: 'Pausada', tone: 'warn' },
+  sin_cupo_de_uso: { label: 'Sin cupo de uso', tone: 'warn' },
+  interrumpido: { label: 'Interrumpida', tone: 'warn' },
+  revisar: { label: 'Para revisar', tone: 'warn' },
+  bloqueado: { label: 'Bloqueada', tone: 'danger' },
+  error: { label: 'Error', tone: 'danger' },
+};
+
+const WAITING: ReadonlySet<WorktreeStateId> = new Set([
+  'esperando_aclaracion',
+  'esperando_permiso',
+  'esperando_respuesta',
+]);
+
+const TASK_PHASES: ReadonlySet<PhaseId | null> = new Set(['plan', 'execution', 'qa']);
+
+/**
+ * What the panel shows for the current task: its id, what is being done and how far it is.
+ * Null when there is neither a task nor task activity (idea, close, merge, PR…).
+ */
+export function currentTaskView(
+  state: Pick<
+    WorktreeState,
+    | 'state'
+    | 'previousState'
+    | 'taskId'
+    | 'blockedReason'
+    | 'detail'
+    | 'sprintCurrent'
+    | 'sprintTotal'
+    | 'taskDone'
+    | 'taskTotal'
+  > | null,
+): CurrentTaskView | null {
+  if (state === null) return null;
+  const interruption = INTERRUPTION[state.state];
+  let activity: string | undefined;
+  let tone: TaskTone = 'neutral';
+  if (interruption !== undefined) {
+    const phase = phaseOf(state.state, state.previousState);
+    if (state.taskId === null && !TASK_PHASES.has(phase)) return null;
+    const reason =
+      state.blockedReason === null ? state.detail : state.blockedReason.replace(/_/g, ' ');
+    activity =
+      reason === null || reason === '' ? interruption.label : `${interruption.label}: ${reason}`;
+    tone = interruption.tone;
+  } else {
+    activity = TASK_ACTIVITY[state.state];
+    if (activity === undefined) return null;
+    if (WAITING.has(state.state)) tone = 'warn';
+  }
+  const progress =
+    state.taskDone === null || state.taskTotal === null || state.taskTotal < 1
+      ? null
+      : `${String(state.taskDone)}/${String(state.taskTotal)}`;
+  return {
+    id: state.taskId,
+    activity,
+    tone,
+    progress,
+    sprint: ratio('Sprint', state.sprintCurrent, state.sprintTotal),
+  };
+}

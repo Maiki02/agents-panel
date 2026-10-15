@@ -5,7 +5,7 @@ import {
   type AutopilotStatus,
   type ChatKind,
 } from '@agents-panel/shared';
-import { pilotControls, pilotStatus } from './autopilot-logic';
+import { pilotControls, pilotIdleReason, pilotStatus, visiblePilotActions } from './autopilot-logic';
 
 function run(status: AutopilotStatus, over: Partial<AutopilotRun> = {}): AutopilotRun {
   return {
@@ -75,6 +75,31 @@ describe('pilotControls', () => {
       'PR',
     );
     expect(enabled('work', merged, 'abriendo_pr')).toEqual(['on']);
+  });
+});
+
+describe('visiblePilotActions', () => {
+  const visible = (r: AutopilotRun | null, kind: ChatKind = 'work') =>
+    visiblePilotActions(pilotControls({ kind, run: r }));
+
+  it('shows only what applies, in bar order', () => {
+    expect(visible(null)).toEqual(['on']);
+    expect(visible(run('active'))).toEqual(['pause', 'off']);
+    expect(visible(run('paused'))).toEqual(['resume', 'off']);
+    expect(visible(run('stopped'))).toEqual(['resume', 'off']);
+  });
+
+  it('shows no button for a finished pilot, a direct request or an idea', () => {
+    expect(visible(run('finished'))).toEqual([]);
+    expect(visible(null, 'direct')).toEqual([]);
+    expect(visible(null, 'idea')).toEqual([]);
+  });
+
+  it('gives a one-line reason only when no action applies', () => {
+    expect(pilotIdleReason(pilotControls({ kind: 'work', run: run('finished') }))).toBe(
+      'El piloto ya terminó este trabajo.',
+    );
+    expect(pilotIdleReason(pilotControls({ kind: 'work', run: run('active') }))).toBeNull();
   });
 });
 

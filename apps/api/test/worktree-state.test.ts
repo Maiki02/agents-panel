@@ -123,6 +123,32 @@ describe('WorktreeStateRepository', () => {
     expect(chats.eventsAfter(chat.id).filter((e) => e.type === 'state_changed')).toHaveLength(1);
   });
 
+  it('stores taskId from Kyro, keeps it when a transition omits it and clears it with null', async () => {
+    const { repo, newChat } = await setup();
+    const chat = newChat('a');
+    expect(repo.transition(chat.id, { state: 'planificando', actor: 'agent' }).state.taskId).toBeNull();
+    expect(
+      repo.transition(chat.id, { state: 'escribiendo_codigo', actor: 'agent', taskId: 'T2' }).state
+        .taskId,
+    ).toBe('T2');
+    expect(repo.transition(chat.id, { state: 'pausado', actor: 'pilot' }).state.taskId).toBe('T2');
+    expect(
+      repo.transition(chat.id, { state: 'qa', actor: 'agent', taskId: null }).state.taskId,
+    ).toBeNull();
+  });
+
+  it('migration 23 adds task_id to an existing database without losing rows', async () => {
+    const { db, newChat, repo } = await setup();
+    const chat = newChat('a');
+    repo.transition(chat.id, { state: 'planificando', actor: 'agent' });
+    const columns = db.prepare('PRAGMA table_info(worktree_state)').all() as { name: string }[];
+    expect(columns.map((c) => c.name)).toContain('task_id');
+    expect(repo.get(chat.id)).toMatchObject({ state: 'planificando', taskId: null });
+    expect(
+      (db.prepare('SELECT COUNT(*) AS n FROM worktree_state').get() as { n: number }).n,
+    ).toBe(1);
+  });
+
   it('rejects unknown states, actors and block reasons without writing anything', async () => {
     const { repo, newChat, db } = await setup();
     const chat = newChat('a');

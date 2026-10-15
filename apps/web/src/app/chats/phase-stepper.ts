@@ -11,7 +11,10 @@ import { stepperView } from './phase-logic';
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <nav aria-label="Fases del trabajo">
-      <ol class="m-0 flex list-none flex-wrap gap-x-1 gap-y-1 p-0 text-sm">
+      <ol
+        class="m-0 flex list-none p-0 text-sm"
+        [class]="vertical() ? 'flex-col gap-1' : 'flex-wrap gap-x-1 gap-y-1'"
+      >
         @for (step of view().steps; track step.id; let last = $last) {
           <li
             class="flex items-center gap-1"
@@ -29,20 +32,24 @@ import { stepperView } from './phase-logic';
             >
               {{ step.label }}
             </span>
-            @if (!last) {
+            @if (!last && !vertical()) {
               <span class="text-muted" aria-hidden="true">›</span>
             }
           </li>
         }
       </ol>
     </nav>
-    @if (details().length > 0) {
+    @if (showDetails() && details().length > 0) {
       <p class="m-0 mt-1 text-xs text-muted">{{ details().join(' · ') }}</p>
     }
   `,
 })
 export class PhaseStepper {
   readonly state = input<WorktreeState | null>(null);
+  /** One phase per line (the info panel); horizontal with chevrons by default. */
+  readonly vertical = input(false);
+  /** Sprint, task and session line under the phases; the info panel shows them in its own sections. */
+  readonly showDetails = input(true);
 
   protected readonly view = computed(() => stepperView(this.state()));
   protected readonly details = computed(() => {

@@ -15,6 +15,7 @@ export interface MappedKyroState {
   taskDone: number;
   taskTotal: number;
   openDebt: number | null;
+  taskId: string | null;
   blockedReason: BlockedReason | null;
 }
 
@@ -62,6 +63,7 @@ export function mapKyroState(kyro: KyroScopeState | KyroWorkState): MappedKyroSt
       taskDone: kyro.tasks.done,
       taskTotal: kyro.tasks.total,
       openDebt: null,
+      taskId: kyro.nextTaskId,
       blockedReason: blocked ? 'tarea_bloqueada' : null,
     };
   }
@@ -78,6 +80,7 @@ export function mapKyroState(kyro: KyroScopeState | KyroWorkState): MappedKyroSt
     taskDone: kyro.tasks.done,
     taskTotal: kyro.tasks.total,
     openDebt: kyro.openDebt,
+    taskId: kyro.nextTaskId,
     blockedReason: blocked ? 'kyro_bloqueado' : null,
   };
 }

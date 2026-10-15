@@ -45,13 +45,11 @@ import {
 } from './approval-logic';
 import { chatBadge } from './status';
 import { workStateBadge } from './work-state';
-import { AutopilotBar } from './autopilot-bar';
-import { PhaseStepper } from './phase-stepper';
+import { WorkInfoPanel } from './work-info-panel';
 import { Timeline } from './timeline';
 import { GitTab } from './git/git-tab';
 import { Tabs, type TabItem } from '../ui/tabs';
 import { Button } from '../ui/button';
-import { Badge } from '../ui/badge';
 import { Icon } from '../ui/icon';
 import { ProjectContext } from '../projects/project-context';
 
@@ -60,12 +58,10 @@ import { ProjectContext } from '../projects/project-context';
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     Button,
-    Badge,
     Icon,
     RouterLink,
     Tabs,
-    AutopilotBar,
-    PhaseStepper,
+    WorkInfoPanel,
     Timeline,
     GitTab,
     QuestionCard,
@@ -74,36 +70,28 @@ import { ProjectContext } from '../projects/project-context';
   ],
   host: { class: 'flex min-h-0 flex-1 flex-col' },
   template: `
+    <div class="chat-layout">
+      @if (chat(); as c) {
+        <app-work-info-panel
+          class="info-panel"
+          [chat]="c"
+          [state]="workState()"
+          [badge]="badge()"
+          (pilotChanged)="refreshWorkState()"
+        />
+      }
+      <div class="chat-main">
     <div class="chat-top">
-      <div class="mb-2">
+      <div class="mb-2 flex items-center justify-between gap-2">
         <a appButton variant="secondary" [routerLink]="['/projects', projectId(), 'chats']">
           <app-icon name="chats" />
           Chats
         </a>
+        @if (chat()?.status === 'running') {
+          <button appButton variant="danger" type="button" (click)="cancel()">Cancelar</button>
+        }
       </div>
       @if (chat(); as c) {
-        <header class="chat-head">
-          <h1>{{ c.slug }}</h1>
-          <app-badge [tone]="badge().tone">{{ badge().label }}</app-badge>
-          @if (c.status === 'running') {
-            <button appButton variant="danger" type="button" (click)="cancel()">Cancelar</button>
-          }
-        </header>
-        <p class="hint">{{ c.projectName }} · {{ c.branch }}</p>
-        @if (c.kind !== 'direct') {
-          <p class="hint" data-testid="chat-models">
-            Pensante: {{ c.models.thinker }} · Ejecutor: {{ c.models.executor }}
-          </p>
-        }
-        @if (hasWork()) {
-          <app-phase-stepper [state]="workState()" />
-          <app-autopilot-bar
-            [chatId]="c.id"
-            [kind]="c.kind"
-            [workState]="c.workState ?? null"
-            (changed)="refreshWorkState()"
-          />
-        }
         @if (tabs().length > 1) {
           <app-tabs
             class="mt-3 block"
@@ -285,6 +273,8 @@ import { ProjectContext } from '../projects/project-context';
         </form>
       }
     }
+      </div>
+    </div>
   `,
 })
 export class ChatPage {

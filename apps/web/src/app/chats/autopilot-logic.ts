@@ -79,6 +79,22 @@ export function pilotControls(input: {
   }
 }
 
+const ACTION_ORDER: readonly PilotControl[] = ['on', 'resume', 'pause', 'off'];
+
+/** The actions that apply right now, in bar order; the ones that do not are not shown at all. */
+export function visiblePilotActions(controls: PilotControls): PilotControl[] {
+  return ACTION_ORDER.filter((action) => !controls[action].disabled);
+}
+
+/**
+ * The one-line reason shown when no action applies (e.g. "El piloto ya terminó este trabajo."),
+ * or null when there is at least one button.
+ */
+export function pilotIdleReason(controls: PilotControls): string | null {
+  if (visiblePilotActions(controls).length > 0) return null;
+  return ACTION_ORDER.map((a) => controls[a].reason).find((r) => r !== null) ?? null;
+}
+
 const STATUS: Record<AutopilotStatus, { label: string; tone: BadgeTone }> = {
   active: { label: 'Piloto activo', tone: 'accent' },
   queued: { label: 'Piloto en cola', tone: 'neutral' },

@@ -566,6 +566,12 @@ export const migrations: readonly Migration[] = [
       CREATE INDEX panel_steps_chat ON panel_steps (chat_id, started_at);
     `,
   },
+  {
+    version: 23,
+    name: 'worktree_state_task_id',
+    // Current task (nextTaskId of the Kyro CLI); the activity is deduced from the fine state.
+    sql: `ALTER TABLE worktree_state ADD COLUMN task_id TEXT;`,
+  },
 ];
 
 /** Applies pending migrations in order, each in its own transaction. Safe to run repeatedly. */

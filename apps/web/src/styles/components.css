@@ -91,6 +91,23 @@
   /* The chat page is a column of the height it gets: .chat-top (title, state, cards) with a
      max height, .chat-scroll (the feed or the Timeline) taking the rest with its own scroll,
      and .composer at the bottom. The document never scrolls because of the chat. */
+  /* Below lg one column: the info panel (a fold) on top, then the chat. From lg two columns, the
+     chat on the left and the panel (~20rem, own scroll) on the right; each scrolls on its own. */
+  .chat-layout {
+    @apply flex min-h-0 flex-1 flex-col gap-2 lg:grid lg:grid-cols-[minmax(0,1fr)_20rem] lg:grid-rows-[minmax(0,1fr)] lg:gap-4;
+  }
+  .chat-main {
+    @apply flex min-h-0 min-w-0 flex-1 flex-col;
+  }
+  .info-panel {
+    @apply shrink-0 lg:order-2 lg:shrink;
+  }
+  .info-fold > summary {
+    @apply list-none;
+  }
+  .info-fold > summary::-webkit-details-marker {
+    @apply hidden;
+  }
   .chat-top {
     @apply max-h-[40dvh] shrink-0 overflow-y-auto;
   }

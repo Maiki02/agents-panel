@@ -1,0 +1,464 @@
+{
+  "schemaVersion": 1,
+  "kind": "organic-work",
+  "id": "refactor-vista-chat",
+  "title": "Refactor de la vista de un chat/worktree: dos columnas y panel de información",
+  "objective": "Cuando estamos parados dentro de un chat/worktree, reorganizar la información:",
+  "brief": {
+    "path": "brief.md",
+    "digest": "b45e76178b722af7cb0d0691c0972bf96e98abdb23f28a38f8b0e1b16442987e",
+    "sourceIdea": null
+  },
+  "state": "closed",
+  "revision": 15,
+  "createdAt": "2026-10-15T02:33:49.826Z",
+  "updatedAt": "2026-10-15T02:55:02.952Z",
+  "handoff": {
+    "nextAction": "done",
+    "nextTaskId": null,
+    "blockedReason": null
+  },
+  "tasks": [
+    {
+      "id": "W1",
+      "title": "API: guardar y exponer la tarea actual (taskId) en el estado del worktree",
+      "description": "Persistir el nextTaskId que ya lee la API de Kyro (scope y work) como task_id en worktree_state, exponerlo como taskId en WorktreeState de packages/shared y escribirlo en cada actualización del state-tracker (null cuando Kyro no tiene próxima tarea). Migración nueva, idempotente, sin tocar las anteriores.",
+      "context": "Decisión tomada sin preguntar: la actividad de la tarea (planificando, ejecutando, probando, corrigiendo, revisando, QA) se deduce del estado fino que ya existe; solo falta el id de la tarea, y viene de la salida del CLI de Kyro (R7, nunca del texto del agente). No se agregan estados nuevos.",
+      "filesToTouch": [
+        "packages/shared/src/index.ts",
+        "apps/api/src/db/migrations.ts",
+        "apps/api/src/kyro/map-state.ts",
+        "apps/api/src/worktrees/state-repo.ts",
+        "apps/api/src/worktrees/state-tracker.ts",
+        "apps/api/test/kyro-map-state.test.ts",
+        "apps/api/test/worktree-state.test.ts",
+        "docs/estados.md"
+      ],
+      "acceptanceCriteria": [
+        "worktree_state tiene la columna task_id por una migración nueva, y una base existente migra sin perder filas",
+        "mapKyroState devuelve taskId igual al nextTaskId de Kyro (scope y work) y null cuando no hay",
+        "GET del estado de un chat devuelve taskId, y las transiciones que no vienen de Kyro conservan el taskId anterior",
+        "docs/estados.md explica de dónde sale la tarea actual",
+        "npm run build, lint y los tests de apps/api pasan"
+      ],
+      "dependsOn": [],
+      "definitionRevision": 1,
+      "status": "verified",
+      "blocker": null,
+      "evidence": {
+        "summary": "taskId (nextTaskId de Kyro) persistido en worktree_state.task_id (migración 23), expuesto en WorktreeState y escrito por el state-tracker; las transiciones sin Kyro conservan el anterior.",
+        "validations": [
+          {
+            "command": "npm run build",
+            "result": "passed",
+            "note": "api, shared y web compilan"
+          },
+          {
+            "command": "npm run lint",
+            "result": "passed",
+            "note": "sin avisos"
+          },
+          {
+            "command": "npm test -w @agents-panel/api",
+            "result": "passed",
+            "note": "db, worktree-state y kyro-map-state verificados tras ajustar db.test.ts"
+          }
+        ],
+        "filesChanged": [
+          "packages/shared/src/index.ts",
+          "apps/api/src/db/migrations.ts",
+          "apps/api/src/kyro/map-state.ts",
+          "apps/api/src/worktrees/state-repo.ts",
+          "apps/api/src/worktrees/state-tracker.ts",
+          "apps/api/test/kyro-map-state.test.ts",
+          "apps/api/test/worktree-state.test.ts",
+          "apps/api/test/db.test.ts",
+          "docs/estados.md"
+        ],
+        "notes": "db.test.ts actualizado: las listas de migraciones esperadas suman 23 (algunas ya no incluían la 22).",
+        "by": "maker-agent",
+        "recordedAt": "2026-10-15T02:44:27.492Z",
+        "definitionRevision": 1,
+        "materialDigest": "918bca3440bc9803790c091498e0dba68dc2aeed14588fe2a525c658ff8e3987"
+      },
+      "verdict": {
+        "result": "pass",
+        "checkedCriteria": [
+          "worktree_state tiene la columna task_id por una migración nueva, y una base existente migra sin perder filas",
+          "mapKyroState devuelve taskId igual al nextTaskId de Kyro (scope y work) y null cuando no hay",
+          "GET del estado de un chat devuelve taskId, y las transiciones que no vienen de Kyro conservan el taskId anterior",
+          "docs/estados.md explica de dónde sale la tarea actual",
+          "npm run build, lint y los tests de apps/api pasan"
+        ],
+        "findings": [],
+        "by": "checker-agent",
+        "reviewedAt": "2026-10-15T02:44:34.469Z",
+        "definitionRevision": 1,
+        "evidenceDigest": "ca188f0d8397f0e3407fba403b5fe0bf74c88faafbcad55095102e3dcb9c70cf",
+        "reviewedMaterialDigest": "918bca3440bc9803790c091498e0dba68dc2aeed14588fe2a525c658ff8e3987"
+      },
+      "disposition": null
+    },
+    {
+      "id": "W2",
+      "title": "Web: lógica pura de la tarea actual (id + actividad + progreso)",
+      "description": "Función pura currentTaskView(state) en apps/web/src/app/chats/phase-logic.ts que devuelve { id, activity, tone, progress } para el panel: id de la tarea (T1.1, W2), actividad legible derivada del estado fino (Planificando, Escribiendo código, Buildeando, Probando, Corrigiendo, Registrando evidencia, Revisando, QA, Esperando permiso/respuesta, Bloqueada) y el progreso 'n/m' y sprint cuando existen. Null cuando no hay tarea ni actividad de tarea.",
+      "context": "No se inventa nada: sin taskId se muestra solo la actividad; sin números no hay progreso. Estados que interrumpen (pausado, error, bloqueado) muestran su motivo con tono warn/danger.",
+      "filesToTouch": [
+        "apps/web/src/app/chats/phase-logic.ts",
+        "apps/web/src/app/chats/phase-logic.spec.ts"
+      ],
+      "acceptanceCriteria": [
+        "Cada estado fino de la fase Plan, Ejecución y QA tiene una actividad legible en español",
+        "Con taskId 'T1.1' y estado corrigiendo la vista es { id: 'T1.1', activity: 'Corrigiendo' } con su tono",
+        "Sin taskId muestra la actividad sola y sin números no muestra progreso",
+        "Spec cubre scope, work, sin tarea y estado que interrumpe; los tests de apps/web pasan"
+      ],
+      "dependsOn": [
+        "W1"
+      ],
+      "definitionRevision": 1,
+      "status": "verified",
+      "blocker": null,
+      "evidence": {
+        "summary": "currentTaskView(state) en phase-logic.ts: actividad legible en español para cada estado fino de Plan, Ejecución y QA; los estados que interrumpen muestran su motivo con tono warn/danger; progreso y sprint solo cuando existen ambos números; id solo si viene taskId.",
+        "validations": [
+          {
+            "command": "npm run test -w apps/web",
+            "result": "passed",
+            "note": "39 archivos, 362 tests"
+          },
+          {
+            "command": "npm run lint",
+            "result": "passed",
+            "note": "sin avisos"
+          }
+        ],
+        "filesChanged": [
+          "apps/web/src/app/chats/phase-logic.ts",
+          "apps/web/src/app/chats/phase-logic.spec.ts"
+        ],
+        "notes": "Se agregó el campo sprint ('Sprint 2/3') a la vista además de progress. Esperando permiso/respuesta/aclaración llevan tono warn.",
+        "by": "maker-agent",
+        "recordedAt": "2026-10-15T02:46:56.121Z",
+        "definitionRevision": 1,
+        "materialDigest": "5f777ff51afa4b6ba81e12ae5e13887f024eb724c57cd2a4df6a3b4481925e89"
+      },
+      "verdict": {
+        "result": "pass",
+        "checkedCriteria": [
+          "Cada estado fino de la fase Plan, Ejecución y QA tiene una actividad legible en español",
+          "Con taskId 'T1.1' y estado corrigiendo la vista es { id: 'T1.1', activity: 'Corrigiendo' } con su tono",
+          "Sin taskId muestra la actividad sola y sin números no muestra progreso",
+          "Spec cubre scope, work, sin tarea y estado que interrumpe; los tests de apps/web pasan"
+        ],
+        "findings": [],
+        "by": "checker-agent",
+        "reviewedAt": "2026-10-15T02:47:00.402Z",
+        "definitionRevision": 1,
+        "evidenceDigest": "f46d5001b514b0bed167aa2dbb6339115bbf6fcec451ad121d3f7f75f10a5bee",
+        "reviewedMaterialDigest": "5f777ff51afa4b6ba81e12ae5e13887f024eb724c57cd2a4df6a3b4481925e89"
+      },
+      "disposition": null
+    },
+    {
+      "id": "W3",
+      "title": "Web: piloto compacto y discreto",
+      "description": "Rediseñar autopilot-bar como una fila compacta: punto/badge de estado del piloto + sesiones, y solo las acciones que aplican en ese momento como botones chicos secondary/ghost (Apagar en tono danger solo de texto, con la confirmación que ya existe). Las acciones que no aplican no se muestran; ya no hay lista de motivos. Si ninguna aplica se ve solo el estado con su motivo (por ejemplo 'El piloto ya terminó este trabajo'). Agregar visiblePilotActions() en autopilot-logic.ts.",
+      "context": "Decisión tomada sin preguntar: esconder las acciones que no aplican, en vez de mostrarlas deshabilitadas y con su motivo, es lo que pidió el usuario («ocupa demasiado espacio, botones demasiado llamativos»). La regla de cada acción sigue en pilotControls, y el 409 del servidor se sigue mostrando tal cual. stopReason y error se siguen mostrando.",
+      "filesToTouch": [
+        "apps/web/src/app/chats/autopilot-bar.ts",
+        "apps/web/src/app/chats/autopilot-logic.ts",
+        "apps/web/src/app/chats/autopilot-logic.spec.ts",
+        "apps/web/src/app/ui/button.ts"
+      ],
+      "acceptanceCriteria": [
+        "Con el piloto terminado no se ve ningún botón, solo el estado y un motivo en una línea",
+        "Con el piloto activo se ven solo Pausar y Apagar, chicos y no primary",
+        "Apagar sigue pidiendo confirmación y el error del servidor se muestra",
+        "visiblePilotActions tiene spec y los tests de apps/web pasan"
+      ],
+      "dependsOn": [],
+      "definitionRevision": 1,
+      "status": "verified",
+      "blocker": null,
+      "evidence": {
+        "summary": "autopilot-bar pasa a una fila compacta: badge de estado + sesiones y solo las acciones que aplican (visiblePilotActions) como botones chicos secondary; Apagar es ghost-danger (solo texto) con la confirmación de siempre. Con el piloto terminado no hay botones y se ve el motivo en una línea (pilotIdleReason). stopReason y el error del servidor se siguen mostrando; la lista de motivos se eliminó. Button suma el tamaño sm y la variante ghost-danger.",
+        "validations": [
+          {
+            "command": "npm run test -w @agents-panel/web",
+            "result": "passed",
+            "note": "39 archivos, 365 tests, con spec nuevo de visiblePilotActions y pilotIdleReason"
+          },
+          {
+            "command": "npm run typecheck -w @agents-panel/web",
+            "result": "passed",
+            "note": "sin errores"
+          },
+          {
+            "command": "npm run lint",
+            "result": "passed",
+            "note": "sin avisos"
+          },
+          {
+            "command": "npm run build -w @agents-panel/web",
+            "result": "passed",
+            "note": "ng build completo"
+          }
+        ],
+        "filesChanged": [
+          "apps/web/src/app/chats/autopilot-bar.ts",
+          "apps/web/src/app/chats/autopilot-logic.ts",
+          "apps/web/src/app/chats/autopilot-logic.spec.ts",
+          "apps/web/src/app/ui/button.ts",
+          "apps/web/src/app/ui/tabs.spec.ts"
+        ],
+        "notes": "Además de visiblePilotActions se agregó pilotIdleReason (motivo de una línea cuando no aplica ninguna acción). tabs.spec.ts suma las nuevas variantes al chequeo de tokens.",
+        "by": "maker-agent",
+        "recordedAt": "2026-10-15T02:49:12.596Z",
+        "definitionRevision": 1,
+        "materialDigest": "5c61f7f33c782a98fd6950505fe03743f43c529fa9ea1bc8c4919001a64ba374"
+      },
+      "verdict": {
+        "result": "pass",
+        "checkedCriteria": [
+          "Con el piloto terminado no se ve ningún botón, solo el estado y un motivo en una línea",
+          "Con el piloto activo se ven solo Pausar y Apagar, chicos y no primary",
+          "Apagar sigue pidiendo confirmación y el error del servidor se muestra",
+          "visiblePilotActions tiene spec y los tests de apps/web pasan"
+        ],
+        "findings": [],
+        "by": "checker-agent",
+        "reviewedAt": "2026-10-15T02:49:15.704Z",
+        "definitionRevision": 1,
+        "evidenceDigest": "670d5c79fe5483e95afff9bf6b98db906b3e07be627d1148bbd8799a8e314203",
+        "reviewedMaterialDigest": "5c61f7f33c782a98fd6950505fe03743f43c529fa9ea1bc8c4919001a64ba374"
+      },
+      "disposition": null
+    },
+    {
+      "id": "W4",
+      "title": "Web: vista del chat en dos columnas con panel de información del worktree",
+      "description": "Nuevo componente work-info-panel.ts (aside, aria-label 'Información del trabajo'), con secciones en este orden: 1) rama: slug, badge de estado, proyecto · rama (con truncado y title); 2) tarea actual (W2), destacada; 3) fases resumidas (phase-stepper compacto, en vertical dentro del panel); 4) piloto compacto (W3); 5) modelos Pensante/Ejecutor como dato secundario. chat.page.ts pasa a grid de dos columnas desde lg (chat a la izquierda con pestañas Chat/Timeline/Git, feed, tarjetas, banners y composer; panel fijo a la derecha, ~20rem, con scroll propio). Debajo de lg, una columna: el panel queda arriba como un resumen plegable (details/summary con rama, estado y tarea actual visibles plegado). Cancelar queda junto al composer/cabecera del chat. Un pedido directo muestra solo la sección de rama.",
+      "context": "Decisiones tomadas sin preguntar: breakpoint lg (1024px) para las dos columnas; las pestañas Timeline y Git se quedan en la columna del chat porque necesitan ancho; en móvil el panel se pliega para no tapar el chat. Tokens y clases de docs/identidad-visual.md.",
+      "filesToTouch": [
+        "apps/web/src/app/chats/work-info-panel.ts",
+        "apps/web/src/app/chats/chat.page.ts",
+        "apps/web/src/app/chats/phase-stepper.ts",
+        "apps/web/src/styles/components.css",
+        "docs/identidad-visual.md",
+        "docs/plan.md"
+      ],
+      "acceptanceCriteria": [
+        "En ≥ lg el chat ocupa la columna izquierda y el panel la derecha, cada uno con su scroll",
+        "Debajo de lg la vista es de una columna y el panel arranca plegado, mostrando rama, estado y tarea actual",
+        "El panel muestra rama + estado, tarea actual con id y actividad, fases resumidas y piloto compacto; un pedido directo muestra solo la rama",
+        "No se pierde ninguna función: Cancelar, Timeline, Git, tarjetas de idea/deuda/PR, banners y composer siguen andando",
+        "npm run build, lint y test del monorepo pasan; docs actualizados"
+      ],
+      "dependsOn": [
+        "W2",
+        "W3"
+      ],
+      "definitionRevision": 1,
+      "status": "verified",
+      "blocker": null,
+      "evidence": {
+        "summary": "Nuevo WorkInfoPanel (aside 'Información del trabajo'): rama (slug, badge, proyecto · rama truncado con title), tarea actual destacada, fases en vertical (PhaseStepper con vertical/showDetails), piloto compacto y modelos como dato secundario; el pedido directo muestra solo la rama. chat.page.ts usa .chat-layout: desde lg dos columnas (chat a la izquierda, panel de 20rem con scroll propio a la derecha); debajo de lg una columna con el panel como details plegado con rama, estado y tarea actual. Cancelar pasó a la barra de arriba junto a Chats. Docs actualizados.",
+        "validations": [
+          {
+            "command": "npm run build",
+            "result": "passed",
+            "note": "ng build completo"
+          },
+          {
+            "command": "npm run lint",
+            "result": "passed",
+            "note": "sin avisos"
+          },
+          {
+            "command": "npm test",
+            "result": "passed",
+            "note": "39 archivos, 365 tests"
+          }
+        ],
+        "filesChanged": [
+          "apps/web/src/app/chats/work-info-panel.ts",
+          "apps/web/src/app/chats/chat.page.ts",
+          "apps/web/src/app/chats/phase-stepper.ts",
+          "apps/web/src/styles/components.css",
+          "docs/identidad-visual.md",
+          "docs/plan.md"
+        ],
+        "notes": "No se probó en un navegador real. prettier --check marca chat.page.ts por la indentación del wrapper nuevo de la plantilla (no se pudo correr prettier --write en esta sesión).",
+        "by": "maker-agent",
+        "recordedAt": "2026-10-15T02:54:51.880Z",
+        "definitionRevision": 1,
+        "materialDigest": "c9e983687c1898446f79a8281383447d518220b46e600e2fc70e31e65478b0ae"
+      },
+      "verdict": {
+        "result": "pass",
+        "checkedCriteria": [
+          "En ≥ lg el chat ocupa la columna izquierda y el panel la derecha, cada uno con su scroll",
+          "Debajo de lg la vista es de una columna y el panel arranca plegado, mostrando rama, estado y tarea actual",
+          "El panel muestra rama + estado, tarea actual con id y actividad, fases resumidas y piloto compacto; un pedido directo muestra solo la rama",
+          "No se pierde ninguna función: Cancelar, Timeline, Git, tarjetas de idea/deuda/PR, banners y composer siguen andando",
+          "npm run build, lint y test del monorepo pasan; docs actualizados"
+        ],
+        "findings": [],
+        "by": "checker-agent",
+        "reviewedAt": "2026-10-15T02:54:55.570Z",
+        "definitionRevision": 1,
+        "evidenceDigest": "6da4dfd6467ea7cb860e88ab71a80fef92bbe6aaa354d5edd8860abac69613a9",
+        "reviewedMaterialDigest": "c9e983687c1898446f79a8281383447d518220b46e600e2fc70e31e65478b0ae"
+      },
+      "disposition": null
+    }
+  ],
+  "activity": [
+    {
+      "seq": 1,
+      "at": "2026-10-15T02:33:49.826Z",
+      "event": "created",
+      "taskId": null,
+      "by": "claude-opus-5-5",
+      "reason": "Created through the Work CLI.",
+      "revision": 1
+    },
+    {
+      "seq": 2,
+      "at": "2026-10-15T02:35:12.893Z",
+      "event": "tasks_planned",
+      "taskId": null,
+      "by": "claude-opus-5-5",
+      "reason": "Planned 4 Work tasks.",
+      "revision": 2
+    },
+    {
+      "seq": 3,
+      "at": "2026-10-15T02:35:40.368Z",
+      "event": "task_started",
+      "taskId": "W1",
+      "by": "cli",
+      "reason": "Task started through the Work CLI.",
+      "revision": 3
+    },
+    {
+      "seq": 4,
+      "at": "2026-10-15T02:44:27.492Z",
+      "event": "evidence_recorded",
+      "taskId": "W1",
+      "by": "maker-agent",
+      "reason": "Evidence recorded with 3 validation results.",
+      "revision": 4
+    },
+    {
+      "seq": 5,
+      "at": "2026-10-15T02:44:34.469Z",
+      "event": "review_recorded",
+      "taskId": "W1",
+      "by": "checker-agent",
+      "reason": "Task review recorded with pass.",
+      "revision": 5
+    },
+    {
+      "seq": 6,
+      "at": "2026-10-15T02:44:50.511Z",
+      "event": "task_started",
+      "taskId": "W2",
+      "by": "cli",
+      "reason": "Task started through the Work CLI.",
+      "revision": 6
+    },
+    {
+      "seq": 7,
+      "at": "2026-10-15T02:46:56.121Z",
+      "event": "evidence_recorded",
+      "taskId": "W2",
+      "by": "maker-agent",
+      "reason": "Evidence recorded with 2 validation results.",
+      "revision": 7
+    },
+    {
+      "seq": 8,
+      "at": "2026-10-15T02:47:00.402Z",
+      "event": "review_recorded",
+      "taskId": "W2",
+      "by": "checker-agent",
+      "reason": "Task review recorded with pass.",
+      "revision": 8
+    },
+    {
+      "seq": 9,
+      "at": "2026-10-15T02:47:15.653Z",
+      "event": "task_started",
+      "taskId": "W3",
+      "by": "cli",
+      "reason": "Task started through the Work CLI.",
+      "revision": 9
+    },
+    {
+      "seq": 10,
+      "at": "2026-10-15T02:49:12.596Z",
+      "event": "evidence_recorded",
+      "taskId": "W3",
+      "by": "maker-agent",
+      "reason": "Evidence recorded with 4 validation results.",
+      "revision": 10
+    },
+    {
+      "seq": 11,
+      "at": "2026-10-15T02:49:15.704Z",
+      "event": "review_recorded",
+      "taskId": "W3",
+      "by": "checker-agent",
+      "reason": "Task review recorded with pass.",
+      "revision": 11
+    },
+    {
+      "seq": 12,
+      "at": "2026-10-15T02:49:30.544Z",
+      "event": "task_started",
+      "taskId": "W4",
+      "by": "cli",
+      "reason": "Task started through the Work CLI.",
+      "revision": 12
+    },
+    {
+      "seq": 13,
+      "at": "2026-10-15T02:54:51.880Z",
+      "event": "evidence_recorded",
+      "taskId": "W4",
+      "by": "maker-agent",
+      "reason": "Evidence recorded with 3 validation results.",
+      "revision": 13
+    },
+    {
+      "seq": 14,
+      "at": "2026-10-15T02:54:55.570Z",
+      "event": "review_recorded",
+      "taskId": "W4",
+      "by": "checker-agent",
+      "reason": "Task review recorded with pass.",
+      "revision": 14
+    },
+    {
+      "seq": 15,
+      "at": "2026-10-15T02:55:02.952Z",
+      "event": "work_closed",
+      "taskId": null,
+      "by": "pilot",
+      "reason": "Trabajo completado por el piloto",
+      "revision": 15
+    }
+  ],
+  "closure": {
+    "outcome": "completed",
+    "reason": "Trabajo completado por el piloto",
+    "by": "pilot",
+    "closedAt": "2026-10-15T02:55:02.952Z",
+    "briefDigest": "b45e76178b722af7cb0d0691c0972bf96e98abdb23f28a38f8b0e1b16442987e",
+    "finalRevision": 15
+  },
+  "promotion": null
+}
