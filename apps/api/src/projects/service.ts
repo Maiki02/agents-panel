@@ -478,6 +478,26 @@ export class ProjectService {
     return branch;
   }
 
+  /**
+   * A fresh clone only has the remote's default branch locally. When the requested base is another
+   * one that origin has, checks it out tracking origin so the clone sits on the base (the pull of
+   * the base clone requires it). Only for clones this service just made, never adopted folders.
+   */
+  private async checkoutRemoteBranch(repoPath: string, branch: string): Promise<void> {
+    try {
+      await git(repoPath, ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`]);
+      return;
+    } catch {
+      // Not local: look for it on origin.
+    }
+    try {
+      await git(repoPath, ['rev-parse', '--verify', '--quiet', `refs/remotes/origin/${branch}`]);
+    } catch {
+      return; // assertBranch reports it.
+    }
+    await git(repoPath, ['checkout', '--quiet', '-b', branch, '--track', `origin/${branch}`]);
+  }
+
   private async assertBranch(repoPath: string, branch: string): Promise<void> {
     try {
       await git(repoPath, ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`]);
@@ -536,6 +556,7 @@ export class ProjectService {
       if (normalizeOrigin(origin, hosts) !== normalizeOrigin(github.httpsUrl, hosts)) {
         throw new ProjectError(`El origin del clon no es ${github.slug}`);
       }
+      if (project.baseBranch !== '') await this.checkoutRemoteBranch(dest, project.baseBranch);
       const branch = await this.resolveBranch(
         dest,
         project.baseBranch === '' ? null : project.baseBranch,

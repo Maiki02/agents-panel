@@ -300,6 +300,24 @@ describe('failures and retry', () => {
     expect(repo.findById(explicit.id)).toMatchObject({ status: 'ready', baseBranch: 'main' });
   });
 
+  it('checks out a base branch that only exists on origin, tracking it', async () => {
+    const cloner: Cloner = (slug, dest) => {
+      execFileSync('git', ['clone', '-q', '--bare', makeGitRepo(), dest + '.git']);
+      dirs.push(dest + '.git');
+      git(dest + '.git', 'branch', 'dev', 'main');
+      execFileSync('git', ['clone', '-q', dest + '.git', dest], { stdio: 'pipe' });
+      git(dest, 'remote', 'set-url', 'origin', `https://github.com/${slug}.git`);
+      return Promise.resolve();
+    };
+    const { service, repo, projectsDir } = setup({ cloner });
+    const created = await service.add({ repo: 'https://github.com/o/r/tree/dev' });
+    await service.whenIdle();
+    expect(repo.findById(created.id)).toMatchObject({ status: 'ready', baseBranch: 'dev' });
+    const clone = join(projectsDir, 'r');
+    expect(git(clone, 'rev-parse', '--abbrev-ref', 'HEAD')).toBe('dev');
+    expect(git(clone, 'rev-parse', '--abbrev-ref', 'dev@{upstream}')).toBe('origin/dev');
+  });
+
   it('is error when the branch of the URL does not exist in the clone', async () => {
     const { service, repo } = setup();
     const created = await service.add({ repo: 'https://github.com/o/r/tree/dev' });
