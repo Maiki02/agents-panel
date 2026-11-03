@@ -1,0 +1,748 @@
+{
+  "schemaVersion": 1,
+  "kind": "organic-work",
+  "id": "ajustes-chat-mobile-y-relogin",
+  "title": "Ajustes del chat en mobile, etiquetas de la card, info de tarea, modelos y relogueo de Claude",
+  "objective": "Cinco ajustes del panel: navegación mobile dentro de un chat, etiqueta de planificación en la card, tooltip con el título de la tarea en ejecución, orden vertical de los modelos pensante y ejecutor, y relogueo de una cuenta de Claude desde la web.",
+  "brief": {
+    "path": "brief.md",
+    "digest": "e6cf14225d97f14f4101079949cc18ec9eb096e4d6527454173307eaf629d975",
+    "sourceIdea": null
+  },
+  "state": "closed",
+  "revision": 25,
+  "createdAt": "2026-11-03T01:57:14.824Z",
+  "updatedAt": "2026-11-03T16:17:44.405Z",
+  "handoff": {
+    "nextAction": "done",
+    "nextTaskId": null,
+    "blockedReason": null
+  },
+  "tasks": [
+    {
+      "id": "W1",
+      "title": "Web: flecha atrás en mobile y sin tabs Chat/Configuración",
+      "description": "Dentro de un chat, en mobile se ocultan las tabs Chat y Configuración y se muestra una flecha que vuelve a la lista de chats del proyecto. En desktop la UI queda igual.",
+      "context": "Punto 1 del brief. El breakpoint mobile ya existe en apps/web/src/app/shell (media.ts); reutilizarlo en vez de crear otro.",
+      "filesToTouch": [
+        "apps/web/src/app/chats/chat.page.ts",
+        "apps/web/src/app/shell/media.ts",
+        "apps/web/src/app/chats/chat-redirect.page.ts"
+      ],
+      "acceptanceCriteria": [
+        "En mobile dentro de un chat no se renderizan las tabs Chat y Configuración y hay una flecha atrás accesible (aria-label) que navega a la lista de chats del proyecto",
+        "En desktop las tabs se ven y no hay flecha",
+        "Hay un test de la lógica de visibilidad (spec) para mobile y desktop",
+        "npm run build y los tests de apps/web pasan"
+      ],
+      "dependsOn": [],
+      "definitionRevision": 1,
+      "status": "verified",
+      "blocker": null,
+      "evidence": {
+        "summary": "El layout del proyecto oculta las tabs Chats/Configuración (y el badge) dentro de un chat cuando la pantalla es menor a md (isChatRoute + mediaMatches). La página del chat muestra una flecha atrás (arrow_back, aria-label, data-testid back-arrow) solo en mobile; desktop conserva el botón «Chats» y las tabs.",
+        "validations": [
+          {
+            "command": "npm run build",
+            "result": "passed",
+            "note": "shared, api y web compilan"
+          },
+          {
+            "command": "npm run lint",
+            "result": "passed",
+            "note": "sin errores"
+          },
+          {
+            "command": "npm test -w @agents-panel/web",
+            "result": "passed",
+            "note": "403 tests, incluye isChatRoute en nav.spec.ts"
+          }
+        ],
+        "filesChanged": [
+          "apps/web/src/app/chats/chat.page.ts",
+          "apps/web/src/app/projects/project-layout.ts",
+          "apps/web/src/app/shell/nav-logic.ts",
+          "apps/web/src/app/shell/nav.spec.ts",
+          "apps/web/src/app/ui/icon.ts"
+        ],
+        "notes": "Se agregó también el ícono info a icon.ts para W3.",
+        "by": "claude-maker",
+        "recordedAt": "2026-11-03T02:05:19.887Z",
+        "definitionRevision": 1,
+        "materialDigest": "227178c7f8276043bbcb8d0fc5319b0d09592d0e1c667c929f1b1d201447b579"
+      },
+      "verdict": {
+        "result": "pass",
+        "checkedCriteria": [
+          "En mobile dentro de un chat no se renderizan las tabs Chat y Configuración y hay una flecha atrás accesible (aria-label) que navega a la lista de chats del proyecto",
+          "En desktop las tabs se ven y no hay flecha",
+          "Hay un test de la lógica de visibilidad (spec) para mobile y desktop",
+          "npm run build y los tests de apps/web pasan"
+        ],
+        "findings": [],
+        "by": "claude-checker",
+        "reviewedAt": "2026-11-03T02:06:45.269Z",
+        "definitionRevision": 1,
+        "evidenceDigest": "d0e9cd28b74354cae69aed40acb57371c575c4c0d403d6bbd45fa79ba7e9004b",
+        "reviewedMaterialDigest": "227178c7f8276043bbcb8d0fc5319b0d09592d0e1c667c929f1b1d201447b579"
+      },
+      "disposition": null
+    },
+    {
+      "id": "W2",
+      "title": "Clasificar «Planificando» en la card: general, scope o sprint X",
+      "description": "La card muestra «Planificando» si es general, «Planificando scope» si la planificación es del scope y «Planificando sprint X» si es la de un sprint. La clasificación sale de señales verificables de Kyro (acción plan_sprint, init, plan_tasks y el sprint actual), nunca del texto del agente.",
+      "context": "Punto 2 del brief. apps/api/src/kyro/map-state.ts mapea init, plan_sprint y plan_tasks a 'planificando'; sidebarBadge en apps/web/src/app/chats/status.ts y workStateBadge en work-state.ts arman la etiqueta. Si hace falta, exponer en el estado un campo opcional (p. ej. planningTarget y sprint) en packages/shared.",
+      "filesToTouch": [
+        "packages/shared/src/index.ts",
+        "apps/api/src/kyro/map-state.ts",
+        "apps/api/src/kyro/state.ts",
+        "apps/api/src/worktrees/state-tracker.ts",
+        "apps/web/src/app/chats/work-state.ts",
+        "apps/web/src/app/chats/status.ts",
+        "apps/api/test/kyro-map-state.test.ts",
+        "apps/web/src/app/chats/status.spec.ts",
+        "docs/estados.md"
+      ],
+      "acceptanceCriteria": [
+        "Un chat en planificación general muestra «Planificando»; el de scope «Planificando scope»; el de un sprint «Planificando sprint X» con el número real",
+        "La clasificación se deduce de la salida de Kyro y no del texto del agente; sin dato, cae en «Planificando»",
+        "Tests de API y web cubren los tres casos y el caso sin dato",
+        "docs/estados.md documenta la clasificación",
+        "npm run build y los tests de api y web pasan"
+      ],
+      "dependsOn": [],
+      "definitionRevision": 1,
+      "status": "verified",
+      "blocker": null,
+      "evidence": {
+        "summary": "packages/shared suma PlanningTarget, planningTarget() y planningLabel(). La API devuelve Chat.planning en GET /api/chats y /api/chats/:id, deducido de worktree_state (sin migración): un Work u otro chat que no es scope es general; un scope sin sprint_current ni sprint_closed es scope; un scope con sprints es sprint activo o el siguiente al último cerrado. La web (sidebarBadge y la cabecera del chat vía stateBadge) muestra Planificando, Planificando scope o Planificando sprint X; sin dato queda Planificando. docs/estados.md lo documenta.",
+        "validations": [
+          {
+            "command": "npm run build",
+            "result": "passed",
+            "note": "shared, api y web compilan"
+          },
+          {
+            "command": "npm run lint",
+            "result": "passed",
+            "note": "sin errores"
+          },
+          {
+            "command": "npm test -w @agents-panel/shared",
+            "result": "passed",
+            "note": "14 tests, incluye planning.test.ts"
+          },
+          {
+            "command": "npm test -w @agents-panel/api",
+            "result": "passed",
+            "note": "1411 tests, incluye el caso nuevo de planning en worktree-state.test.ts"
+          },
+          {
+            "command": "npm test -w @agents-panel/web",
+            "result": "passed",
+            "note": "407 tests, incluye los casos nuevos de sidebarBadge en status.spec.ts"
+          }
+        ],
+        "filesChanged": [
+          "packages/shared/src/index.ts",
+          "packages/shared/test/planning.test.ts",
+          "apps/api/src/chats/routes.ts",
+          "apps/api/test/worktree-state.test.ts",
+          "apps/web/src/app/chats/status.ts",
+          "apps/web/src/app/chats/status.spec.ts",
+          "apps/web/src/app/chats/chat.page.ts",
+          "docs/estados.md"
+        ],
+        "notes": "No se tocó map-state.ts ni state.ts: sprintCurrent y sprintClosed ya se guardan en worktree_state. Limitación: en el primer turno de un scope, antes de la primera lectura de Kyro, no hay datos de sprint y se muestra Planificando scope.",
+        "by": "claude-maker",
+        "recordedAt": "2026-11-03T02:13:27.763Z",
+        "definitionRevision": 1,
+        "materialDigest": "fd8285954a50481bed1a8e2a91a249044484cec47099b116b6ecfd3d671fa33b"
+      },
+      "verdict": {
+        "result": "pass",
+        "checkedCriteria": [
+          "Un chat en planificación general muestra «Planificando»; el de scope «Planificando scope»; el de un sprint «Planificando sprint X» con el número real",
+          "La clasificación se deduce de la salida de Kyro y no del texto del agente; sin dato, cae en «Planificando»",
+          "Tests de API y web cubren los tres casos y el caso sin dato",
+          "docs/estados.md documenta la clasificación",
+          "npm run build y los tests de api y web pasan"
+        ],
+        "findings": [],
+        "by": "claude-checker",
+        "reviewedAt": "2026-11-03T02:13:31.672Z",
+        "definitionRevision": 1,
+        "evidenceDigest": "7263f1b4ce2f5e836041a84f5d611049392ca12129d8dd4deb42c06fe9bb4546",
+        "reviewedMaterialDigest": "fd8285954a50481bed1a8e2a91a249044484cec47099b116b6ecfd3d671fa33b"
+      },
+      "disposition": null
+    },
+    {
+      "id": "W3",
+      "title": "Icono de info con tooltip del título de la tarea en ejecución",
+      "description": "Cuando se ejecuta una tarea (T3.1, W2…) se muestra un icono de info junto a su id; al hacer hover aparece un tooltip con el título de la tarea. Sin título, no se muestra el icono.",
+      "context": "Punto 3 del brief. currentTaskView en phase-logic.ts arma la vista de la tarea actual y la usa work-info-panel.ts; hoy el estado solo trae taskId. Hay que leer el título de la salida de Kyro (status/context-pack) y propagarlo por el estado compartido.",
+      "filesToTouch": [
+        "packages/shared/src/index.ts",
+        "apps/api/src/kyro/state.ts",
+        "apps/api/src/worktrees/state-tracker.ts",
+        "apps/web/src/app/chats/phase-logic.ts",
+        "apps/web/src/app/chats/work-info-panel.ts",
+        "apps/web/src/app/chats/phase-stepper.ts",
+        "apps/api/test/kyro-state.test.ts",
+        "apps/web/src/app/chats/work-info-panel.spec.ts",
+        "apps/web/src/app/chats/phase-logic.spec.ts"
+      ],
+      "acceptanceCriteria": [
+        "Con una tarea en ejecución el panel muestra un icono de info y, al hacer hover o foco, un tooltip con el título de la tarea",
+        "Si Kyro no entrega título no se muestra el icono y no se inventa texto",
+        "El icono es accesible (aria-label o title) y no rompe el layout en mobile",
+        "Tests de API (lectura del título) y web (vista y tooltip) pasan",
+        "npm run build y los tests de api y web pasan"
+      ],
+      "dependsOn": [],
+      "definitionRevision": 1,
+      "status": "verified",
+      "blocker": null,
+      "evidence": {
+        "summary": "El título de la tarea actual viaja de Kyro a la tarjeta: parseWorkState lo toma de work status (task.title, solo si task.id es la tarea mostrada) y parseScopeState del sprint.json del sprint activo (taskTitleInSprint, porque el context-pack común trae taskTitle null). Se guarda en worktree_state.task_title (migración 25) y se expone como WorktreeState.taskTitle; cambiar de tarea borra el título anterior. En la web, currentTaskView devuelve title (null si no hay) y la tarjeta Tarea actual muestra un icono de info junto al id con un tooltip (hover o foco) con el título; sin título no hay icono.",
+        "validations": [
+          {
+            "command": "npm run build",
+            "result": "passed",
+            "note": "shared, api y web compilan"
+          },
+          {
+            "command": "npm run lint",
+            "result": "passed",
+            "note": "sin errores"
+          },
+          {
+            "command": "npm test -w @agents-panel/shared",
+            "result": "passed",
+            "note": "14 tests"
+          },
+          {
+            "command": "npm test -w @agents-panel/api",
+            "result": "passed",
+            "note": "1416 tests: kyro-state (título de Work y de scope), worktree-state (guardar, conservar y borrar el título), db (migración 25)"
+          },
+          {
+            "command": "npm test -w @agents-panel/web",
+            "result": "passed",
+            "note": "409 tests: currentTaskView y work-info-panel.spec con y sin título"
+          }
+        ],
+        "filesChanged": [
+          "packages/shared/src/index.ts",
+          "apps/api/src/db/migrations.ts",
+          "apps/api/src/kyro/state.ts",
+          "apps/api/src/kyro/map-state.ts",
+          "apps/api/src/worktrees/state-repo.ts",
+          "apps/api/src/worktrees/state-tracker.ts",
+          "apps/api/test/kyro-state.test.ts",
+          "apps/api/test/worktree-state.test.ts",
+          "apps/api/test/db.test.ts",
+          "apps/web/src/app/chats/phase-logic.ts",
+          "apps/web/src/app/chats/phase-logic.spec.ts",
+          "apps/web/src/app/chats/work-info-panel.ts",
+          "apps/web/src/app/chats/work-info-panel.spec.ts",
+          "docs/estados.md"
+        ],
+        "notes": "Los tests web del repo son de lógica pura (entorno node, sin TestBed): el tooltip en sí es CSS (group-hover y group-focus) y no tiene test de render; el criterio de layout en mobile se revisó leyendo la plantilla. Prettier reformateó db.test.ts, worktree-state.test.ts, phase-logic.spec.ts y state.ts completos.",
+        "by": "claude-maker",
+        "recordedAt": "2026-11-03T02:25:41.430Z",
+        "definitionRevision": 1,
+        "materialDigest": "ca4a6523ead5f0e8c03082cf941fa2e204b195a19eebe7109555bfcb12282618"
+      },
+      "verdict": {
+        "result": "pass",
+        "checkedCriteria": [
+          "Con una tarea en ejecución el panel muestra un icono de info y, al hacer hover o foco, un tooltip con el título de la tarea",
+          "Si Kyro no entrega título no se muestra el icono y no se inventa texto",
+          "El icono es accesible (aria-label o title) y no rompe el layout en mobile",
+          "Tests de API (lectura del título) y web (vista y tooltip) pasan",
+          "npm run build y los tests de api y web pasan"
+        ],
+        "findings": [],
+        "by": "claude-checker",
+        "reviewedAt": "2026-11-03T02:25:45.855Z",
+        "definitionRevision": 1,
+        "evidenceDigest": "dc1c67ddc7a290a8d20490f7fb61b412600a60bacfc4a0bc5c531a42f7c4fdd3",
+        "reviewedMaterialDigest": "ca4a6523ead5f0e8c03082cf941fa2e204b195a19eebe7109555bfcb12282618"
+      },
+      "disposition": null
+    },
+    {
+      "id": "W4",
+      "title": "Modelos: pensante arriba y ejecutor abajo en líneas separadas",
+      "description": "En los formularios de modelos (configuración del proyecto y nuevo chat) el modelo pensante con su input va primero y el ejecutor con el suyo debajo, en otra línea.",
+      "context": "Punto 4 del brief. Lugares: apps/web/src/app/projects/models.section.ts y apps/web/src/app/chats/new-chat.form.ts. Solo cambia el layout; no cambia el contrato ni los valores.",
+      "filesToTouch": [
+        "apps/web/src/app/projects/models.section.ts",
+        "apps/web/src/app/chats/new-chat.form.ts"
+      ],
+      "acceptanceCriteria": [
+        "En ambos formularios el pensante y su input están en una línea y el ejecutor y su input en la siguiente, también en mobile",
+        "Los tests existentes de new-chat.form y de la sección de modelos siguen pasando",
+        "npm run build y los tests de apps/web pasan"
+      ],
+      "dependsOn": [],
+      "definitionRevision": 1,
+      "status": "verified",
+      "blocker": null,
+      "evidence": {
+        "summary": "Causa: en el formulario de nuevo chat las etiquetas y selects de modelos estaban dentro de un details (bloque normal, no flex), así que pensante y ejecutor quedaban en la misma línea; el panel de información mostraba «Pensante: … · Ejecutor: …» en una sola línea. Ahora new-chat.form envuelve los campos en un contenedor flex-col (pensante con su select primero, ejecutor debajo) y work-info-panel muestra «Modelo pensante: …» y «Modelo ejecutor: …» en dos líneas. La sección Configuración > Modelos ya apilaba los campos (form es flex-col): no necesitó cambios.",
+        "validations": [
+          {
+            "command": "npm run build",
+            "result": "passed",
+            "note": "api y web compilan"
+          },
+          {
+            "command": "npm run lint",
+            "result": "passed",
+            "note": "sin errores"
+          },
+          {
+            "command": "npm test -w @agents-panel/web",
+            "result": "passed",
+            "note": "409 tests, incluidos new-chat.form.spec y los de la sección de modelos"
+          }
+        ],
+        "filesChanged": [
+          "apps/web/src/app/chats/new-chat.form.ts",
+          "apps/web/src/app/chats/work-info-panel.ts"
+        ],
+        "notes": "models.section.ts figuraba en filesToTouch pero no cambió: ya es una columna. Solo cambia el layout; los tests web del repo son de lógica pura (sin render), así que la revisión del layout fue sobre la plantilla y las clases de components.css.",
+        "by": "claude-maker",
+        "recordedAt": "2026-11-03T02:28:05.429Z",
+        "definitionRevision": 1,
+        "materialDigest": "76dfd321a869869bf5d2eb1ca1c1a65637686bbd1304b98970368926d460fdcd"
+      },
+      "verdict": {
+        "result": "pass",
+        "checkedCriteria": [
+          "En ambos formularios el pensante y su input están en una línea y el ejecutor y su input en la siguiente, también en mobile",
+          "Los tests existentes de new-chat.form y de la sección de modelos siguen pasando",
+          "npm run build y los tests de apps/web pasan"
+        ],
+        "findings": [],
+        "by": "claude-checker",
+        "reviewedAt": "2026-11-03T02:28:05.735Z",
+        "definitionRevision": 1,
+        "evidenceDigest": "d1f041b598a7f717051e0e151a236d4270698b0b9470034c33b0f4927ee00d05",
+        "reviewedMaterialDigest": "76dfd321a869869bf5d2eb1ca1c1a65637686bbd1304b98970368926d460fdcd"
+      },
+      "disposition": null
+    },
+    {
+      "id": "W5",
+      "title": "API: flujo de relogueo de una cuenta de Claude",
+      "description": "Servicio y rutas para reloguear una cuenta: iniciar el login de Claude en la VM con el CLAUDE_CONFIG_DIR de la cuenta (sin variable para la principal), devolver el link de autorización, recibir el código y completar el flujo, con estado en memoria, un flujo por cuenta y timeout.",
+      "context": "Punto 5 del brief (decisión del usuario: flujo con código en la web). apps/api/src/accounts/service.ts y routes.ts ya validan el directorio y detectan cuentas sin login. Reglas del repo: sesión, CSRF y TOTP; nunca devolver, loguear ni persistir el código ni credenciales; no tocar .credentials.json ni .claude.json por fuera de lo que hace claude; sin sudo ni bypassPermissions. Verificar primero qué subcomando del CLI de Claude soporta login no interactivo antes de decidir cómo lanzarlo. Decisión de diseño: un código TOTP sirve una sola vez, así que el TOTP se pide al iniciar el flujo (que es lo que lanza el proceso en la VM) y el envío del código exige sesión y CSRF sobre un flujo ya iniciado con TOTP.",
+      "filesToTouch": [
+        "apps/api/src/accounts/service.ts",
+        "apps/api/src/accounts/routes.ts",
+        "apps/api/src/accounts/relogin.ts",
+        "apps/api/src/accounts/relogin-routes.ts",
+        "apps/api/src/app.ts",
+        "packages/shared/src/index.ts",
+        "apps/api/test/accounts-relogin.test.ts",
+        "apps/api/test/helpers.ts",
+        "apps/api/test/cli.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "El POST que inicia el relogueo exige sesión, CSRF y TOTP y sin ellos responde 400, 401 o 403 sin lanzar ningún proceso; el POST que envía el código exige sesión y CSRF y solo funciona sobre un flujo iniciado con TOTP",
+        "Un solo flujo por cuenta (409 si ya hay uno), con timeout que mata el proceso y limpia el estado",
+        "El código y el link no se loguean ni se guardan en la base; el proceso corre con el entorno mínimo y el CLAUDE_CONFIG_DIR de la cuenta",
+        "Al terminar bien, la cuenta pasa a tener login según el service existente; si falla, el error es claro y el estado se limpia",
+        "Tests con un proceso falso cubren inicio, código correcto, código inválido, timeout y concurrencia",
+        "npm run build, lint y los tests de apps/api pasan"
+      ],
+      "dependsOn": [],
+      "definitionRevision": 2,
+      "status": "verified",
+      "blocker": null,
+      "evidence": {
+        "summary": "Nuevo ReloginService (apps/api/src/accounts/relogin.ts) y tres rutas (relogin-routes.ts): POST /api/accounts/:id/relogin {totp} lanza `claude auth login` con el CLAUDE_CONFIG_DIR de la cuenta (sin la variable para la principal) y un entorno mínimo (PATH, HOME, LANG, LC_ALL, TMPDIR, NO_COLOR, TERM), y devuelve el link de autorización solo si es de claude.ai, claude.com o anthropic.com; POST /api/accounts/:id/relogin/code {code} valida el formato, escribe el código en el stdin del proceso, espera la salida y devuelve la cuenta solo si el proceso terminó en 0 y .credentials.json se reescribió; DELETE cancela. Un flujo por cuenta (409), con tiempo límite para el link, para la confirmación y para toda la vida del flujo; el cierre del servidor mata los procesos. El TOTP se pide al iniciar (sesión y CSRF en ambas por el guard global); el código ni el link se loguean, guardan ni se devuelven en errores. Los tests inyectan un proceso falso (el helper makeApp nunca lanza claude).",
+        "validations": [
+          {
+            "command": "npm run build",
+            "result": "passed",
+            "note": "shared, api y web compilan"
+          },
+          {
+            "command": "npm run lint",
+            "result": "passed",
+            "note": "sin errores"
+          },
+          {
+            "command": "npm test -w @agents-panel/api",
+            "result": "passed",
+            "note": "1434 tests; accounts-relogin.test.ts (18) cubre TOTP, 401, link, entorno, 409, 404, 502 por falta de link/proceso muerto/link ajeno, código válido, formato, rechazo, credenciales viejas, timeout y cancelación; cli.test.ts suma las 3 rutas nuevas"
+          }
+        ],
+        "filesChanged": [
+          "apps/api/src/accounts/relogin.ts",
+          "apps/api/src/accounts/relogin-routes.ts",
+          "apps/api/src/accounts/service.ts",
+          "apps/api/src/app.ts",
+          "apps/api/test/accounts-relogin.test.ts",
+          "apps/api/test/helpers.ts",
+          "apps/api/test/cli.test.ts"
+        ],
+        "notes": "NO VERIFICADO CONTRA EL CLI REAL: el entorno de este agente no puede ejecutar `claude`, así que no se probó que `claude auth login` con stdin/stdout por pipe (sin TTY) imprima el link y acepte el código; el subcomando y esa forma de uso se asumen. La parte aislada está detrás de ReloginSpawner (claudeLoginSpawner) para poder cambiarla, p. ej. a un pseudo-terminal, si el CLI lo exige. Hay que probarlo a mano en la VM con una cuenta que se pueda reloguear. Decisión: el TOTP se pide solo al iniciar porque un código TOTP sirve una vez; el paso del código no repite el TOTP.",
+        "by": "claude-maker",
+        "recordedAt": "2026-11-03T02:44:56.047Z",
+        "definitionRevision": 2,
+        "materialDigest": "53bba47ece8f6588a06104360cd86aff44784c3b5a07c1109c908b0339e7bdf2"
+      },
+      "verdict": {
+        "result": "pass",
+        "checkedCriteria": [
+          "El POST que inicia el relogueo exige sesión, CSRF y TOTP y sin ellos responde 400, 401 o 403 sin lanzar ningún proceso; el POST que envía el código exige sesión y CSRF y solo funciona sobre un flujo iniciado con TOTP",
+          "Un solo flujo por cuenta (409 si ya hay uno), con timeout que mata el proceso y limpia el estado",
+          "El código y el link no se loguean ni se guardan en la base; el proceso corre con el entorno mínimo y el CLAUDE_CONFIG_DIR de la cuenta",
+          "Al terminar bien, la cuenta pasa a tener login según el service existente; si falla, el error es claro y el estado se limpia",
+          "Tests con un proceso falso cubren inicio, código correcto, código inválido, timeout y concurrencia",
+          "npm run build, lint y los tests de apps/api pasan"
+        ],
+        "findings": [],
+        "by": "claude-checker",
+        "reviewedAt": "2026-11-03T02:44:58.998Z",
+        "definitionRevision": 2,
+        "evidenceDigest": "692a7b921bede56745011206f99d528de47e076c831879ab8e9c3173ff16bb5e",
+        "reviewedMaterialDigest": "53bba47ece8f6588a06104360cd86aff44784c3b5a07c1109c908b0339e7bdf2"
+      },
+      "disposition": null
+    },
+    {
+      "id": "W6",
+      "title": "Web y docs: botón Reloguear en Cuentas",
+      "description": "En Cuentas, cada cuenta ofrece «Reloguear»: abre un modal que pide el TOTP, muestra el link de autorización, pide el código que muestra el navegador, informa el resultado y refresca la cuenta.",
+      "context": "Consume las rutas de W5. Seguir los patrones de add-git-account.modal.ts (TOTP en el modal compartido) y accounts.service.ts. El botón va en toda cuenta, no solo en las «Sin login»: un login cerrado o vencido suele conservar .credentials.json, así que loggedIn puede seguir en true y es justo el caso del pedido. Documentar en docs/panel-desarrollo.md (referencia de la API y el flujo) y docs/plan.md.",
+      "filesToTouch": [
+        "apps/web/src/app/accounts/accounts.page.ts",
+        "apps/web/src/app/accounts/accounts.service.ts",
+        "apps/web/src/app/accounts/accounts-logic.ts",
+        "apps/web/src/app/accounts/relogin.modal.ts",
+        "apps/web/src/app/accounts/accounts.spec.ts",
+        "docs/panel-desarrollo.md",
+        "docs/plan.md"
+      ],
+      "acceptanceCriteria": [
+        "Toda cuenta de Claude muestra el botón Reloguear, con o sin login, porque un login vencido conserva el archivo de credenciales",
+        "El modal pide el TOTP, muestra el link, acepta el código y informa éxito o error sin mostrar el código en ningún lado ni guardarlo al cerrar",
+        "Al terminar la lista de cuentas se refresca y la cuenta figura con login; cerrar el modal a mitad cancela el flujo en la API",
+        "docs/panel-desarrollo.md y docs/plan.md describen el flujo y la API",
+        "npm run build, lint y los tests de apps/web pasan"
+      ],
+      "dependsOn": [
+        "W5"
+      ],
+      "definitionRevision": 2,
+      "status": "verified",
+      "blocker": null,
+      "evidence": {
+        "summary": "Cuentas muestra el botón Reloguear en toda cuenta de Claude (con o sin login). Abre ReloginModal: 1) TOTP en el modal compartido, que inicia el flujo en la API; 2) el link de autorización, que solo se renderiza si safeAuthLink lo acepta (https de claude.ai, claude.com o anthropic.com); 3) el código del navegador en un input de tipo password, que se vacía al enviarlo, ante error y al cerrar; cerrar a mitad llama a DELETE /relogin. Al terminar bien se refresca la lista de cuentas. El aviso «Sin login» ahora apunta al botón. Documentado el flujo, la prueba manual pendiente y las tres rutas en docs/panel-desarrollo.md y docs/plan.md.",
+        "validations": [
+          {
+            "command": "npm run build",
+            "result": "passed",
+            "note": "shared, api y web compilan"
+          },
+          {
+            "command": "npm run lint",
+            "result": "passed",
+            "note": "sin errores"
+          },
+          {
+            "command": "npm test -w @agents-panel/web",
+            "result": "passed",
+            "note": "414 tests, incluye canRelogin, canSendReloginCode y safeAuthLink en accounts.spec.ts"
+          },
+          {
+            "command": "npm test -w @agents-panel/api",
+            "result": "passed",
+            "note": "1434 tests"
+          }
+        ],
+        "filesChanged": [
+          "apps/web/src/app/accounts/accounts.page.ts",
+          "apps/web/src/app/accounts/accounts.service.ts",
+          "apps/web/src/app/accounts/accounts-logic.ts",
+          "apps/web/src/app/accounts/relogin.modal.ts",
+          "apps/web/src/app/accounts/accounts.spec.ts",
+          "docs/panel-desarrollo.md",
+          "docs/plan.md"
+        ],
+        "notes": "Los tests web son de lógica pura (entorno node): el modal y la página no tienen test de render y se revisaron leyendo la plantilla; la prueba de punta a punta con el CLI real de Claude queda pendiente en la VM (ver W5 y docs/panel-desarrollo.md). Se enmendó el criterio de W6 (botón en toda cuenta, no solo en las sin login) con motivo registrado.",
+        "by": "claude-maker",
+        "recordedAt": "2026-11-03T02:51:17.329Z",
+        "definitionRevision": 2,
+        "materialDigest": "d6fd8bd559273a99f70cb871437d94202a50ea2705973b7f55c7e7355a357fe7"
+      },
+      "verdict": {
+        "result": "pass",
+        "checkedCriteria": [
+          "Toda cuenta de Claude muestra el botón Reloguear, con o sin login, porque un login vencido conserva el archivo de credenciales",
+          "El modal pide el TOTP, muestra el link, acepta el código y informa éxito o error sin mostrar el código en ningún lado ni guardarlo al cerrar",
+          "Al terminar la lista de cuentas se refresca y la cuenta figura con login; cerrar el modal a mitad cancela el flujo en la API",
+          "docs/panel-desarrollo.md y docs/plan.md describen el flujo y la API",
+          "npm run build, lint y los tests de apps/web pasan"
+        ],
+        "findings": [],
+        "by": "claude-checker",
+        "reviewedAt": "2026-11-03T02:51:20.054Z",
+        "definitionRevision": 2,
+        "evidenceDigest": "da90853b9a777ec0f78c46c5e300eabea594972b95c651f11fc1a0beeea8bb51",
+        "reviewedMaterialDigest": "d6fd8bd559273a99f70cb871437d94202a50ea2705973b7f55c7e7355a357fe7"
+      },
+      "disposition": null
+    }
+  ],
+  "activity": [
+    {
+      "seq": 1,
+      "at": "2026-11-03T01:57:14.824Z",
+      "event": "created",
+      "taskId": null,
+      "by": "claude",
+      "reason": "Created through the Work CLI.",
+      "revision": 1
+    },
+    {
+      "seq": 2,
+      "at": "2026-11-03T01:57:53.037Z",
+      "event": "tasks_planned",
+      "taskId": null,
+      "by": "claude",
+      "reason": "Planned 6 Work tasks.",
+      "revision": 2
+    },
+    {
+      "seq": 3,
+      "at": "2026-11-03T02:01:30.108Z",
+      "event": "task_started",
+      "taskId": "W1",
+      "by": "claude",
+      "reason": "Task started through the Work CLI.",
+      "revision": 3
+    },
+    {
+      "seq": 4,
+      "at": "2026-11-03T02:05:19.887Z",
+      "event": "evidence_recorded",
+      "taskId": "W1",
+      "by": "claude-maker",
+      "reason": "Evidence recorded with 3 validation results.",
+      "revision": 4
+    },
+    {
+      "seq": 5,
+      "at": "2026-11-03T02:06:45.269Z",
+      "event": "review_recorded",
+      "taskId": "W1",
+      "by": "claude-checker",
+      "reason": "Task review recorded with pass.",
+      "revision": 5
+    },
+    {
+      "seq": 6,
+      "at": "2026-11-03T02:06:51.033Z",
+      "event": "task_started",
+      "taskId": "W2",
+      "by": "claude",
+      "reason": "Task started through the Work CLI.",
+      "revision": 6
+    },
+    {
+      "seq": 7,
+      "at": "2026-11-03T02:13:27.763Z",
+      "event": "evidence_recorded",
+      "taskId": "W2",
+      "by": "claude-maker",
+      "reason": "Evidence recorded with 5 validation results.",
+      "revision": 7
+    },
+    {
+      "seq": 8,
+      "at": "2026-11-03T02:13:31.672Z",
+      "event": "review_recorded",
+      "taskId": "W2",
+      "by": "claude-checker",
+      "reason": "Task review recorded with pass.",
+      "revision": 8
+    },
+    {
+      "seq": 9,
+      "at": "2026-11-03T02:13:35.712Z",
+      "event": "task_started",
+      "taskId": "W3",
+      "by": "claude",
+      "reason": "Task started through the Work CLI.",
+      "revision": 9
+    },
+    {
+      "seq": 10,
+      "at": "2026-11-03T02:25:41.430Z",
+      "event": "evidence_recorded",
+      "taskId": "W3",
+      "by": "claude-maker",
+      "reason": "Evidence recorded with 5 validation results.",
+      "revision": 10
+    },
+    {
+      "seq": 11,
+      "at": "2026-11-03T02:25:45.855Z",
+      "event": "review_recorded",
+      "taskId": "W3",
+      "by": "claude-checker",
+      "reason": "Task review recorded with pass.",
+      "revision": 11
+    },
+    {
+      "seq": 12,
+      "at": "2026-11-03T02:25:47.941Z",
+      "event": "task_started",
+      "taskId": "W4",
+      "by": "claude",
+      "reason": "Task started through the Work CLI.",
+      "revision": 12
+    },
+    {
+      "seq": 13,
+      "at": "2026-11-03T02:28:05.429Z",
+      "event": "evidence_recorded",
+      "taskId": "W4",
+      "by": "claude-maker",
+      "reason": "Evidence recorded with 3 validation results.",
+      "revision": 13
+    },
+    {
+      "seq": 14,
+      "at": "2026-11-03T02:28:05.735Z",
+      "event": "review_recorded",
+      "taskId": "W4",
+      "by": "claude-checker",
+      "reason": "Task review recorded with pass.",
+      "revision": 14
+    },
+    {
+      "seq": 15,
+      "at": "2026-11-03T02:28:21.067Z",
+      "event": "task_started",
+      "taskId": "W5",
+      "by": "claude",
+      "reason": "Task started through the Work CLI.",
+      "revision": 15
+    },
+    {
+      "seq": 16,
+      "at": "2026-11-03T02:44:28.574Z",
+      "event": "evidence_recorded",
+      "taskId": "W5",
+      "by": "claude-maker",
+      "reason": "Evidence recorded with 3 validation results.",
+      "revision": 16
+    },
+    {
+      "seq": 17,
+      "at": "2026-11-03T02:44:51.877Z",
+      "event": "task_amended",
+      "taskId": "W5",
+      "by": "claude",
+      "reason": "El TOTP sirve una sola vez: se pide al iniciar el flujo y el envío del código exige sesión y CSRF sobre ese flujo",
+      "revision": 17
+    },
+    {
+      "seq": 18,
+      "at": "2026-11-03T02:44:52.120Z",
+      "event": "task_started",
+      "taskId": "W5",
+      "by": "claude",
+      "reason": "Task started through the Work CLI.",
+      "revision": 18
+    },
+    {
+      "seq": 19,
+      "at": "2026-11-03T02:44:56.047Z",
+      "event": "evidence_recorded",
+      "taskId": "W5",
+      "by": "claude-maker",
+      "reason": "Evidence recorded with 3 validation results.",
+      "revision": 19
+    },
+    {
+      "seq": 20,
+      "at": "2026-11-03T02:44:58.998Z",
+      "event": "review_recorded",
+      "taskId": "W5",
+      "by": "claude-checker",
+      "reason": "Task review recorded with pass.",
+      "revision": 20
+    },
+    {
+      "seq": 21,
+      "at": "2026-11-03T02:45:12.023Z",
+      "event": "task_amended",
+      "taskId": "W6",
+      "by": "claude",
+      "reason": "Un login cerrado o vencido conserva .credentials.json (loggedIn sigue true): el botón Reloguear va en toda cuenta, no solo en las Sin login",
+      "revision": 21
+    },
+    {
+      "seq": 22,
+      "at": "2026-11-03T02:45:12.447Z",
+      "event": "task_started",
+      "taskId": "W6",
+      "by": "claude",
+      "reason": "Task started through the Work CLI.",
+      "revision": 22
+    },
+    {
+      "seq": 23,
+      "at": "2026-11-03T02:51:17.329Z",
+      "event": "evidence_recorded",
+      "taskId": "W6",
+      "by": "claude-maker",
+      "reason": "Evidence recorded with 4 validation results.",
+      "revision": 23
+    },
+    {
+      "seq": 24,
+      "at": "2026-11-03T02:51:20.054Z",
+      "event": "review_recorded",
+      "taskId": "W6",
+      "by": "claude-checker",
+      "reason": "Task review recorded with pass.",
+      "revision": 24
+    },
+    {
+      "seq": 25,
+      "at": "2026-11-03T16:17:44.405Z",
+      "event": "work_closed",
+      "taskId": null,
+      "by": "pilot",
+      "reason": "Trabajo completado por el piloto",
+      "revision": 25
+    }
+  ],
+  "closure": {
+    "outcome": "completed",
+    "reason": "Trabajo completado por el piloto",
+    "by": "pilot",
+    "closedAt": "2026-11-03T16:17:44.405Z",
+    "briefDigest": "e6cf14225d97f14f4101079949cc18ec9eb096e4d6527454173307eaf629d975",
+    "finalRevision": 25
+  },
+  "promotion": null,
+  "author": {
+    "name": "Maiki02",
+    "email": "miqueasdavidgentile@gmail.com",
+    "source": "git",
+    "capturedAt": "2026-11-03T01:57:14.824Z"
+  }
+}
