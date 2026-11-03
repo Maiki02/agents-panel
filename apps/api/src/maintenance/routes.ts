@@ -1,5 +1,10 @@
 import type { FastifyInstance } from 'fastify';
-import type { KyroVersionInfo, MaintenanceRun, PanelDeployInfo } from '@agents-panel/shared';
+import type {
+  KyroVersionInfo,
+  MaintenanceKind,
+  MaintenanceRun,
+  PanelDeployInfo,
+} from '@agents-panel/shared';
 import type { ReauthVerifier } from '../auth/reauth.js';
 import { AUTH_RATE_LIMIT } from '../auth/routes.js';
 import { onlyKeys } from '../http/only-keys.js';
@@ -20,8 +25,18 @@ const updateBody = {
 const runsQuery = {
   type: 'object',
   additionalProperties: false,
-  properties: { kind: { type: 'string', enum: ['kyro-update', 'panel-deploy'] } },
+  properties: {
+    kind: { type: 'string', enum: ['kyro-update', 'panel-deploy'] },
+    limit: { type: 'integer', minimum: 1, maximum: RUNS_LIMIT },
+    offset: { type: 'integer', minimum: 0, maximum: 1_000_000 },
+  },
 } as const;
+
+interface RunsQuery {
+  kind?: MaintenanceKind;
+  limit?: number;
+  offset?: number;
+}
 
 export interface MaintenanceRouteDeps {
   versions: Pick<KyroVersions, 'installed' | 'latest'>;
@@ -97,7 +112,19 @@ export function registerMaintenanceRoutes(app: FastifyInstance, deps: Maintenanc
     },
   );
 
-  app.get('/api/maintenance-runs', { schema: { querystring: runsQuery } }, (): MaintenanceRun[] =>
-    runs.list(RUNS_LIMIT),
+  // The history of each card on Versiones asks for its own kind, a page at a time.
+  app.get<{ Querystring: RunsQuery }>(
+    '/api/maintenance-runs',
+    {
+      schema: { querystring: runsQuery },
+      preValidation: onlyKeys(Object.keys(runsQuery.properties), 'query'),
+    },
+    (request): MaintenanceRun[] => {
+      const { kind, limit, offset } = request.query;
+      return runs.list(limit ?? RUNS_LIMIT, {
+        ...(kind === undefined ? {} : { kind }),
+        ...(offset === undefined ? {} : { offset }),
+      });
+    },
   );
 }

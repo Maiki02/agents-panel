@@ -16,11 +16,28 @@ interface RunRow {
 }
 
 const SKIPPED_RE = /^KYRO_SKIPPED=(.+)$/gm;
+const COMMITTED_RE = /^KYRO_COMMITTED=(.+) [0-9a-f]+$/gm;
+const COMMIT_FAILED_RE = /^KYRO_COMMIT_FAILED=(.+?): (.*)$/gm;
 
 /** Roots the script reported as skipped (`KYRO_SKIPPED=<root>` lines). */
 export function skippedRoots(output: string | null): string[] {
   if (output === null) return [];
   return [...output.matchAll(SKIPPED_RE)].map((match) => (match[1] ?? '').trim());
+}
+
+/** Roots the updater committed and pushed (`KYRO_COMMITTED=<root> <sha>` lines). */
+export function committedRoots(output: string | null): string[] {
+  if (output === null) return [];
+  return [...output.matchAll(COMMITTED_RE)].map((match) => (match[1] ?? '').trim());
+}
+
+/** Roots whose commit or push failed (`KYRO_COMMIT_FAILED=<root>: <reason>` lines). */
+export function commitFailures(output: string | null): { root: string; reason: string }[] {
+  if (output === null) return [];
+  return [...output.matchAll(COMMIT_FAILED_RE)].map((match) => ({
+    root: (match[1] ?? '').trim(),
+    reason: (match[2] ?? '').trim(),
+  }));
 }
 
 function toRun(row: RunRow): MaintenanceRun {
@@ -32,6 +49,8 @@ function toRun(row: RunRow): MaintenanceRun {
     status: row.status,
     output: row.output,
     skipped: skippedRoots(row.output),
+    committed: committedRoots(row.output),
+    commitFailures: commitFailures(row.output),
     startedAt: row.started_at,
     finishedAt: row.finished_at,
   };
@@ -81,13 +100,23 @@ export class MaintenanceRunRepository {
     return row ? toRun(row) : undefined;
   }
 
-  /** Newest first. */
-  list(limit = 20): MaintenanceRun[] {
-    return (
-      this.db
-        .prepare('SELECT * FROM maintenance_runs ORDER BY started_at DESC, id DESC LIMIT ?')
-        .all(limit) as unknown as RunRow[]
-    ).map(toRun);
+  /** Newest first; only one kind when given, `offset` rows skipped (the history pages). */
+  list(limit = 20, options: { kind?: MaintenanceKind; offset?: number } = {}): MaintenanceRun[] {
+    const offset = options.offset ?? 0;
+    const rows =
+      options.kind === undefined
+        ? this.db
+            .prepare(
+              'SELECT * FROM maintenance_runs ORDER BY started_at DESC, id DESC LIMIT ? OFFSET ?',
+            )
+            .all(limit, offset)
+        : this.db
+            .prepare(
+              `SELECT * FROM maintenance_runs WHERE kind = ?
+               ORDER BY started_at DESC, id DESC LIMIT ? OFFSET ?`,
+            )
+            .all(options.kind, limit, offset);
+    return (rows as unknown as RunRow[]).map(toRun);
   }
 
   /** Runs left 'running' by a restart can never finish: mark them as errors. */

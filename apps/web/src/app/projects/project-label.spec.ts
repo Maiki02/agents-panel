@@ -32,7 +32,7 @@ describe('kyroPendingNotice', () => {
   it("warns only while Kyro's files are modified in the clone", () => {
     expect(kyroPendingNotice({ kyroPendingCommit: true })).toContain('Kyro actualizado en el clon');
     expect(kyroPendingNotice({ kyroPendingCommit: true })).toContain(
-      'no a mano sobre el clon base',
+      'Se reintenta en la próxima actualización',
     );
     expect(kyroPendingNotice({ kyroPendingCommit: false })).toBeNull();
     expect(kyroPendingNotice({})).toBeNull();

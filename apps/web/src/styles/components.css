@@ -45,6 +45,11 @@
   .link {
     @apply text-text underline decoration-muted underline-offset-2 hover:decoration-text;
   }
+  /* A text action (a button that reads as text, like «Ver historial» on Versiones): the accent
+     blue, underlined on hover. The one exception to «texts are never the brand color». */
+  .text-action {
+    @apply cursor-pointer border-0 bg-transparent p-0 text-accent underline-offset-2 hover:underline disabled:cursor-default disabled:opacity-60 disabled:hover:no-underline;
+  }
 
   /* Messages */
   .error {

@@ -1,4 +1,3 @@
-import { DatePipe } from '@angular/common';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -7,27 +6,21 @@ import {
   inject,
   signal,
 } from '@angular/core';
-import type { MaintenanceRun, PanelDeployInfo } from '@agents-panel/shared';
+import type { MaintenanceKind, MaintenanceRun, PanelDeployInfo } from '@agents-panel/shared';
 import { apiErrorMessage } from '../chats/chats.service';
 import { TotpModal } from '../shared/totp-modal';
-import { behindLabel, deployPhase, latestLabel, runLabel, type DeployPhase } from './version-label';
+import { RunHistory } from './run-history';
+import { behindLabel, deployPhase, latestLabel, type DeployPhase } from './version-label';
 import { VersionsService, type VersionsResponse } from './versions.service';
 import { Button } from '../ui/button';
-import { Badge } from '../ui/badge';
 import { Icon } from '../ui/icon';
-import type { BadgeTone } from '../ui/badge';
 
 const POLL_MS = 3000;
-const RUN_STATUS: Record<MaintenanceRun['status'], string> = {
-  running: 'En curso',
-  ok: 'Listo',
-  error: 'Error',
-};
 
 @Component({
   selector: 'app-versions',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [DatePipe, TotpModal, Button, Badge, Icon],
+  imports: [TotpModal, Button, Icon, RunHistory],
   template: `
     <h2>Versiones</h2>
     @if (error(); as message) {
@@ -60,6 +53,7 @@ const RUN_STATUS: Record<MaintenanceRun['status'], string> = {
             <app-icon name="refresh" [spin]="kyro.updateRunning" />
           </button>
         </div>
+        <app-run-history kind="kyro-update" [stamp]="stamp('kyro-update')" />
         @if (asking()) {
           <app-totp-modal
             heading="Actualizar Kyro"
@@ -121,6 +115,7 @@ const RUN_STATUS: Record<MaintenanceRun['status'], string> = {
           <app-icon name="refresh" [spin]="deploy() === 'running' || deploy() === 'restarting'" />
         </button>
       </div>
+      <app-run-history kind="panel-deploy" [stamp]="stamp('panel-deploy')" />
       @if (askingDeploy()) {
         <app-totp-modal
           heading="Desplegar el panel"
@@ -130,40 +125,6 @@ const RUN_STATUS: Record<MaintenanceRun['status'], string> = {
           (submitted)="startDeploy($event)"
           (closed)="askingDeploy.set(false)"
         />
-      }
-    </section>
-
-    <section class="card">
-      <h3>Historial</h3>
-      @for (run of runs(); track run.id) {
-        <details class="run">
-          <summary>
-            {{ run.startedAt | date: 'short' }} · {{ runText(run) }} ·
-            <app-badge [tone]="tone(run)">{{ statusText(run) }}</app-badge>
-          </summary>
-          @if (run.skipped.length > 0) {
-            <p class="hint" role="status">
-              No se actualizó el workspace de
-              {{ run.skipped.length === 1 ? 'este proyecto' : 'estos proyectos' }}
-              porque tienen cambios locales fuera de .agents/kyro/:
-              @for (root of run.skipped; track root) {
-                <code class="block">{{ root }}</code>
-              }
-              Commiteá o descartá esos cambios y volvé a actualizar.
-            </p>
-          }
-          @if (run.output) {
-            <pre>{{ run.output }}</pre>
-          } @else {
-            <p class="hint">Sin salida todavía.</p>
-          }
-        </details>
-      } @empty {
-        @if (runsLoaded()) {
-          <p class="hint">Todavía no hay actualizaciones.</p>
-        } @else {
-          <p class="hint" role="status">Cargando…</p>
-        }
       }
     </section>
   `,
@@ -178,8 +139,8 @@ export class VersionsPage {
     this.knownVersions?.kyro ?? null,
   );
   protected readonly panel = signal<PanelDeployInfo | null>(this.knownVersions?.panel ?? null);
-  protected readonly runs = signal<MaintenanceRun[]>(this.knownRuns ?? []);
-  protected readonly runsLoaded = signal(this.knownRuns !== undefined);
+  /** Last runs of any kind: they drive the deploy follow-up and the histories' reloads. */
+  private readonly runs = signal<MaintenanceRun[]>(this.knownRuns ?? []);
   protected readonly askingDeploy = signal(false);
   /** Where the deploy started from this page is; null when none is being followed. */
   protected readonly deploy = signal<DeployPhase | null>(null);
@@ -221,16 +182,10 @@ export class VersionsPage {
     return behindLabel(behind);
   }
 
-  protected runText(run: MaintenanceRun): string {
-    return runLabel(run);
-  }
-
-  protected statusText(run: MaintenanceRun): string {
-    return RUN_STATUS[run.status];
-  }
-
-  protected tone(run: MaintenanceRun): BadgeTone {
-    return run.status === 'ok' ? 'ok' : run.status === 'error' ? 'danger' : 'accent';
+  /** Newest run of a kind and its status: an open history reloads when it changes. */
+  protected stamp(kind: MaintenanceKind): string {
+    const last = this.runs().find((run) => run.kind === kind);
+    return last === undefined ? '' : `${String(last.id)}:${last.status}`;
   }
 
   protected openModal(): void {
@@ -288,7 +243,6 @@ export class VersionsPage {
       this.info.set(versions.kyro);
       this.panel.set(versions.panel);
       this.runs.set(runs);
-      this.runsLoaded.set(true);
       this.error.set(null);
       this.follow(versions.panel, runs);
       if (versions.kyro.updateRunning || versions.panel.deployRunning || this.following()) {

@@ -330,6 +330,10 @@ export interface MaintenanceRun {
   output: string | null;
   /** Project roots the update skipped because they had local changes outside .agents/kyro/. */
   skipped: string[];
+  /** Roots whose `.agents/kyro/` was committed and pushed straight to the base branch. */
+  committed: string[];
+  /** Roots whose commit or push failed, with the reason (the changes stay in the clone). */
+  commitFailures: { root: string; reason: string }[];
   startedAt: number;
   finishedAt: number | null;
 }
