@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { behindLabel, deployPhase, isNewer, latestLabel, runLabel } from './version-label';
+import { historyPage, mergeTop } from './run-history';
+import { behindLabel, deployPhase, isNewer, latestLabel, runDate, runRange } from './version-label';
 
 describe('latestLabel', () => {
   it('says unknown when there is no latest (no network)', () => {
@@ -18,19 +19,56 @@ describe('latestLabel', () => {
   });
 });
 
-describe('isNewer / runLabel', () => {
+describe('isNewer / runRange', () => {
   it('compares numerically', () => {
     expect(isNewer('6.10.0', '6.9.0')).toBe(true);
     expect(isNewer('6.1.0', '6.1.0')).toBe(false);
   });
 
-  it('shows unknown versions as ?', () => {
-    expect(runLabel({ kind: 'kyro-update', fromVersion: '6.0.0', toVersion: null })).toBe(
-      'Kyro 6.0.0 → ?',
-    );
-    expect(runLabel({ kind: 'panel-deploy', fromVersion: 'aaa1111', toVersion: 'bbb2222' })).toBe(
-      'Panel aaa1111 → bbb2222',
-    );
+  it('shows the range without the kind, unknown versions as ?', () => {
+    expect(runRange({ fromVersion: '6.0.0', toVersion: null })).toBe('6.0.0 → ?');
+    expect(runRange({ fromVersion: 'aaa1111', toVersion: 'bbb2222' })).toBe('aaa1111 → bbb2222');
+  });
+});
+
+describe('runDate', () => {
+  it('reads like «31 oct 2026, 14:52», in 24 h and without the dot of the month', () => {
+    expect(runDate(new Date(2026, 9, 31, 14, 52).getTime())).toBe('31 oct 2026, 14:52');
+    expect(runDate(new Date(2026, 0, 5, 9, 3).getTime())).toBe('5 ene 2026, 09:03');
+  });
+});
+
+describe('historyPage', () => {
+  const runs = (n: number) => Array.from({ length: n }, (_, i) => ({ id: n - i }));
+
+  it('shows a page and says whether there is more (it asks one extra)', () => {
+    expect(historyPage(runs(11), 10)).toEqual({ shown: runs(11).slice(0, 10), more: true });
+    expect(historyPage(runs(10), 10)).toEqual({ shown: runs(10), more: false });
+    expect(historyPage(runs(3), 10)).toEqual({ shown: runs(3), more: false });
+  });
+});
+
+describe('mergeTop', () => {
+  const ids = (...list: number[]) => list.map((id) => ({ id }));
+
+  it('puts a fresh first page on top and keeps the older rows already loaded', () => {
+    // 25 loaded (ids 25..6, more below); a new run (26) arrived.
+    const loaded = ids(...Array.from({ length: 20 }, (_, i) => 25 - i));
+    const page = { shown: ids(...Array.from({ length: 10 }, (_, i) => 26 - i)), more: true };
+    const merged = mergeTop(page, loaded, true);
+    expect(merged.runs.map((r) => r.id)).toEqual(Array.from({ length: 21 }, (_, i) => 26 - i));
+    expect(merged.more).toBe(true);
+  });
+
+  it('takes the page as is when it is the whole history', () => {
+    expect(mergeTop({ shown: ids(3, 2, 1), more: false }, ids(2, 1), false)).toEqual({
+      runs: ids(3, 2, 1),
+      more: false,
+    });
+    expect(mergeTop({ shown: ids(11, 10), more: true }, [], false)).toEqual({
+      runs: ids(11, 10),
+      more: true,
+    });
   });
 });
 

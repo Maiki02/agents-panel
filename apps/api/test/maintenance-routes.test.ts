@@ -240,6 +240,42 @@ describe('POST /api/versions/kyro/update', () => {
   });
 });
 
+describe('GET /api/maintenance-runs', () => {
+  async function seeded() {
+    const made = await setup();
+    const repo = new MaintenanceRunRepository(made.db, () => made.state.t++);
+    for (let i = 0; i < 3; i++) repo.create(`k${String(i)}`, 'kyro-update');
+    for (let i = 0; i < 12; i++) repo.create(`p${String(i)}`, 'panel-deploy');
+    const get = (query: string) =>
+      made.server.inject({ url: `/api/maintenance-runs${query}`, headers: made.headers });
+    return { ...made, get };
+  }
+
+  it('filters by kind and pages newest first with limit and offset', async () => {
+    const { get } = await seeded();
+    const from = async (query: string) =>
+      (await get(query)).json<MaintenanceRun[]>().map((run) => run.fromVersion);
+
+    expect(await from('?kind=kyro-update')).toEqual(['k2', 'k1', 'k0']);
+    const deploys = await from('?kind=panel-deploy&limit=11');
+    expect(deploys).toHaveLength(11);
+    expect(deploys[0]).toBe('p11');
+    expect(await from('?kind=panel-deploy&limit=10&offset=10')).toEqual(['p1', 'p0']);
+    // Without parameters: as before, every kind, the last 50.
+    const all = await from('');
+    expect(all).toHaveLength(15);
+    expect(all[0]).toBe('p11');
+  });
+
+  it('answers 400 for values out of range and unknown keys', async () => {
+    const { get } = await seeded();
+    const bad = ['?limit=0', '?limit=51', '?offset=-1', '?limit=abc', '?kind=otro', '?x=1'];
+    for (const query of bad) {
+      expect((await get(query)).statusCode, query).toBe(400);
+    }
+  });
+});
+
 describe('maintenance routes without a session', () => {
   it('answer 401 and stay out of the public allowlist', async () => {
     await setup();

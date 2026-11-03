@@ -61,11 +61,12 @@ export function repoDisplay(project: Pick<Project, 'repoUrl' | 'repoPath' | 'bas
 }
 
 /**
- * Shown while Kyro's project.json is modified in the base clone, which is what a Kyro update leaves
- * behind. null when there is nothing to commit.
+ * Shown while Kyro's project.json is still modified in the base clone: the Kyro update commits and
+ * pushes it to the base branch itself, so this only stays when that commit or push failed (the
+ * Versiones history says why). null when there is nothing pending.
  */
 export function kyroPendingNotice(project: Pick<Project, 'kyroPendingCommit'>): string | null {
   return project.kyroPendingCommit === true
-    ? 'Kyro actualizado en el clon: hay cambios por commitear. Commitealos con un work o con el botón Commit de un worktree, no a mano sobre el clon base.'
+    ? 'Kyro actualizado en el clon pero sin subir a la rama base: el historial de Kyro en Versiones dice por qué. Se reintenta en la próxima actualización.'
     : null;
 }

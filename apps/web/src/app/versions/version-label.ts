@@ -28,13 +28,22 @@ export function latestLabel(installed: string | null, latest: string | null): st
   return installed === null ? `última: ${latest}` : `última: ${latest} (al día)`;
 }
 
-const KIND_LABEL: Record<MaintenanceRun['kind'], string> = {
-  'kyro-update': 'Kyro',
-  'panel-deploy': 'Panel',
-};
+/** First line of a history row: versions (Kyro) or short commits (Panel); the card names the kind. */
+export function runRange(run: Pick<MaintenanceRun, 'fromVersion' | 'toVersion'>): string {
+  return `${run.fromVersion ?? '?'} → ${run.toVersion ?? '?'}`;
+}
 
-export function runLabel(run: Pick<MaintenanceRun, 'kind' | 'fromVersion' | 'toVersion'>): string {
-  return `${KIND_LABEL[run.kind]} ${run.fromVersion ?? '?'} → ${run.toVersion ?? '?'}`;
+const MONTH = new Intl.DateTimeFormat('es-AR', { month: 'short' });
+
+/** Second line of a history row, like «31 oct 2026, 14:52» (local time, 24 h). */
+export function runDate(startedAt: number): string {
+  const date = new Date(startedAt);
+  // Built by hand: the locale's own pattern says «31 de oct de 2026».
+  const month = MONTH.format(date).replace('.', '');
+  const time = [date.getHours(), date.getMinutes()]
+    .map((n) => String(n).padStart(2, '0'))
+    .join(':');
+  return `${String(date.getDate())} ${month} ${String(date.getFullYear())}, ${time}`;
 }
 
 /** What origin/main has that the running panel does not. */

@@ -8,6 +8,7 @@ import { ChatEventBus } from '../src/chats/events.js';
 import { ChatRepository } from '../src/chats/repo.js';
 import { ProjectRepository } from '../src/projects/repo.js';
 import { ProjectService } from '../src/projects/service.js';
+import type { KyroCommitter } from '../src/maintenance/kyro-commit.js';
 import { KyroLock } from '../src/maintenance/lock.js';
 import {
   KyroUpdater,
@@ -147,6 +148,7 @@ function updaterSetup(
     installed?: () => Promise<string | null>;
     projects?: Project[];
     lock?: KyroLock;
+    committer?: KyroCommitter;
   } = {},
 ) {
   const db = openDatabase(':memory:');
@@ -174,6 +176,7 @@ function updaterSetup(
     },
     lock: options.lock ?? new KyroLock(),
     scriptPath: '/fake/08-kyro-update.sh',
+    committer: options.committer ?? (() => Promise.resolve({ status: 'unchanged' })),
     runner: (args, timeout) => {
       if (!options.runner) return runner(args, timeout);
       calls.push(args);
@@ -205,6 +208,57 @@ describe('KyroUpdater', () => {
     expect(runs.findById(id)?.output).toContain('KYRO_VERSION=9.9.9');
     expect(calls).toEqual([['/fake/08-kyro-update.sh', '/p/a', '/p/b']]);
     expect(manager.inMaintenance).toBe(false);
+  });
+
+  it('commits every root but the skipped ones and reports each outcome', async () => {
+    const seen: string[] = [];
+    const committer: KyroCommitter = (target, version) => {
+      seen.push(`${target.repoPath}@${String(version)}`);
+      if (target.repoPath === '/p/a') {
+        return Promise.resolve({ status: 'committed', commit: 'abcdef1234' });
+      }
+      if (target.repoPath === '/p/c') return Promise.resolve({ status: 'unchanged' });
+      return Promise.resolve({ status: 'failed', reason: 'push rechazado:\nprotected branch' });
+    };
+    const { updater, runs } = updaterSetup({
+      projects: [project('a'), project('b'), project('c'), project('d')],
+      committer,
+      runner: () =>
+        Promise.resolve({ exitCode: 0, output: 'KYRO_SKIPPED=/p/d\nKYRO_VERSION=9.9.9\n' }),
+    });
+    const id = await updater.start();
+    await updater.whenIdle();
+    expect(seen).toEqual(['/p/a@6.1.0', '/p/b@6.1.0', '/p/c@6.1.0']);
+    const run = runs.findById(id);
+    expect(run).toMatchObject({
+      status: 'error',
+      skipped: ['/p/d'],
+      committed: ['/p/a'],
+      commitFailures: [{ root: '/p/b', reason: 'push rechazado: protected branch' }],
+    });
+    expect(run?.output).toContain('KYRO_COMMITTED=/p/a abcdef1');
+  });
+
+  it('stays ok when every root is committed or unchanged, and commits nothing after a failed script', async () => {
+    const committed = updaterSetup({
+      committer: () => Promise.resolve({ status: 'committed', commit: '1234567' }),
+    });
+    const okId = await committed.updater.start();
+    await committed.updater.whenIdle();
+    expect(committed.runs.findById(okId)).toMatchObject({
+      status: 'ok',
+      committed: ['/p/a', '/p/b'],
+    });
+
+    const committer = vi.fn<KyroCommitter>(() => Promise.resolve({ status: 'unchanged' }));
+    const failed = updaterSetup({
+      committer,
+      runner: () => Promise.resolve({ exitCode: 1, output: 'boom' }),
+    });
+    const id = await failed.updater.start();
+    await failed.updater.whenIdle();
+    expect(committer).not.toHaveBeenCalled();
+    expect(failed.runs.findById(id)).toMatchObject({ status: 'error', committed: [] });
   });
 
   it('records an error run with the trimmed output and the version really installed', async () => {

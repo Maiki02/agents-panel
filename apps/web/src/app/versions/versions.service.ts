@@ -1,6 +1,11 @@
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
-import type { KyroVersionInfo, MaintenanceRun, PanelDeployInfo } from '@agents-panel/shared';
+import type {
+  KyroVersionInfo,
+  MaintenanceKind,
+  MaintenanceRun,
+  PanelDeployInfo,
+} from '@agents-panel/shared';
 import { firstValueFrom } from 'rxjs';
 import { SwrCache } from '../shared/swr-cache';
 
@@ -56,5 +61,14 @@ export class VersionsService {
     return this.runsCache.load(() =>
       firstValueFrom(this.http.get<MaintenanceRun[]>('/api/maintenance-runs')),
     );
+  }
+
+  /** One page of a card's history (`Ver historial`), newest first; not cached. */
+  history(kind: MaintenanceKind, offset: number, limit: number): Promise<MaintenanceRun[]> {
+    const params = new HttpParams()
+      .set('kind', kind)
+      .set('offset', String(offset))
+      .set('limit', String(limit));
+    return firstValueFrom(this.http.get<MaintenanceRun[]>('/api/maintenance-runs', { params }));
   }
 }

@@ -87,6 +87,7 @@ Valen para cualquier cambio futuro en el panel (detalle en `docs/plan.md`, «Ser
 - Toda acción sobre un trabajo (git, Crear PR, descartar, borrar, pasos del agente) pasa por el servicio único `WorktreeOps` con **actor** (`user`, `pilot`, `agent`); el Timeline lo registra. Cada acción nueva del piloto suma su fila en `PARITY_CATALOG` y su botón en la web; un test falla si falta.
 - Las rutas de operaciones piden sesión y CSRF y responden **409** si el agente del trabajo corre, hay mantenimiento de Kyro o el piloto está en `active`, `queued` o `waiting_quota` (para operar a mano se pausa el piloto); un trabajo `archivado` es de solo lectura.
 - Ninguna operación fuerza un push, hace rebase, pushea una rama que no sea la del trabajo, commitea o instala en el clon base del proyecto (solo se actualiza con `pull --ff-only`), ni lee o toca archivos ignorados (los `.env`).
+- **Única excepción: Actualizar Kyro** (Versiones). Después de `kyro update`, el panel commitea en el clon base **solo `.agents/kyro/`** y lo pushea directo a la rama base del proyecto, sin rama ni PR (decisión del usuario, work `kyro-sin-ramas-e-historial`). Exige la rama base, nada propio sin pushear y trae origin por fast-forward antes; nunca `--force` ni rebase. Si el push falla deshace su propio commit y lo informa en la corrida.
 - El uso de los proveedores se mide por `account_id` (ver abajo); la API y la web usan el mismo `usageTone`.
 
 ## Cuentas de git

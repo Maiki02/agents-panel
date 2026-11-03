@@ -1,0 +1,495 @@
+{
+  "schemaVersion": 1,
+  "kind": "organic-work",
+  "id": "kyro-sin-ramas-e-historial",
+  "title": "Kyro sin ramas e historial por card en Versiones",
+  "objective": "> Necesito que actualizar Kyro, actualice en todos los repositorios pero sin crear una nueva rama que tenga que mergear y aprobar. Hacer eso, me retrasa mucho. Mejor que se actualicen todos los proyectos. Si es necesario validar que no esté corriendo nada, podemos hacerlo, pero no quiero ramas. > > Por otro lado, en /versions, debemos quitar la card de historial. En la card de \"Panel\", debemos agregar un span azul de: \"Ver historial\". Que el hover subraye. > Al presionarlo, se muestran todas los despliegues como ahora. Que se muestren de a 10 y al final, se muestre un \"Ver más\". > Achiquemos un poco las letras y cambiemos el diseño de: \"10/31/26, 2:52 PM · Panel 4be7d65 → d1578f5 ·\"",
+  "brief": {
+    "path": "brief.md",
+    "digest": "905e4f00695c980d137ad5efeb056360120410f61c4987dfddf4b59d9884a41f",
+    "sourceIdea": null
+  },
+  "state": "closed",
+  "revision": 15,
+  "createdAt": "2026-11-03T16:28:23.294Z",
+  "updatedAt": "2026-11-03T16:51:36.108Z",
+  "handoff": {
+    "nextAction": "done",
+    "nextTaskId": null,
+    "blockedReason": null
+  },
+  "tasks": [
+    {
+      "id": "W1",
+      "title": "API: commit y push directo de .agents/kyro a la rama base tras kyro update",
+      "description": "Después del script 08-kyro-update.sh, KyroUpdater recorre los proyectos ready con Kyro no salteados y, si .agents/kyro/ tiene cambios, en el clon base: verifica que esté en la rama base, trae origin por fast-forward, commitea solo .agents/kyro/ con 'chore(kyro): actualizar Kyro a <versión>' y pushea a origin <base> sin --force con las credenciales de la cuenta del proyecto. Si falla, deshace su propio commit sin pushear y sigue con el resto. Cada proyecto suma a la salida de la corrida una línea KYRO_COMMITTED=<raíz> <sha> o KYRO_COMMIT_FAILED=<raíz>: <motivo>; MaintenanceRun expone ambos. Un fallo de commit/push deja la corrida en error. El aviso kyroPendingNotice deja de pedir un work.",
+      "context": "Decisión del usuario 1 del brief. Rompe a propósito la regla 'no commitear en el clon base' solo para esta operación. Credenciales: git() de projects/git.ts usa authForPath (GIT_ASKPASS). El candado de mantenimiento ya garantiza que no hay sesiones corriendo.",
+      "filesToTouch": [
+        "apps/api/src/maintenance/updater.ts",
+        "apps/api/src/maintenance/kyro-commit.ts",
+        "apps/api/src/maintenance/runs.ts",
+        "packages/shared/src/index.ts",
+        "apps/api/test/maintenance.test.ts",
+        "apps/api/test/kyro-commit.test.ts",
+        "apps/web/src/app/projects/project-label.ts"
+      ],
+      "acceptanceCriteria": [
+        "Con un repo de prueba (origin bare local) y cambios en .agents/kyro/project.json, la corrida commitea solo .agents/kyro/ y el commit queda en origin/<base>; el clon queda limpio y en la base",
+        "Cambios fuera de .agents/kyro/ nunca entran en el commit",
+        "Un proyecto salteado por el script o sin cambios en .agents/kyro/ no se commitea",
+        "Si el clon no está en la rama base, divergió o el push es rechazado, no queda commit local sin pushear, los cambios siguen en el árbol, la salida dice el proyecto y el motivo y los demás proyectos se procesan",
+        "Nunca se usa --force ni rebase; el push es a origin y a la rama base del proyecto",
+        "La corrida queda error si algún proyecto falló y ok si todos se commitearon o no tenían cambios",
+        "Tests de API, tsc, eslint y prettier pasan"
+      ],
+      "dependsOn": [],
+      "definitionRevision": 1,
+      "status": "verified",
+      "blocker": null,
+      "evidence": {
+        "summary": "Nuevo commitKyroToBase (apps/api/src/maintenance/kyro-commit.ts): si .agents/kyro/ tiene cambios en el clon base, exige la rama base y nada propio sin pushear, trae origin con pullFastForward, commitea solo .agents/kyro/ (git add -A y commit con pathspec) con 'chore(kyro): actualizar Kyro a <versión>' y pushea HEAD:refs/heads/<base> a origin sin --force, con las credenciales del proyecto (git() de projects/git.ts). Si el push falla deshace su propio commit con reset --mixed al commit anterior; si el commit falla, desestagea. KyroUpdater llama al committer (inyectable) por cada proyecto ready con Kyro no salteado, solo si el script terminó con 0; suma líneas KYRO_COMMITTED=<raíz> <sha7> / KYRO_COMMIT_FAILED=<raíz>: <motivo> a la salida y deja la corrida en error si alguno falló. MaintenanceRun expone committed y commitFailures. kyroPendingNotice ya no pide un work.",
+        "validations": [
+          {
+            "command": "npm run test -w @agents-panel/api -- test/kyro-commit.test.ts test/maintenance.test.ts test/maintenance-routes.test.ts",
+            "result": "passed",
+            "note": "43 tests. kyro-commit: commit solo de .agents/kyro/ y push a origin bare (archivo ajeno sin seguimiento queda afuera), sin cambios no hace nada, fast-forward previo, otra rama rechaza sin tocar nada, commits propios sin pushear rechaza, push rechazado por hook pre-receive deshace el commit y deja los cambios. Updater: salteados no se commitean, resultados por proyecto, error si alguno falla, nada si el script falló"
+          },
+          {
+            "command": "npm run typecheck -w @agents-panel/api && npm run lint",
+            "result": "passed",
+            "note": "limpios"
+          },
+          {
+            "command": "npm run format:check",
+            "result": "passed",
+            "note": "Solo quedan apps/api/src/agent/manager.ts y apps/web/src/app/chats/autopilot-logic.spec.ts, que ya estaban así y no se tocaron"
+          }
+        ],
+        "filesChanged": [
+          "apps/api/src/maintenance/kyro-commit.ts",
+          "apps/api/src/maintenance/updater.ts",
+          "apps/api/src/maintenance/runs.ts",
+          "packages/shared/src/index.ts",
+          "apps/api/test/kyro-commit.test.ts",
+          "apps/api/test/maintenance.test.ts",
+          "apps/web/src/app/projects/project-label.ts",
+          "apps/web/src/app/projects/project-label.spec.ts"
+        ],
+        "notes": "Decisiones tomadas sin preguntar (no se registran como ADR porque kyro adr exige un scope de Forge y un Work no debe tocar su estado): (1) ante un fallo se deshace el commit propio no pusheado en vez de dejarlo local, así el clon nunca queda adelantado a origin; (2) un clon con commits propios sin pushear se rechaza para no subirlos de rebote; (3) si el script falla no se commitea nada (workspace a medio sincronizar); (4) el commit respeta los hooks del repo (sin --no-verify), igual que Inicializar Kyro. El reintento es automático: la próxima actualización vuelve a mirar .agents/kyro/ aunque kyro update no cambie nada.",
+        "by": "claude-maker",
+        "recordedAt": "2026-11-03T16:37:08.304Z",
+        "definitionRevision": 1,
+        "materialDigest": "05a18111abd09075ec60944fd76d96cac2888bbab83b91e75408148abd804d83"
+      },
+      "verdict": {
+        "result": "pass",
+        "checkedCriteria": [
+          "Con un repo de prueba (origin bare local) y cambios en .agents/kyro/project.json, la corrida commitea solo .agents/kyro/ y el commit queda en origin/<base>; el clon queda limpio y en la base",
+          "Cambios fuera de .agents/kyro/ nunca entran en el commit",
+          "Un proyecto salteado por el script o sin cambios en .agents/kyro/ no se commitea",
+          "Si el clon no está en la rama base, divergió o el push es rechazado, no queda commit local sin pushear, los cambios siguen en el árbol, la salida dice el proyecto y el motivo y los demás proyectos se procesan",
+          "Nunca se usa --force ni rebase; el push es a origin y a la rama base del proyecto",
+          "La corrida queda error si algún proyecto falló y ok si todos se commitearon o no tenían cambios",
+          "Tests de API, tsc, eslint y prettier pasan"
+        ],
+        "findings": [
+          {
+            "severity": "suggestion",
+            "detail": "Un hook pre-commit del repo que necesite node_modules en el clon base hace fallar el commit; queda informado en la corrida y se reintenta, sin --no-verify a propósito."
+          },
+          {
+            "severity": "suggestion",
+            "detail": "La divergencia se cubre vía pullFastForward (rechaza 'divergieron'), probado indirectamente por el caso de commits propios sin pushear; no hay un test específico de divergencia."
+          }
+        ],
+        "by": "claude-checker",
+        "reviewedAt": "2026-11-03T16:37:20.150Z",
+        "definitionRevision": 1,
+        "evidenceDigest": "1ee313efbbeb180ea71b167cc01476573564c76052d89f28871351de36fa7924",
+        "reviewedMaterialDigest": "05a18111abd09075ec60944fd76d96cac2888bbab83b91e75408148abd804d83"
+      },
+      "disposition": null
+    },
+    {
+      "id": "W2",
+      "title": "API: GET /api/maintenance-runs filtra por kind y pagina",
+      "description": "La ruta respeta kind (hoy lo ignora) y acepta limit (1..50, por defecto 50) y offset (>=0, por defecto 0). MaintenanceRunRepository.list recibe kind, limit y offset. La respuesta sigue siendo un array, la más nueva primero.",
+      "context": "Base para el historial de a 10 con Ver más de W3.",
+      "filesToTouch": [
+        "apps/api/src/maintenance/routes.ts",
+        "apps/api/src/maintenance/runs.ts",
+        "apps/api/test/maintenance-routes.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "?kind=panel-deploy devuelve solo despliegues y ?kind=kyro-update solo actualizaciones",
+        "limit y offset paginan en orden de más nueva a más vieja",
+        "Valores fuera de rango o claves desconocidas responden 400",
+        "Sin parámetros responde como hoy (últimas 50 de cualquier tipo)",
+        "La ruta sigue exigiendo sesión"
+      ],
+      "dependsOn": [],
+      "definitionRevision": 1,
+      "status": "verified",
+      "blocker": null,
+      "evidence": {
+        "summary": "GET /api/maintenance-runs ahora respeta kind (antes lo ignoraba) y acepta limit (1..50, por defecto 50) y offset (>=0). MaintenanceRunRepository.list(limit, { kind, offset }). Las claves desconocidas del querystring responden 400: onlyKeys suma un segundo parámetro 'body' | 'query' (por defecto body, así las 32 rutas que ya lo usan no cambian). La respuesta sigue siendo un array, la más nueva primero.",
+        "validations": [
+          {
+            "command": "npm run test -w @agents-panel/api -- test/maintenance-routes.test.ts test/maintenance.test.ts test/maintenance-versions.test.ts",
+            "result": "passed",
+            "note": "47 tests: filtro por kind, páginas con limit/offset, sin parámetros como antes (15 de ambos tipos), 400 para limit 0/51/abc, offset -1, kind desconocido y clave x; sin sesión sigue en 401"
+          },
+          {
+            "command": "npm run test -w @agents-panel/api",
+            "result": "passed",
+            "note": "90 archivos, 1444 tests: se amplió porque onlyKeys lo usan muchas rutas"
+          },
+          {
+            "command": "npm run typecheck -w @agents-panel/api && npm run lint && npm run format:check",
+            "result": "passed",
+            "note": "limpios salvo los dos archivos preexistentes ajenos (manager.ts, autopilot-logic.spec.ts)"
+          }
+        ],
+        "filesChanged": [
+          "apps/api/src/maintenance/routes.ts",
+          "apps/api/src/maintenance/runs.ts",
+          "apps/api/src/http/only-keys.ts",
+          "apps/api/test/maintenance-routes.test.ts"
+        ],
+        "notes": "Se tocó apps/api/src/http/only-keys.ts (no estaba en filesToTouch) porque el ajv de Fastify descarta en silencio las claves desconocidas y el criterio pide 400.",
+        "by": "claude-maker",
+        "recordedAt": "2026-11-03T16:44:02.788Z",
+        "definitionRevision": 1,
+        "materialDigest": "635fe22a1e0fd0783063b0ce47028dc079e4034486ce048ad687996d6b26b758"
+      },
+      "verdict": {
+        "result": "pass",
+        "checkedCriteria": [
+          "?kind=panel-deploy devuelve solo despliegues y ?kind=kyro-update solo actualizaciones",
+          "limit y offset paginan en orden de más nueva a más vieja",
+          "Valores fuera de rango o claves desconocidas responden 400",
+          "Sin parámetros responde como hoy (últimas 50 de cualquier tipo)",
+          "La ruta sigue exigiendo sesión"
+        ],
+        "findings": [
+          {
+            "severity": "suggestion",
+            "detail": "La paginación por offset puede repetir o saltear una fila si entra una corrida nueva entre páginas; para un historial que crece de a una corrida por botón es aceptable."
+          }
+        ],
+        "by": "claude-checker",
+        "reviewedAt": "2026-11-03T16:44:09.322Z",
+        "definitionRevision": 1,
+        "evidenceDigest": "5d5e316e96c81fa95668c966e33645f0d89ba4c1ee835ffa00ae8d306934ceaf",
+        "reviewedMaterialDigest": "635fe22a1e0fd0783063b0ce47028dc079e4034486ce048ad687996d6b26b758"
+      },
+      "disposition": null
+    },
+    {
+      "id": "W3",
+      "title": "Web: Ver historial en las cards Kyro y Panel, de a 10, filas en dos líneas",
+      "description": "Se quita la card Historial. Cada card (Kyro y Panel) suma un texto azul «Ver historial» (botón con estilo de link, hover subraya, aria-expanded) que despliega sus corridas de ese kind, 10 por página, con «Ver más» al final mientras haya más (pide limit 11 para saberlo). Fila nueva en dos líneas y letra más chica: arriba from → to en monoespaciada y el badge de estado a la derecha; abajo la fecha en gris chica (ej. «31 oct 2026, 14:52»). Sin «·» ni el nombre del tipo. La salida y los salteados siguen dentro de un details. El seguimiento del despliegue sigue usando la última corrida panel-deploy.",
+      "context": "Decisiones 2 y 3 del brief. Seguir docs/identidad-visual.md (tokens, Tailwind).",
+      "filesToTouch": [
+        "apps/web/src/app/versions/versions.page.ts",
+        "apps/web/src/app/versions/versions.service.ts",
+        "apps/web/src/app/versions/version-label.ts",
+        "apps/web/src/app/versions/run-history.ts",
+        "apps/web/src/app/versions/versions.spec.ts"
+      ],
+      "acceptanceCriteria": [
+        "No existe la card Historial",
+        "Kyro y Panel tienen un «Ver historial» azul que subraya en hover, se activa con teclado y alterna mostrar/ocultar",
+        "Panel lista solo despliegues y Kyro solo actualizaciones, de a 10, con «Ver más» que suma 10 y desaparece cuando no hay más",
+        "Cada fila muestra en dos líneas from → to en mono con el badge a la derecha y la fecha abajo en gris chica, sin «·» ni el nombre del tipo",
+        "Tests de la web, build y lint pasan"
+      ],
+      "dependsOn": [
+        "W2"
+      ],
+      "definitionRevision": 1,
+      "status": "verified",
+      "blocker": null,
+      "evidence": {
+        "summary": "Se quitó la card Historial de /versions. Nuevo componente RunHistory (apps/web/src/app/versions/run-history.ts) en las cards Kyro (kind kyro-update) y Panel (kind panel-deploy): un botón con la nueva primitiva .text-action (azul accent, subraya en hover, aria-expanded, se activa con teclado por ser un button) que alterna «Ver historial» / «Ocultar historial». Al abrir pide GET /api/maintenance-runs?kind=&offset=&limit=11 (VersionsService.history) y muestra 10; «Ver más» suma los 10 siguientes y desaparece cuando no hay más (historyPage). Mientras está abierto, la página le pasa un stamp (id:status de la última corrida de ese tipo, del sondeo de siempre) y recarga la primera página conservando las filas viejas ya cargadas (mergeTop). Fila nueva en dos líneas con text-xs: from → to en <code> con el badge a la derecha, y la fecha en gris abajo («31 oct 2026, 14:52», runDate armado a mano porque es-AR da «31 de oct de 2026»). Sin «·» ni el nombre del tipo (runLabel se reemplazó por runRange). El desplegable mantiene salteados y salida y suma lo subido a la rama base y los fallos con motivo (W1). El seguimiento del despliegue sigue usando la última corrida panel-deploy.",
+        "validations": [
+          {
+            "command": "npm run test -w @agents-panel/web",
+            "result": "passed",
+            "note": "42 archivos, 418 tests; versions.spec suma runRange sin tipo, runDate (31 oct 2026, 14:52 y 5 ene 2026, 09:03), historyPage y mergeTop"
+          },
+          {
+            "command": "npm run build -w @agents-panel/web && npm run typecheck -w @agents-panel/web",
+            "result": "passed",
+            "note": "build de Angular con plantillas estrictas OK"
+          },
+          {
+            "command": "npm run lint && npm run format:check",
+            "result": "passed",
+            "note": "limpios salvo los dos archivos preexistentes ajenos (se formateó con npm run format y se restauraron con git restore)"
+          }
+        ],
+        "filesChanged": [
+          "apps/web/src/app/versions/run-history.ts",
+          "apps/web/src/app/versions/versions.page.ts",
+          "apps/web/src/app/versions/versions.service.ts",
+          "apps/web/src/app/versions/version-label.ts",
+          "apps/web/src/app/versions/versions.spec.ts",
+          "apps/web/src/styles/components.css"
+        ],
+        "notes": "Sin verificación visual en un navegador (el panel exige login con segundo factor). «Ver historial» es un <button> con aspecto de texto en vez de un <span> para que funcione con teclado y lectores de pantalla. .text-action es una excepción explícita a «los textos nunca van en el color de marca»: se documenta en docs/identidad-visual.md en W4. Se agregó «Ocultar historial» para poder cerrarlo.",
+        "by": "claude-maker",
+        "recordedAt": "2026-11-03T16:49:47.177Z",
+        "definitionRevision": 1,
+        "materialDigest": "c3e72564734da35cd26826a5a3f04b00819045e50775b15017bec2f2bf884e5d"
+      },
+      "verdict": {
+        "result": "pass",
+        "checkedCriteria": [
+          "No existe la card Historial",
+          "Kyro y Panel tienen un «Ver historial» azul que subraya en hover, se activa con teclado y alterna mostrar/ocultar",
+          "Panel lista solo despliegues y Kyro solo actualizaciones, de a 10, con «Ver más» que suma 10 y desaparece cuando no hay más",
+          "Cada fila muestra en dos líneas from → to en mono con el badge a la derecha y la fecha abajo en gris chica, sin «·» ni el nombre del tipo",
+          "Tests de la web, build y lint pasan"
+        ],
+        "findings": [
+          {
+            "severity": "suggestion",
+            "detail": "No hay test de componente de RunHistory (la web prueba lógica pura); la paginación y el merge se cubren con historyPage y mergeTop, y la plantilla con el build estricto."
+          },
+          {
+            "severity": "suggestion",
+            "detail": "Falta mirarlo en el navegador real (modo claro y oscuro) antes de mergear."
+          }
+        ],
+        "by": "claude-checker",
+        "reviewedAt": "2026-11-03T16:49:56.540Z",
+        "definitionRevision": 1,
+        "evidenceDigest": "a948c8456fa545256db7ad8e156aa91a86ac1dac084741eb288d9cd150a77e71",
+        "reviewedMaterialDigest": "c3e72564734da35cd26826a5a3f04b00819045e50775b15017bec2f2bf884e5d"
+      },
+      "disposition": null
+    },
+    {
+      "id": "W4",
+      "title": "Docs: actualizar Kyro sin ramas y nuevo historial de Versiones",
+      "description": "CLAUDE.md (excepción explícita en Operaciones y regla de la VM), docs/plan.md (Versiones: commit directo, ruta paginada, Ver historial), docs/panel-desarrollo.md (aviso de cambios pendientes) y docs/vm-setup.md (paso 14 y línea de bitácora por el cambio de procedimiento).",
+      "context": "Regla del repo: si una decisión cambia, se actualiza el doc en el mismo cambio.",
+      "filesToTouch": [
+        "CLAUDE.md",
+        "docs/plan.md",
+        "docs/panel-desarrollo.md",
+        "docs/vm-setup.md"
+      ],
+      "acceptanceCriteria": [
+        "CLAUDE.md dice que la actualización de Kyro es la única operación que commitea en el clon base y pushea a la rama base, solo .agents/kyro/ y sin --force",
+        "plan.md describe el commit directo, el manejo de fallos, la paginación por kind y el Ver historial",
+        "panel-desarrollo.md ya no pide commitear con un work",
+        "vm-setup.md paso 14 lo menciona y la bitácora suma una línea con fecha 2026-11-03"
+      ],
+      "dependsOn": [
+        "W1",
+        "W2",
+        "W3"
+      ],
+      "definitionRevision": 1,
+      "status": "verified",
+      "blocker": null,
+      "evidence": {
+        "summary": "CLAUDE.md suma en «Operaciones sobre un trabajo» la única excepción: Actualizar Kyro commitea solo .agents/kyro/ en el clon base y lo pushea directo a la rama base, sin --force ni rebase, deshaciendo su commit si el push falla. docs/plan.md: commit directo con sus condiciones y fallos, project.json pendiente con el aviso nuevo, GET /api/maintenance-runs con kind/limit/offset y el Historial por card (Ver historial, Ver más, fila en dos líneas). docs/panel-desarrollo.md: Ver historial por tarjeta, ruta paginada y «Sin ramas» en lugar de «commitealo con un work». docs/vm-setup.md: nota en el paso 14 (el script no cambia; corrido a mano deja los cambios para la próxima corrida del panel) y línea de bitácora 2026-11-03. docs/identidad-visual.md: .text-action como excepción a «los textos nunca van en el color primario».",
+        "validations": [
+          {
+            "command": "npm run format:check",
+            "result": "passed",
+            "note": "Los docs pasan; solo quedan los dos archivos preexistentes ajenos"
+          },
+          {
+            "command": "lectura cruzada de CLAUDE.md, plan.md, panel-desarrollo.md y vm-setup.md contra el código de W1-W3",
+            "result": "passed",
+            "note": "Mismos nombres de líneas (KYRO_COMMITTED / KYRO_COMMIT_FAILED), campos (committed, commitFailures), límites (1-50) y texto del aviso"
+          }
+        ],
+        "filesChanged": [
+          "CLAUDE.md",
+          "docs/plan.md",
+          "docs/panel-desarrollo.md",
+          "docs/vm-setup.md",
+          "docs/identidad-visual.md"
+        ],
+        "notes": "docs/identidad-visual.md no estaba en filesToTouch: se tocó por la primitiva .text-action de W3. No hubo cambios en la VM (solo código del panel), pero la bitácora registra el cambio de procedimiento del paso 14 como pide CLAUDE.md.",
+        "by": "claude-maker",
+        "recordedAt": "2026-11-03T16:51:25.332Z",
+        "definitionRevision": 1,
+        "materialDigest": "780e53515981e80e9c01709f47dd1157a4fe5184fa71ebbbe338385d20723cfc"
+      },
+      "verdict": {
+        "result": "pass",
+        "checkedCriteria": [
+          "CLAUDE.md dice que la actualización de Kyro es la única operación que commitea en el clon base y pushea a la rama base, solo .agents/kyro/ y sin --force",
+          "plan.md describe el commit directo, el manejo de fallos, la paginación por kind y el Ver historial",
+          "panel-desarrollo.md ya no pide commitear con un work",
+          "vm-setup.md paso 14 lo menciona y la bitácora suma una línea con fecha 2026-11-03"
+        ],
+        "findings": [],
+        "by": "claude-checker",
+        "reviewedAt": "2026-11-03T16:51:31.293Z",
+        "definitionRevision": 1,
+        "evidenceDigest": "150fd5d235a7c40541fb8cb81d4f9bf98d0db3d7005f0a75dcd718ce7a0b4168",
+        "reviewedMaterialDigest": "780e53515981e80e9c01709f47dd1157a4fe5184fa71ebbbe338385d20723cfc"
+      },
+      "disposition": null
+    }
+  ],
+  "activity": [
+    {
+      "seq": 1,
+      "at": "2026-11-03T16:28:23.294Z",
+      "event": "created",
+      "taskId": null,
+      "by": "claude",
+      "reason": "Created through the Work CLI.",
+      "revision": 1
+    },
+    {
+      "seq": 2,
+      "at": "2026-11-03T16:29:14.320Z",
+      "event": "tasks_planned",
+      "taskId": null,
+      "by": "claude",
+      "reason": "Planned 4 Work tasks.",
+      "revision": 2
+    },
+    {
+      "seq": 3,
+      "at": "2026-11-03T16:29:26.910Z",
+      "event": "task_started",
+      "taskId": "W1",
+      "by": "claude",
+      "reason": "Task started through the Work CLI.",
+      "revision": 3
+    },
+    {
+      "seq": 4,
+      "at": "2026-11-03T16:37:08.304Z",
+      "event": "evidence_recorded",
+      "taskId": "W1",
+      "by": "claude-maker",
+      "reason": "Evidence recorded with 3 validation results.",
+      "revision": 4
+    },
+    {
+      "seq": 5,
+      "at": "2026-11-03T16:37:20.150Z",
+      "event": "review_recorded",
+      "taskId": "W1",
+      "by": "claude-checker",
+      "reason": "Task review recorded with pass.",
+      "revision": 5
+    },
+    {
+      "seq": 6,
+      "at": "2026-11-03T16:37:25.761Z",
+      "event": "task_started",
+      "taskId": "W2",
+      "by": "claude",
+      "reason": "Task started through the Work CLI.",
+      "revision": 6
+    },
+    {
+      "seq": 7,
+      "at": "2026-11-03T16:44:02.788Z",
+      "event": "evidence_recorded",
+      "taskId": "W2",
+      "by": "claude-maker",
+      "reason": "Evidence recorded with 3 validation results.",
+      "revision": 7
+    },
+    {
+      "seq": 8,
+      "at": "2026-11-03T16:44:09.322Z",
+      "event": "review_recorded",
+      "taskId": "W2",
+      "by": "claude-checker",
+      "reason": "Task review recorded with pass.",
+      "revision": 8
+    },
+    {
+      "seq": 9,
+      "at": "2026-11-03T16:44:09.733Z",
+      "event": "task_started",
+      "taskId": "W3",
+      "by": "claude",
+      "reason": "Task started through the Work CLI.",
+      "revision": 9
+    },
+    {
+      "seq": 10,
+      "at": "2026-11-03T16:49:47.177Z",
+      "event": "evidence_recorded",
+      "taskId": "W3",
+      "by": "claude-maker",
+      "reason": "Evidence recorded with 3 validation results.",
+      "revision": 10
+    },
+    {
+      "seq": 11,
+      "at": "2026-11-03T16:49:56.540Z",
+      "event": "review_recorded",
+      "taskId": "W3",
+      "by": "claude-checker",
+      "reason": "Task review recorded with pass.",
+      "revision": 11
+    },
+    {
+      "seq": 12,
+      "at": "2026-11-03T16:49:57.178Z",
+      "event": "task_started",
+      "taskId": "W4",
+      "by": "claude",
+      "reason": "Task started through the Work CLI.",
+      "revision": 12
+    },
+    {
+      "seq": 13,
+      "at": "2026-11-03T16:51:25.332Z",
+      "event": "evidence_recorded",
+      "taskId": "W4",
+      "by": "claude-maker",
+      "reason": "Evidence recorded with 2 validation results.",
+      "revision": 13
+    },
+    {
+      "seq": 14,
+      "at": "2026-11-03T16:51:31.293Z",
+      "event": "review_recorded",
+      "taskId": "W4",
+      "by": "claude-checker",
+      "reason": "Task review recorded with pass.",
+      "revision": 14
+    },
+    {
+      "seq": 15,
+      "at": "2026-11-03T16:51:36.108Z",
+      "event": "work_closed",
+      "taskId": null,
+      "by": "claude",
+      "reason": "W1-W4 verificadas: Kyro se sube directo a la rama base y Versiones tiene historial por card",
+      "revision": 15
+    }
+  ],
+  "closure": {
+    "outcome": "completed",
+    "reason": "W1-W4 verificadas: Kyro se sube directo a la rama base y Versiones tiene historial por card",
+    "by": "claude",
+    "closedAt": "2026-11-03T16:51:36.108Z",
+    "briefDigest": "905e4f00695c980d137ad5efeb056360120410f61c4987dfddf4b59d9884a41f",
+    "finalRevision": 15
+  },
+  "promotion": null,
+  "author": {
+    "name": "Maiki02",
+    "email": "miqueasdavidgentile@gmail.com",
+    "source": "git",
+    "capturedAt": "2026-11-03T16:28:23.294Z"
+  }
+}
