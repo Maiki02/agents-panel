@@ -11,6 +11,7 @@ import {
 import { NgTemplateOutlet } from '@angular/common';
 import type { Chat, WorktreeState } from '@agents-panel/shared';
 import { Badge, type BadgeTone } from '../ui/badge';
+import { Icon } from '../ui/icon';
 import { AutopilotBar } from './autopilot-bar';
 import { currentTaskView } from './phase-logic';
 import { PhaseStepper } from './phase-stepper';
@@ -38,7 +39,7 @@ export function taskLines(task: { id: string | null; activity: string }): {
 @Component({
   selector: 'app-work-info-panel',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [NgTemplateOutlet, Badge, AutopilotBar, PhaseStepper],
+  imports: [NgTemplateOutlet, Badge, Icon, AutopilotBar, PhaseStepper],
   host: { class: 'block lg:min-h-0 lg:overflow-y-auto lg:overscroll-contain' },
   template: `
     <ng-template #branchSection>
@@ -66,8 +67,28 @@ export function taskLines(task: { id: string | null; activity: string }): {
             }
           </p>
           @let lines = taskLines(t);
-          @if (lines.title; as title) {
-            <p class="m-0 mt-0.5 font-medium">{{ title }}</p>
+          @if (lines.title; as id) {
+            <p class="m-0 mt-0.5 flex items-center gap-1 font-medium">
+              <span>{{ id }}</span>
+              @if (t.title; as taskTitle) {
+                <span
+                  class="group relative inline-flex cursor-help text-muted"
+                  tabindex="0"
+                  role="img"
+                  data-testid="task-info"
+                  [attr.aria-label]="'Título de la tarea: ' + taskTitle"
+                >
+                  <app-icon name="info" />
+                  <span
+                    role="tooltip"
+                    data-testid="task-info-tooltip"
+                    class="pointer-events-none absolute left-0 top-full z-10 mt-1 hidden w-max max-w-56 rounded-control border border-border bg-surface px-2 py-1 text-xs font-normal text-text shadow-md group-hover:block group-focus:block"
+                  >
+                    {{ taskTitle }}
+                  </span>
+                </span>
+              }
+            </p>
           }
           <p
             class="m-0 text-sm"
@@ -96,9 +117,10 @@ export function taskLines(task: { id: string | null; activity: string }): {
           [workState]="chat().workState ?? null"
           (changed)="pilotChanged.emit()"
         />
-        <p class="hint m-0" data-testid="chat-models">
-          Pensante: {{ chat().models.thinker }} · Ejecutor: {{ chat().models.executor }}
-        </p>
+        <div class="hint m-0 flex flex-col" data-testid="chat-models">
+          <span>Modelo pensante: {{ chat().models.thinker }}</span>
+          <span>Modelo ejecutor: {{ chat().models.executor }}</span>
+        </div>
       }
     </ng-template>
 

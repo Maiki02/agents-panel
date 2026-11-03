@@ -8,7 +8,7 @@ import type { AccountRecord, AccountRepository } from './repo.js';
 export class AccountError extends Error {
   override readonly name = 'AccountError';
   constructor(
-    readonly status: 400 | 404 | 409,
+    readonly status: 400 | 404 | 409 | 502,
     message: string,
   ) {
     super(message);
@@ -142,6 +142,23 @@ export class AccountService {
     const account = this.repo.findById(id);
     if (!account) throw new AccountError(404, 'Cuenta no encontrada');
     return account;
+  }
+
+  /** One account as the web sees it; 404 when it does not exist. */
+  view(id: number): ClaudeAccount {
+    return this.toView(this.existing(id));
+  }
+
+  /**
+   * Where a Claude login for this account lands: the `CLAUDE_CONFIG_DIR` to run it with (null: the
+   * main account, the variable stays unset) and the credentials file it writes. 404 when missing.
+   */
+  loginTarget(id: number): { configDir: string | null; credentialsFile: string } {
+    const account = this.existing(id);
+    return {
+      configDir: account.configDir,
+      credentialsFile: join(this.paths(account).dir, '.credentials.json'),
+    };
   }
 
   rename(id: number, rawName: string): ClaudeAccount {

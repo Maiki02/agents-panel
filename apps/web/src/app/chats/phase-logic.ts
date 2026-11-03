@@ -132,6 +132,8 @@ export type TaskTone = 'neutral' | 'warn' | 'danger';
 export interface CurrentTaskView {
   /** Task id as Kyro prints it (T1.1, W2); null when Kyro has none: nothing is invented. */
   id: string | null;
+  /** Title of the task as Kyro prints it; null when there is none (no icon, nothing invented). */
+  title: string | null;
   /** Readable activity ("Corrigiendo"); an interruption carries its reason ("Bloqueada: build roto"). */
   activity: string;
   tone: TaskTone;
@@ -185,6 +187,7 @@ export function currentTaskView(
     | 'state'
     | 'previousState'
     | 'taskId'
+    | 'taskTitle'
     | 'blockedReason'
     | 'detail'
     | 'sprintCurrent'
@@ -216,6 +219,7 @@ export function currentTaskView(
       : `${String(state.taskDone)}/${String(state.taskTotal)}`;
   return {
     id: state.taskId,
+    title: state.taskId === null || !state.taskTitle?.trim() ? null : state.taskTitle.trim(),
     activity,
     tone,
     progress,

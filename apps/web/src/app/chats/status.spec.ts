@@ -61,6 +61,31 @@ describe('sidebarBadge', () => {
     expect(sidebarBadge({ status: 'running', workState: 'pr_lista' }).tone).toBe('ok');
   });
 
+  it('tells what «Planificando» is about: general, the scope or a sprint', () => {
+    const base = { status: 'running', workState: 'planificando' } as const;
+    expect(sidebarBadge(base)).toEqual({ label: 'Planificando', tone: 'accent' });
+    expect(sidebarBadge({ ...base, planning: { target: 'general', sprint: null } }).label).toBe(
+      'Planificando',
+    );
+    expect(sidebarBadge({ ...base, planning: { target: 'scope', sprint: null } }).label).toBe(
+      'Planificando scope',
+    );
+    expect(sidebarBadge({ ...base, planning: { target: 'sprint', sprint: 3 } })).toEqual({
+      label: 'Planificando sprint 3',
+      tone: 'accent',
+    });
+  });
+
+  it('leaves the other states as they are, whatever the planning says', () => {
+    expect(
+      sidebarBadge({
+        status: 'running',
+        workState: 'escribiendo_codigo',
+        planning: { target: 'sprint', sprint: 2 },
+      }).label,
+    ).toBe('Escribiendo código');
+  });
+
   it('falls back to the session status for a direct request or a work without state yet', () => {
     expect(sidebarBadge({ status: 'idle', workState: null })).toEqual({
       label: 'En espera',

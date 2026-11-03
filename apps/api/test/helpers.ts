@@ -45,6 +45,8 @@ export function makeApp(
       | 'diskMeter'
       | 'procRoot'
       | 'usageReader'
+      | 'reloginSpawner'
+      | 'reloginTimings'
     >
   > = {},
 ): {
@@ -95,6 +97,13 @@ export function makeApp(
     ...(extra.diskMeter ? { diskMeter: extra.diskMeter } : {}),
     ...(extra.procRoot ? { procRoot: extra.procRoot } : {}),
     ...(extra.usageReader ? { usageReader: extra.usageReader } : {}),
+    // Never `claude auth login` from a test: the spawner is a fake unless the test brings its own.
+    reloginSpawner:
+      extra.reloginSpawner ??
+      (() => {
+        throw new Error('claude is not launched in tests');
+      }),
+    ...(extra.reloginTimings ? { reloginTimings: extra.reloginTimings } : {}),
   });
   return { app, db, worktreesDir, projectsDir };
 }

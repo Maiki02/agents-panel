@@ -44,8 +44,7 @@ import {
   showPrCard,
   type DebtView,
 } from './approval-logic';
-import { chatBadge } from './status';
-import { workStateBadge } from './work-state';
+import { chatBadge, stateBadge } from './status';
 import { WorkInfoPanel } from './work-info-panel';
 import { Timeline } from './timeline';
 import { GitTab } from './git/git-tab';
@@ -84,10 +83,23 @@ import { ProjectContext } from '../projects/project-context';
       <div class="chat-main">
         <div class="chat-top">
           <div class="mb-2 flex items-center justify-between gap-2">
-            <a appButton variant="secondary" [routerLink]="['/projects', projectId(), 'chats']">
-              <app-icon name="chats" />
-              Chats
-            </a>
+            <span class="inline-flex md:hidden">
+              <a
+                appButton
+                variant="secondary"
+                aria-label="Volver a los chats"
+                data-testid="back-arrow"
+                [routerLink]="['/projects', projectId(), 'chats']"
+              >
+                <app-icon name="arrowBack" />
+              </a>
+            </span>
+            <span class="hidden md:inline-flex">
+              <a appButton variant="secondary" [routerLink]="['/projects', projectId(), 'chats']">
+                <app-icon name="chats" />
+                Chats
+              </a>
+            </span>
             @if (chat()?.status === 'running') {
               <button appButton variant="danger" type="button" (click)="cancel()">Cancelar</button>
             }
@@ -333,7 +345,7 @@ export class ChatPage {
   /** The one badge: the fine state of a scope, work or idea; the session status otherwise. */
   protected readonly badge = computed(() => {
     const chat = this.chat();
-    if (chat?.workState != null) return workStateBadge(chat.workState);
+    if (chat?.workState != null) return stateBadge(chat);
     return chatBadge(chat?.status ?? 'idle', this.pending().length > 0);
   });
   /** Everything but a direct request has a state and a Timeline. */
@@ -506,7 +518,14 @@ export class ChatPage {
       const fresh = known ?? (await this.service.get(id));
       if (id !== this.current) return;
       this.chat.update((c) =>
-        c ? { ...c, workState: fresh.workState ?? null, kind: fresh.kind } : c,
+        c
+          ? {
+              ...c,
+              workState: fresh.workState ?? null,
+              planning: fresh.planning ?? null,
+              kind: fresh.kind,
+            }
+          : c,
       );
       if (fresh.kind !== 'direct') {
         const [state, timeline] = await Promise.all([

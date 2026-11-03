@@ -144,6 +144,35 @@ describe('WorktreeStateRepository', () => {
     ).toBeNull();
   });
 
+  it('stores the task title, keeps it for the same task and drops it when the task changes', async () => {
+    const { repo, newChat, db } = await setup();
+    const chat = newChat('a');
+    const columns = db.prepare('PRAGMA table_info(worktree_state)').all() as { name: string }[];
+    expect(columns.map((c) => c.name)).toContain('task_title');
+
+    const first = repo.transition(chat.id, {
+      state: 'escribiendo_codigo',
+      actor: 'agent',
+      taskId: 'T3.1',
+      taskTitle: 'Servicio de relogueo',
+    });
+    expect(first.state).toMatchObject({ taskId: 'T3.1', taskTitle: 'Servicio de relogueo' });
+    // A transition that omits both (pause, question…) keeps the task and its title.
+    expect(repo.transition(chat.id, { state: 'pausado', actor: 'pilot' }).state).toMatchObject({
+      taskId: 'T3.1',
+      taskTitle: 'Servicio de relogueo',
+    });
+    // Another task never inherits the title of the previous one.
+    expect(
+      repo.transition(chat.id, { state: 'escribiendo_codigo', actor: 'agent', taskId: 'T3.2' })
+        .state,
+    ).toMatchObject({ taskId: 'T3.2', taskTitle: null });
+    expect(
+      repo.transition(chat.id, { state: 'qa', actor: 'agent', taskId: null, taskTitle: null })
+        .state,
+    ).toMatchObject({ taskId: null, taskTitle: null });
+  });
+
   it('migration 23 adds task_id to an existing database without losing rows', async () => {
     const { db, newChat, repo } = await setup();
     const chat = newChat('a');
@@ -226,7 +255,7 @@ describe('state and timeline routes', () => {
       baseBranch: 'main',
     });
     const chats = new ChatRepository(made.db);
-    const create = (slug: string, kind: 'scope' | 'direct') =>
+    const create = (slug: string, kind: 'scope' | 'work' | 'direct') =>
       chats.create({
         projectId: project.id,
         kind,
@@ -278,6 +307,33 @@ describe('state and timeline routes', () => {
       workState: string | null;
     }>();
     expect(one.workState).toBe('esperando_aprobacion_plan');
+  });
+
+  it('says what «planificando» is about: the scope, a sprint, or general for a work', async () => {
+    const { app: a, headers, create, repo } = await boot();
+    const scope = create('s', 'scope');
+    const work = create('w', 'work');
+    const planning = async (id: number) =>
+      (await a.inject({ url: `/api/chats/${String(id)}`, headers })).json<{
+        planning: { target: string; sprint: number | null } | null;
+      }>().planning;
+
+    repo.transition(scope.id, { state: 'planificando', actor: 'agent' });
+    repo.transition(work.id, { state: 'planificando', actor: 'agent' });
+    expect(await planning(scope.id)).toEqual({ target: 'scope', sprint: null });
+    expect(await planning(work.id)).toEqual({ target: 'general', sprint: null });
+
+    repo.transition(scope.id, {
+      state: 'planificando',
+      actor: 'agent',
+      sprintCurrent: null,
+      sprintClosed: 1,
+      sprintTotal: 3,
+    });
+    expect(await planning(scope.id)).toEqual({ target: 'sprint', sprint: 2 });
+
+    repo.transition(scope.id, { state: 'escribiendo_codigo', actor: 'agent' });
+    expect(await planning(scope.id)).toBeNull();
   });
 
   it('answers 404 for a direct chat and for a missing one', async () => {
@@ -481,7 +537,9 @@ describe('WorktreeStateTracker', () => {
           type: 'assistant',
           payload: {
             message: {
-              content: [{ type: 'tool_use', id: 'a', name: 'Bash', input: { command: 'ls kyrox' } }],
+              content: [
+                { type: 'tool_use', id: 'a', name: 'Bash', input: { command: 'ls kyrox' } },
+              ],
             },
           },
         },

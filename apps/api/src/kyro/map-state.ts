@@ -16,6 +16,8 @@ export interface MappedKyroState {
   taskTotal: number;
   openDebt: number | null;
   taskId: string | null;
+  /** Title of `taskId` from the same CLI read; null when Kyro printed none. */
+  taskTitle: string | null;
   blockedReason: BlockedReason | null;
 }
 
@@ -64,6 +66,7 @@ export function mapKyroState(kyro: KyroScopeState | KyroWorkState): MappedKyroSt
       taskTotal: kyro.tasks.total,
       openDebt: null,
       taskId: kyro.nextTaskId,
+      taskTitle: kyro.nextTaskTitle ?? null,
       blockedReason: blocked ? 'tarea_bloqueada' : null,
     };
   }
@@ -81,6 +84,7 @@ export function mapKyroState(kyro: KyroScopeState | KyroWorkState): MappedKyroSt
     taskTotal: kyro.tasks.total,
     openDebt: kyro.openDebt,
     taskId: kyro.nextTaskId,
+    taskTitle: kyro.nextTaskTitle ?? null,
     blockedReason: blocked ? 'kyro_bloqueado' : null,
   };
 }

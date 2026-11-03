@@ -7,6 +7,8 @@ import { LoginAudit } from './auth/attempts.js';
 import { ChallengeService } from './auth/challenge.js';
 import { AccountRepository } from './accounts/repo.js';
 import { registerAccountRoutes } from './accounts/routes.js';
+import { ReloginService, type ReloginSpawner, type ReloginTimings } from './accounts/relogin.js';
+import { registerReloginRoutes } from './accounts/relogin-routes.js';
 import { AccountService } from './accounts/service.js';
 import { AgentManager } from './agent/manager.js';
 import { DiskMonitor, type DiskMeter } from './capacity/disk.js';
@@ -156,6 +158,10 @@ export interface AppDeps {
   kyroRunner?: CommandRunner;
   /** Home where the Claude accounts live (~/.claude, ~/.claude.json); tests use a temporary one. */
   accountsHome?: string;
+  /** Starts `claude auth login` for the Claude re-login; tests inject a fake process. */
+  reloginSpawner?: ReloginSpawner;
+  /** Time limits of the re-login flow; tests shorten them. */
+  reloginTimings?: Partial<ReloginTimings>;
   /** Measures folders for the disk view; tests inject a fake instead of running `du`. */
   diskMeter?: DiskMeter;
   /** Root of the proc filesystem for the RAM view; tests use a simulated one. */
@@ -466,6 +472,13 @@ export function buildApp(deps: AppDeps, options: FastifyServerOptions = {}): Fas
   registerRepoRoutes(app, { projects, repos: projectRepos });
   registerPullRoutes(app, { service: new PullService({ projects, manager, projectRepos }) });
   const reauth = new ReauthVerifier({ users, secondFactor, audit, now });
+  const relogin = new ReloginService(accounts, {
+    ...(deps.reloginSpawner ? { spawner: deps.reloginSpawner } : {}),
+    ...(deps.reloginTimings ? { timings: deps.reloginTimings } : {}),
+  });
+  app.addHook('onClose', () => {
+    relogin.closeAll();
+  });
   // A plugin, like the auth routes, so the per-route rate limit applies.
   const kyroBranch = new KyroBranchService({
     projects,
@@ -492,6 +505,7 @@ export function buildApp(deps: AppDeps, options: FastifyServerOptions = {}): Fas
       reauth,
     });
     registerPermissionRoutes(instance, { projects, reauth });
+    registerReloginRoutes(instance, { relogin, reauth });
   });
   void app.register((instance) => {
     registerMaintenanceRoutes(instance, {

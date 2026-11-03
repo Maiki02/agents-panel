@@ -25,6 +25,7 @@ interface StateRow {
   task_total: number | null;
   open_debt: number | null;
   task_id: string | null;
+  task_title: string | null;
   blocked_reason: BlockedReason | null;
   actor: Actor;
   role: ModelRole | null;
@@ -59,6 +60,7 @@ function toState(row: StateRow): WorktreeState {
     taskTotal: row.task_total,
     openDebt: row.open_debt,
     taskId: row.task_id,
+    taskTitle: row.task_title,
     blockedReason: row.blocked_reason,
     actor: row.actor,
     role: row.role,
@@ -102,6 +104,11 @@ export interface TransitionInput {
   openDebt?: number | null;
   /** Omitted keeps the stored task; Kyro's read passes it (null when there is no next task). */
   taskId?: string | null;
+  /**
+   * Title of the task. Omitted keeps the stored one only while the task stays the same; a new task
+   * never inherits the title of the previous one.
+   */
+  taskTitle?: string | null;
   blockedReason?: BlockedReason | null;
   role?: ModelRole | null;
   model?: string | null;
@@ -170,6 +177,13 @@ export class WorktreeStateRepository {
     const previous = this.get(chatId);
     const changed = previous?.state !== input.state;
     const entry = changed || input.record === true;
+    const taskId = input.taskId === undefined ? (previous?.taskId ?? null) : input.taskId;
+    const taskTitle =
+      input.taskTitle === undefined
+        ? taskId !== null && taskId === previous?.taskId
+          ? previous.taskTitle
+          : null
+        : input.taskTitle;
     const columns = [
       input.state,
       input.detail ?? null,
@@ -184,7 +198,8 @@ export class WorktreeStateRepository {
       input.actor,
       input.role ?? null,
       input.model ?? null,
-      input.taskId === undefined ? (previous?.taskId ?? null) : input.taskId,
+      taskId,
+      taskTitle,
     ];
     let event;
     this.db.exec('BEGIN');
@@ -193,8 +208,8 @@ export class WorktreeStateRepository {
         this.db
           .prepare(
             `INSERT INTO worktree_state (state, detail, phase, sprint_current, sprint_closed, sprint_total,
-               task_done, task_total, open_debt, blocked_reason, actor, role, model, task_id, chat_id, since, previous_state)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
+               task_done, task_total, open_debt, blocked_reason, actor, role, model, task_id, task_title, chat_id, since, previous_state)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
           )
           .run(...columns, chatId, now);
       } else {
@@ -202,7 +217,7 @@ export class WorktreeStateRepository {
           .prepare(
             `UPDATE worktree_state SET state = ?, detail = ?, phase = ?, sprint_current = ?, sprint_closed = ?,
                sprint_total = ?, task_done = ?, task_total = ?, open_debt = ?, blocked_reason = ?, actor = ?,
-               role = ?, model = ?, task_id = ?, since = ?, previous_state = ? WHERE chat_id = ?`,
+               role = ?, model = ?, task_id = ?, task_title = ?, since = ?, previous_state = ? WHERE chat_id = ?`,
           )
           .run(
             ...columns,

@@ -1,5 +1,39 @@
 import { describe, expect, it } from 'vitest';
-import { APP_TITLE, NAV_ITEMS, activeNavPath, headerTitle, projectSection } from './nav-logic';
+import {
+  APP_TITLE,
+  NAV_ITEMS,
+  activeNavPath,
+  headerTitle,
+  hideProjectTabs,
+  isChatRoute,
+  projectSection,
+} from './nav-logic';
+
+describe('isChatRoute', () => {
+  it('is true only inside one chat, ignoring query and fragment', () => {
+    expect(isChatRoute('/projects/3/chats/12')).toBe(true);
+    expect(isChatRoute('/projects/3/chats/12?tab=git#x')).toBe(true);
+  });
+
+  it('is false on the grid, the settings and other pages', () => {
+    expect(isChatRoute('/projects/3/chats')).toBe(false);
+    expect(isChatRoute('/projects/3/settings/general')).toBe(false);
+    expect(isChatRoute('/chats/7')).toBe(false);
+    expect(isChatRoute('/')).toBe(false);
+  });
+});
+
+describe('hideProjectTabs', () => {
+  it('hides the tabs inside a chat on a phone only', () => {
+    expect(hideProjectTabs('/projects/3/chats/12', false)).toBe(true);
+    expect(hideProjectTabs('/projects/3/chats/12', true)).toBe(false);
+  });
+
+  it('keeps the tabs on the grid and the settings, on a phone too', () => {
+    expect(hideProjectTabs('/projects/3/chats', false)).toBe(false);
+    expect(hideProjectTabs('/projects/3/settings/general', false)).toBe(false);
+  });
+});
 
 describe('side menu', () => {
   it('lists the four sections with their icons', () => {

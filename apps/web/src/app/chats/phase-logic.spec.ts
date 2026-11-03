@@ -5,6 +5,7 @@ import { PHASES, currentTaskView, phaseOf, sessionLabel, stepperView } from './p
 const base = {
   previousState: null,
   taskId: null,
+  taskTitle: null,
   blockedReason: null,
   detail: null,
   sprintCurrent: null,
@@ -138,6 +139,7 @@ describe('currentTaskView', () => {
       }),
     ).toEqual({
       id: 'T1.1',
+      title: null,
       activity: 'Corrigiendo',
       tone: 'neutral',
       progress: '1/4',
@@ -154,7 +156,9 @@ describe('currentTaskView', () => {
   it('shows the activity alone without a task id and no progress without numbers', () => {
     const view = currentTaskView({ ...base, state: 'escribiendo_codigo', taskDone: 2 });
     expect(view).toMatchObject({ id: null, activity: 'Escribiendo código', progress: null });
-    expect(currentTaskView({ ...base, state: 'qa', taskDone: 0, taskTotal: 0 })?.progress).toBeNull();
+    expect(
+      currentTaskView({ ...base, state: 'qa', taskDone: 0, taskTotal: 0 })?.progress,
+    ).toBeNull();
   });
 
   it('is null without a task or task activity', () => {
