@@ -1,9 +1,11 @@
 import { ChangeDetectionStrategy, Component, input } from '@angular/core';
 import accountCircle from '@material-symbols/svg-400/outlined/account_circle.svg';
 import add from '@material-symbols/svg-400/outlined/add.svg';
+import arrowBack from '@material-symbols/svg-400/outlined/arrow_back.svg';
 import chat from '@material-symbols/svg-400/outlined/chat.svg';
 import close from '@material-symbols/svg-400/outlined/close.svg';
 import folder from '@material-symbols/svg-400/outlined/folder.svg';
+import info from '@material-symbols/svg-400/outlined/info.svg';
 import forum from '@material-symbols/svg-400/outlined/forum.svg';
 import logout from '@material-symbols/svg-400/outlined/logout.svg';
 import menu from '@material-symbols/svg-400/outlined/menu.svg';
@@ -21,11 +23,13 @@ import { MATERIAL_VIEW_BOX, svgPathData } from './icon-logic';
  */
 const ICON_SVGS = {
   account: accountCircle,
+  arrowBack,
   chat,
   chats: forum,
   close,
   folder,
   gauge: speed,
+  info,
   logout,
   menu,
   notifications,

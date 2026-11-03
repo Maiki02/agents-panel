@@ -5,8 +5,9 @@ import { apiErrorMessage } from '../chats/chats.service';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
 import { Icon } from '../ui/icon';
-import { accountWarnings, canActivate } from './accounts-logic';
+import { accountWarnings, canActivate, canRelogin } from './accounts-logic';
 import { AddAccountModal } from './add-account.modal';
+import { ReloginModal } from './relogin.modal';
 import { AccountsService } from './accounts.service';
 import { GitAccountsSection } from './git-accounts.section';
 
@@ -14,7 +15,7 @@ import { GitAccountsSection } from './git-accounts.section';
 @Component({
   selector: 'app-accounts',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [DatePipe, Badge, Button, Icon, AddAccountModal, GitAccountsSection],
+  imports: [DatePipe, Badge, Button, Icon, AddAccountModal, ReloginModal, GitAccountsSection],
   template: `
     <div class="mb-4 flex items-center justify-between gap-3">
       <h2 class="m-0">Cuentas de Claude</h2>
@@ -94,6 +95,16 @@ import { GitAccountsSection } from './git-accounts.section';
               appButton
               variant="secondary"
               type="button"
+              data-testid="relogin"
+              [disabled]="!canRelogin(account, busy())"
+              (click)="relogging.set(account)"
+            >
+              Reloguear
+            </button>
+            <button
+              appButton
+              variant="secondary"
+              type="button"
               [disabled]="busy()"
               (click)="startRename(account)"
             >
@@ -119,6 +130,9 @@ import { GitAccountsSection } from './git-accounts.section';
     @if (adding()) {
       <app-add-account-modal (closed)="onModalClosed()" />
     }
+    @if (relogging(); as target) {
+      <app-relogin-modal [account]="target" (closed)="onReloginClosed()" />
+    }
 
     <app-git-accounts />
   `,
@@ -130,8 +144,11 @@ export class AccountsPage {
   protected readonly editing = signal<number | null>(null);
   protected readonly draftName = signal('');
   protected readonly adding = signal(false);
+  /** The account whose «Reloguear» window is open. */
+  protected readonly relogging = signal<ClaudeAccount | null>(null);
   protected readonly warnings = accountWarnings;
   protected readonly activable = canActivate;
+  protected readonly canRelogin = canRelogin;
 
   constructor() {
     void this.run(() => this.service.refresh());
@@ -165,6 +182,12 @@ export class AccountsPage {
 
   protected onModalClosed(): void {
     this.adding.set(false);
+  }
+
+  /** The login may have changed the account (or not): read the list again either way. */
+  protected onReloginClosed(): void {
+    this.relogging.set(null);
+    void this.run(() => this.service.refresh());
   }
 
   /** Runs an action with the busy flag and shows the API's error; true when it worked. */

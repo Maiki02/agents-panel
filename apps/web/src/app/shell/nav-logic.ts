@@ -42,6 +42,16 @@ export function headerTitle(url: string, projectName: string | null): string {
   return NAV_ITEMS.find((item) => item.path === active)?.label ?? APP_TITLE;
 }
 
+/** True inside one chat: /projects/:id/chats/:chatId (not the grid, not the settings). */
+export function isChatRoute(url: string): boolean {
+  return /^\/projects\/[^/]+\/chats\/[^/]+\/?$/.test(pathOf(url));
+}
+
+/** On a phone (not wide), inside a chat the project tabs go away: the chat has a back arrow. */
+export function hideProjectTabs(url: string, wide: boolean): boolean {
+  return isChatRoute(url) && !wide;
+}
+
 export type ProjectSection = 'chats' | 'settings';
 
 /** Which project tab the URL shows: Configuración under /settings, Chats otherwise. */

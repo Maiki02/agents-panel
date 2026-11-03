@@ -8,6 +8,7 @@ import {
   parseScopeState,
   parseSprintRoadmap,
   parseWorkState,
+  taskTitleInSprint,
 } from '../src/kyro/state.js';
 
 const dir = join(import.meta.dirname, 'fixtures', 'kyro');
@@ -136,6 +137,44 @@ describe('parseScopeState with real Kyro output', () => {
       load('status-full.await_scope_completion.json'),
     );
     expect(state.blockers).toBeInstanceOf(Array);
+  });
+});
+
+describe('title of the current task', () => {
+  it('scope: comes from the active sprint of sprint.json, null without a task or a sprint.json', () => {
+    expect(scope('execute_task').nextTaskTitle).toBe('Primera');
+    expect(scope('review_task').nextTaskTitle).toBe('Primera');
+    expect(scope('plan_sprint').nextTaskTitle).toBeNull();
+    expect(
+      parseScopeState(load('context-pack.execute_task.json'), load('status-full.execute_task.json'))
+        .nextTaskTitle,
+    ).toBeNull();
+  });
+
+  it('scope: finds a task by id and ignores the ones that are not in the sprint', () => {
+    const sprint = load('sprint.execute_task.json');
+    expect(taskTitleInSprint(sprint, 'T1.2')).toBe('Segunda');
+    expect(taskTitleInSprint(sprint, 'T9.9')).toBeNull();
+    expect(taskTitleInSprint(null, 'T1.1')).toBeNull();
+    expect(taskTitleInSprint({ activeSprint: 3 }, 'T1.1')).toBeNull();
+    const emergent = {
+      activeSprint: { phases: [], emergentTasks: [{ id: 'T1.3', title: 'Emergente' }] },
+    };
+    expect(taskTitleInSprint(emergent, 'T1.3')).toBe('Emergente');
+  });
+
+  it('work: is the title of `task` when it is the task being shown', () => {
+    expect(parseWorkState(load('work-status.in_progress.json')).nextTaskTitle).toBe('Typo');
+    expect(parseWorkState(load('work-status.plan_tasks.json')).nextTaskTitle).toBeNull();
+  });
+
+  it('work: does not borrow the title of another task', () => {
+    const raw = load('work-status.in_progress.json') as { data: Record<string, unknown> };
+    const summary = { ...(raw.data['summary'] as object), inProgress: ['W2'] };
+    expect(parseWorkState({ ...raw, data: { ...raw.data, summary } })).toMatchObject({
+      nextTaskId: 'W2',
+      nextTaskTitle: null,
+    });
   });
 });
 

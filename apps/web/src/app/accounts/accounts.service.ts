@@ -33,6 +33,31 @@ export class AccountsService {
     await this.refresh();
   }
 
+  /** Starts the Claude login of the account on the VM; returns the link to authorize it. */
+  async startRelogin(id: number, totp: string): Promise<string> {
+    const res = await firstValueFrom(
+      this.http.post<{ url: string }>(`/api/accounts/${String(id)}/relogin`, { totp }),
+    );
+    return res.url;
+  }
+
+  /** Sends the code the browser showed; the API answers once Claude confirmed the login. */
+  async finishRelogin(id: number, code: string): Promise<void> {
+    await firstValueFrom(
+      this.http.post<ClaudeAccount>(`/api/accounts/${String(id)}/relogin/code`, { code }),
+    );
+    await this.refresh();
+  }
+
+  /** Drops a login flow that was left half way; failures do not matter. */
+  async cancelRelogin(id: number): Promise<void> {
+    try {
+      await firstValueFrom(this.http.delete(`/api/accounts/${String(id)}/relogin`));
+    } catch {
+      // The API drops it on its own after a while.
+    }
+  }
+
   async remove(id: number): Promise<void> {
     await firstValueFrom(this.http.delete(`/api/accounts/${String(id)}`));
     await this.refresh();

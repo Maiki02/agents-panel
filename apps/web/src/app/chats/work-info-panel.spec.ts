@@ -10,7 +10,33 @@ const base = {
   sprintTotal: null,
   taskDone: null,
   taskTotal: null,
+  taskTitle: null,
 } as const;
+
+describe('title of the current task (info icon tooltip)', () => {
+  it('carries the title Kyro printed for the task being worked on', () => {
+    const view = currentTaskView({
+      ...base,
+      state: 'escribiendo_codigo',
+      taskId: 'T3.1',
+      taskTitle: '  Servicio de relogueo  ',
+    });
+    expect(view).toMatchObject({ id: 'T3.1', title: 'Servicio de relogueo' });
+  });
+
+  it('is null without a title or without a task, so no icon is shown', () => {
+    expect(
+      currentTaskView({ ...base, state: 'probando', taskId: 'T3.1', taskTitle: null })?.title,
+    ).toBeNull();
+    expect(
+      currentTaskView({ ...base, state: 'probando', taskId: 'T3.1', taskTitle: '   ' })?.title,
+    ).toBeNull();
+    expect(
+      currentTaskView({ ...base, state: 'planificando', taskId: null, taskTitle: 'Huérfano' })
+        ?.title,
+    ).toBeNull();
+  });
+});
 
 describe('current task card lines', () => {
   it('without a task id the activity is the main line and there is no id line', () => {

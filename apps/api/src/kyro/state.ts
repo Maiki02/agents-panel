@@ -59,6 +59,8 @@ export interface KyroScopeState {
   status: string;
   nextAction: ScopeNextAction;
   nextTaskId: string | null;
+  /** Title of `nextTaskId` from the active sprint of `sprint.json`; null when it is not there. */
+  nextTaskTitle?: string | null;
   sprint: SprintProgress;
   tasks: TaskProgress;
   openDebt: number;
@@ -79,6 +81,8 @@ export interface KyroWorkState {
   revision: number;
   nextAction: WorkNextAction;
   nextTaskId: string | null;
+  /** Title of `nextTaskId` as `work status` prints it; null when there is none or it is another task. */
+  nextTaskTitle?: string | null;
   tasks: TaskProgress;
   blockedReason: string | null;
 }
@@ -173,6 +177,27 @@ export function parseOpenDebt(sprintJson: unknown): DebtItem[] {
     });
   }
   return items;
+}
+
+/**
+ * Title of a task of the active sprint (`activeSprint.phases[].tasks[]`, then `emergentTasks[]`),
+ * or null when `sprint.json` was not read or has no such task. Never throws.
+ */
+export function taskTitleInSprint(sprintJson: unknown, taskId: string): string | null {
+  if (!isRecord(sprintJson) || !isRecord(sprintJson['activeSprint'])) return null;
+  const sprint = sprintJson['activeSprint'];
+  const tasks: unknown[] = [];
+  if (Array.isArray(sprint['phases'])) {
+    for (const phase of sprint['phases'] as unknown[]) {
+      if (isRecord(phase) && Array.isArray(phase['tasks']))
+        tasks.push(...(phase['tasks'] as unknown[]));
+    }
+  }
+  if (Array.isArray(sprint['emergentTasks'])) tasks.push(...(sprint['emergentTasks'] as unknown[]));
+  for (const task of tasks) {
+    if (isRecord(task) && task['id'] === taskId) return optionalStr(task, 'title');
+  }
+  return null;
 }
 
 /** What a PR says about a scope: its title, objective and the sprints it closed. */
@@ -358,13 +383,16 @@ export function parseScopeState(
   }
   const roadmap = sprintJson === undefined ? null : parseSprintRoadmap(sprintJson);
   const taskSummary = record(status, 'taskSummary', 'status.data');
+  const nextTaskId = nullableStr(pack, 'nextTaskId', 'context-pack.data');
 
   return {
     kind: 'scope',
     scope,
     status: str(pack, 'status', 'context-pack.data'),
     nextAction,
-    nextTaskId: nullableStr(pack, 'nextTaskId', 'context-pack.data'),
+    nextTaskId,
+    // A plain context-pack has no task title: it comes from the sprint.json the panel already reads.
+    nextTaskTitle: nextTaskId === null ? null : taskTitleInSprint(sprintJson, nextTaskId),
     sprint: {
       current: activeSprint === null ? null : int(activeSprint, 'n', 'status.data.activeSprint'),
       closed: roadmap?.closed ?? null,
@@ -397,6 +425,11 @@ export function parseWorkState(workStatusJson: unknown): KyroWorkState {
     return Array.isArray(value) ? value.filter((id): id is string => typeof id === 'string') : [];
   };
   const currentTask = optionalIds('inProgress')[0] ?? optionalIds('awaitingReview')[0] ?? null;
+  const nextTaskId = currentTask ?? nullableStr(data, 'nextTaskId', 'work-status.data');
+  // `task` is the one Kyro describes; its title counts only when it is the task we show.
+  const described = isRecord(data['task']) ? data['task'] : {};
+  const nextTaskTitle =
+    nextTaskId !== null && described['id'] === nextTaskId ? optionalStr(described, 'title') : null;
 
   return {
     kind: 'work',
@@ -408,7 +441,8 @@ export function parseWorkState(workStatusJson: unknown): KyroWorkState {
       WORK_NEXT_ACTIONS,
       'work-status.data.nextAction',
     ),
-    nextTaskId: currentTask ?? nullableStr(data, 'nextTaskId', 'work-status.data'),
+    nextTaskId,
+    nextTaskTitle,
     tasks: {
       done: verified.length + disposed.length,
       total: verified.length + disposed.length + unresolved.length,

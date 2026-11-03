@@ -226,6 +226,16 @@ export type ChatKind = 'scope' | 'work' | 'direct' | 'idea';
 /** Coarse session state; see docs/estados.md. */
 export type ChatStatus = 'running' | 'idle' | 'error' | 'interrupted' | 'cancelled';
 
+/**
+ * What a «planificando» chat is planning: nothing in particular (a work, or no data yet), the whole
+ * scope (before its roadmap exists) or one sprint (`sprint` is its number). Deduced from the Kyro
+ * state the panel stored, never from the agent's text.
+ */
+export interface PlanningTarget {
+  target: 'general' | 'scope' | 'sprint';
+  sprint: number | null;
+}
+
 export interface Chat {
   id: number;
   projectId: number;
@@ -241,6 +251,8 @@ export interface Chat {
   models: ModelSelection;
   /** Fine state of a scope, work or idea (`null` before the first transition and for a direct chat). */
   workState?: WorktreeStateId | null;
+  /** What «planificando» is about; `null` when the chat is not planning or has no state. */
+  planning?: PlanningTarget | null;
   /** Net execution time: AI sessions and panel steps (union), minus the wait on questions. */
   runtimeMs: number;
   /** True when the chat predates the measure (no panel steps timed): `runtimeMs` is a lower bound. */
@@ -478,6 +490,8 @@ export interface WorktreeState {
   openDebt: number | null;
   /** Current task id as printed by the Kyro CLI (`nextTaskId`); null when Kyro has none. */
   taskId: string | null;
+  /** Title of the current task as the Kyro CLI prints it; null when Kyro gives none. */
+  taskTitle: string | null;
   blockedReason: BlockedReason | null;
   actor: Actor;
   role: ModelRole | null;
@@ -485,6 +499,63 @@ export interface WorktreeState {
   /** When the current state began. */
   since: number;
   previousState: WorktreeStateId | null;
+}
+
+/** Hosts the Claude login link may point at (the host itself or a subdomain of it). */
+export const CLAUDE_LOGIN_LINK_HOSTS = ['claude.ai', 'claude.com', 'anthropic.com'] as const;
+
+/** The link of the Claude login, only when it is https and points at Claude or Anthropic. */
+export function claudeLoginLink(url: string): string | null {
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname;
+    const ok =
+      parsed.protocol === 'https:' &&
+      CLAUDE_LOGIN_LINK_HOSTS.some((allowed) => host === allowed || host.endsWith(`.${allowed}`));
+    return ok ? parsed.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The code the browser shows after authorizing: letters, digits and a few separators. */
+export function isClaudeLoginCode(code: string): boolean {
+  return /^[A-Za-z0-9._~+/=#:-]{6,512}$/.test(code.trim());
+}
+
+/**
+ * What a chat in `planificando` is planning. Only a scope has more than one thing to plan: with no
+ * roadmap read yet it plans the scope itself; once Kyro reports the sprints, the one being planned
+ * is the active one or the next after the closed ones. A work, or a state that is not planning,
+ * is general (or `null`).
+ */
+export function planningTarget(
+  kind: ChatKind,
+  state:
+    | Pick<WorktreeState, 'state' | 'sprintCurrent' | 'sprintClosed' | 'sprintTotal'>
+    | null
+    | undefined,
+): PlanningTarget | null {
+  if (state?.state !== 'planificando') return null;
+  if (kind !== 'scope') return { target: 'general', sprint: null };
+  if (state.sprintClosed === null && state.sprintCurrent === null) {
+    return { target: 'scope', sprint: null };
+  }
+  const sprint = state.sprintCurrent ?? (state.sprintClosed ?? 0) + 1;
+  // Past the last planned sprint there is no «sprint X» to name: it stays general.
+  if (state.sprintTotal !== null && sprint > state.sprintTotal) {
+    return { target: 'general', sprint: null };
+  }
+  return { target: 'sprint', sprint };
+}
+
+/** The badge text of a planning chat: «Planificando», «Planificando scope» or «Planificando sprint 2». */
+export function planningLabel(planning: PlanningTarget | null | undefined): string {
+  if (planning?.target === 'scope') return 'Planificando scope';
+  if (planning?.target === 'sprint' && planning.sprint !== null) {
+    return `Planificando sprint ${String(planning.sprint)}`;
+  }
+  return 'Planificando';
 }
 
 /** One entry of a work's Timeline. `fromState` is null for the first one. */

@@ -105,22 +105,25 @@ export function slugProblem(slug: string): string | null {
 
       <details class="my-2">
         <summary>Opciones: modelos</summary>
-        <label for="thinker">Modelo pensante (idea y plan)</label>
-        <select id="thinker" (change)="thinker.set(text($event))">
-          @for (option of models(); track option.id) {
-            <option [value]="option.id" [selected]="option.id === thinkerModel()">
-              {{ label(option.id, option.byDefault.thinker) }}
-            </option>
-          }
-        </select>
-        <label for="executor">Modelo ejecutor (ejecución, QA y cierre)</label>
-        <select id="executor" (change)="executor.set(text($event))">
-          @for (option of models(); track option.id) {
-            <option [value]="option.id" [selected]="option.id === executorModel()">
-              {{ label(option.id, option.byDefault.executor) }}
-            </option>
-          }
-        </select>
+        <!-- One model per line: the thinker with its select first, the executor below. -->
+        <div class="mt-2 flex flex-col gap-2" data-testid="models-fields">
+          <label for="thinker">Modelo pensante (idea y plan)</label>
+          <select id="thinker" (change)="thinker.set(text($event))">
+            @for (option of models(); track option.id) {
+              <option [value]="option.id" [selected]="option.id === thinkerModel()">
+                {{ label(option.id, option.byDefault.thinker) }}
+              </option>
+            }
+          </select>
+          <label for="executor">Modelo ejecutor (ejecución, QA y cierre)</label>
+          <select id="executor" (change)="executor.set(text($event))">
+            @for (option of models(); track option.id) {
+              <option [value]="option.id" [selected]="option.id === executorModel()">
+                {{ label(option.id, option.byDefault.executor) }}
+              </option>
+            }
+          </select>
+        </div>
       </details>
 
       <button appButton type="submit" [disabled]="!canSubmit()">

@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import {
   IDEA_ACTIONS,
+  planningTarget,
   type Chat,
   type ChatKind,
   type IdeaAction,
@@ -97,10 +98,15 @@ export function registerChatRoutes(
 ): void {
   const { chats, service, worktreeState, ideas, ideaActions } = deps;
   /** The list and the sidebar show the fine state of a work next to the chat. */
-  const withState = (chat: Chat): Chat => ({
-    ...chat,
-    workState: chat.kind === 'direct' ? null : (worktreeState.get(chat.id)?.state ?? null),
-  });
+  const withState = (chat: Chat): Chat => {
+    if (chat.kind === 'direct') return { ...chat, workState: null, planning: null };
+    const state = worktreeState.get(chat.id);
+    return {
+      ...chat,
+      workState: state?.state ?? null,
+      planning: planningTarget(chat.kind, state),
+    };
+  };
 
   app.setErrorHandler((error, request, reply) => {
     if (error instanceof ChatError) {

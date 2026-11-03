@@ -1,6 +1,14 @@
 import type { ClaudeAccount } from '@agents-panel/shared';
 import { describe, expect, it } from 'vitest';
-import { accountLabel, accountWarnings, canActivate, canAddAccount } from './accounts-logic';
+import {
+  accountLabel,
+  accountWarnings,
+  canActivate,
+  canAddAccount,
+  canRelogin,
+  canSendReloginCode,
+  safeAuthLink,
+} from './accounts-logic';
 
 const account = (extra: Partial<ClaudeAccount> = {}): ClaudeAccount => ({
   id: 2,
@@ -41,6 +49,48 @@ describe('canAddAccount', () => {
     expect(canAddAccount(false, '  ', '/home/ubuntu/.claude2')).toBe(false);
     expect(canAddAccount(false, 'Cuenta', ' ')).toBe(false);
     expect(canAddAccount(true, 'Cuenta', '/home/ubuntu/.claude2')).toBe(false);
+  });
+});
+
+describe('canRelogin', () => {
+  it('is offered for every account, with or without login, unless a request is in flight', () => {
+    expect(canRelogin(account(), false)).toBe(true);
+    expect(canRelogin(account({ loggedIn: false }), false)).toBe(true);
+    expect(canRelogin(account({ active: true }), false)).toBe(true);
+    expect(canRelogin(account(), true)).toBe(false);
+  });
+
+  it('points the «Sin login» warning to the button', () => {
+    expect(accountWarnings(account({ loggedIn: false }))[0]).toContain('Reloguear');
+  });
+});
+
+describe('canSendReloginCode', () => {
+  it('needs a well formed code and no request in flight', () => {
+    expect(canSendReloginCode(false, 'AbCd1234-efGh5678#state9')).toBe(true);
+    expect(canSendReloginCode(false, '  AbCd1234xyz  ')).toBe(true);
+    expect(canSendReloginCode(true, 'AbCd1234-efGh5678#state9')).toBe(false);
+    expect(canSendReloginCode(false, '')).toBe(false);
+    expect(canSendReloginCode(false, 'short')).toBe(false);
+    expect(canSendReloginCode(false, 'has spaces in the middle')).toBe(false);
+    expect(canSendReloginCode(false, 'semi;colon&&rm -rf /')).toBe(false);
+  });
+});
+
+describe('safeAuthLink', () => {
+  it('lets through an https link of Claude or Anthropic', () => {
+    expect(safeAuthLink('https://claude.ai/oauth/authorize?code=true&state=x')).toBe(
+      'https://claude.ai/oauth/authorize?code=true&state=x',
+    );
+    expect(safeAuthLink('https://console.anthropic.com/oauth/authorize')).not.toBeNull();
+  });
+
+  it('refuses any other link, scheme or text', () => {
+    expect(safeAuthLink('http://claude.ai/oauth')).toBeNull();
+    expect(safeAuthLink('https://evil.example.com/claude.ai')).toBeNull();
+    expect(safeAuthLink('https://claude.ai.evil.com/')).toBeNull();
+    expect(safeAuthLink('javascript:alert(1)')).toBeNull();
+    expect(safeAuthLink('not a url')).toBeNull();
   });
 });
 

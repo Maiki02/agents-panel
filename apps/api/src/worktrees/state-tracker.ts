@@ -234,6 +234,7 @@ export class WorktreeStateTracker implements TurnObserver {
       taskTotal: mapped.taskTotal,
       openDebt: mapped.openDebt,
       taskId: mapped.taskId,
+      taskTitle: mapped.taskTitle,
       blockedReason: mapped.blockedReason,
       // Without the pilot the next move is the user's; with it, the pilot decides.
       data: {
@@ -381,6 +382,7 @@ export class WorktreeStateTracker implements TurnObserver {
       taskTotal: current.taskTotal,
       openDebt: current.openDebt,
       taskId: current.taskId,
+      taskTitle: current.taskTitle,
       blockedReason: current.blockedReason,
     };
   }

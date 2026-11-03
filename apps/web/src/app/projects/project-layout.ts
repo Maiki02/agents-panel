@@ -12,7 +12,8 @@ import {
 import { Router, RouterOutlet } from '@angular/router';
 import { apiErrorMessage } from '../chats/chats.service';
 import { currentUrl } from '../shell/current-url';
-import { projectSection } from '../shell/nav-logic';
+import { WIDE_QUERY, mediaMatches } from '../shell/media';
+import { hideProjectTabs, projectSection } from '../shell/nav-logic';
 import { PageTitleStore } from '../shell/page-title.store';
 import { Badge } from '../ui/badge';
 import { Tabs, type TabItem } from '../ui/tabs';
@@ -46,19 +47,24 @@ import { ProjectsService } from './projects.service';
       }
       @if (context.project(); as p) {
         <h1 class="sr-only">{{ label(p) }}</h1>
-        <div class="flex shrink-0 items-center gap-3">
-          <app-tabs
-            class="min-w-0 flex-1"
-            [tabs]="sections"
-            [active]="section()"
-            (selected)="open(p.id, $event)"
-          />
-          <app-badge class="shrink-0" [tone]="tone(p)">{{ statusText(p) }}</app-badge>
-        </div>
-        @if (pendingNotice(p); as notice) {
-          <p class="hint mt-2 shrink-0" role="status">{{ notice }}</p>
+        @if (!hideTabs()) {
+          <div class="flex shrink-0 items-center gap-3">
+            <app-tabs
+              class="min-w-0 flex-1"
+              [tabs]="sections"
+              [active]="section()"
+              (selected)="open(p.id, $event)"
+            />
+            <app-badge class="shrink-0" [tone]="tone(p)">{{ statusText(p) }}</app-badge>
+          </div>
+          @if (pendingNotice(p); as notice) {
+            <p class="hint mt-2 shrink-0" role="status">{{ notice }}</p>
+          }
         }
-        <section class="mt-3 flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto">
+        <section
+          class="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto"
+          [class.mt-3]="!hideTabs()"
+        >
           <router-outlet />
         </section>
       }
@@ -80,6 +86,9 @@ export class ProjectLayout {
   private readonly pageTitle = inject(PageTitleStore);
   private readonly url = currentUrl();
   protected readonly section = computed(() => projectSection(this.url()));
+  private readonly wide = mediaMatches(WIDE_QUERY);
+  /** On a phone, inside a chat the Chats/Configuración tabs go away; the chat has a back arrow. */
+  protected readonly hideTabs = computed(() => hideProjectTabs(this.url(), this.wide()));
   protected readonly notFound = signal(false);
   protected readonly error = signal<string | null>(null);
   private timer: ReturnType<typeof setInterval> | undefined;

@@ -1,4 +1,4 @@
-import type { Chat, ChatKind, ChatStatus } from '@agents-panel/shared';
+import { planningLabel, type Chat, type ChatKind, type ChatStatus } from '@agents-panel/shared';
 import type { BadgeTone } from '../ui/badge';
 import { workStateBadge } from './work-state';
 
@@ -65,10 +65,21 @@ export function chatBadge(
  * The one badge of a chat in the sidebar: the fine state of a scope, work or idea when it has one
  * (tone by who has to move), the session status otherwise (a direct request, or no state yet).
  */
-export function sidebarBadge(chat: Pick<Chat, 'status' | 'workState'>): {
+export function sidebarBadge(chat: Pick<Chat, 'status' | 'workState' | 'planning'>): {
   label: string;
   tone: BadgeTone;
 } {
-  if (chat.workState != null) return workStateBadge(chat.workState);
+  if (chat.workState != null) return stateBadge(chat);
   return { label: statusLabel(chat.status), tone: statusTone(chat.status) };
+}
+
+/** Badge of the fine state; «Planificando» says what is being planned (scope or sprint X). */
+export function stateBadge(chat: Pick<Chat, 'workState' | 'planning'>): {
+  label: string;
+  tone: BadgeTone;
+} {
+  const badge = workStateBadge(chat.workState ?? 'planificando');
+  return chat.workState === 'planificando'
+    ? { ...badge, label: planningLabel(chat.planning) }
+    : badge;
 }

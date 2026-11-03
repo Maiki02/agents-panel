@@ -595,6 +595,12 @@ export const migrations: readonly Migration[] = [
       ALTER TABLE projects ADD COLUMN git_account_id INTEGER REFERENCES git_accounts(id) ON DELETE RESTRICT;
     `,
   },
+  {
+    version: 25,
+    name: 'worktree_state_task_title',
+    // Title of the current task as the Kyro CLI prints it; the web shows it in a tooltip.
+    sql: `ALTER TABLE worktree_state ADD COLUMN task_title TEXT;`,
+  },
 ];
 
 /** Applies pending migrations in order, each in its own transaction. Safe to run repeatedly. */
