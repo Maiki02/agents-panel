@@ -1,0 +1,253 @@
+{
+  "schemaVersion": 1,
+  "kind": "organic-work",
+  "id": "chat-mobile-tablet",
+  "title": "Chat en mobile y tablet (menor a 1024px)",
+  "objective": "Hay que corregir algunas cosas del chat en mobile y tablet (menor a 1024px).",
+  "brief": {
+    "path": "brief.md",
+    "digest": "b6d51f7dd0e15adc4852a6a8c00a96c918d0f3b39aa16137f78205785f5ef25c",
+    "sourceIdea": null
+  },
+  "state": "closed",
+  "revision": 9,
+  "createdAt": "2026-11-06T12:52:23.424Z",
+  "updatedAt": "2026-11-06T12:59:40.773Z",
+  "handoff": {
+    "nextAction": "done",
+    "nextTaskId": null,
+    "blockedReason": null
+  },
+  "tasks": [
+    {
+      "id": "W1",
+      "title": "Mobile y tablet iguales por debajo de lg",
+      "description": "Llevar el comportamiento de mobile del chat hasta 1023px: flecha atrás y pestañas del proyecto ocultas por debajo de lg en vez de md.",
+      "context": "Hoy la fila de navegación del chat (chat.page.ts) usa md: flecha atrás solo por debajo de md (inline-flex md:hidden) y botón Chats desde md (hidden md:inline-flex). Pasa a lg:hidden y hidden lg:inline-flex. En shell/media.ts el WIDE_QUERY (48rem) que usa project-layout para ocultar las pestañas del proyecto en la ruta del chat (hideProjectTabs) pasa a 64rem (lg), con el comentario actualizado. Ajustar los specs afectados (nav.spec.ts y los del chat si dependen del corte md). Archivos: apps/web/src/app/chats/chat.page.ts, apps/web/src/app/shell/media.ts, apps/web/src/app/projects/project-layout.ts, apps/web/src/app/shell/nav.spec.ts.",
+      "filesToTouch": [
+        "apps/web/src/app/chats/chat.page.ts",
+        "apps/web/src/app/shell/media.ts",
+        "apps/web/src/app/projects/project-layout.ts",
+        "apps/web/src/app/shell/nav.spec.ts"
+      ],
+      "acceptanceCriteria": [
+        "Entre 768 y 1023px el chat muestra la flecha atrás y no el botón Chats; desde 1024px muestra el botón Chats y no la flecha.",
+        "Entre 768 y 1023px las pestañas del proyecto se ocultan en la ruta del chat igual que en mobile; desde 1024px se ven.",
+        "No queda ningún corte md en el layout del chat ni en la decisión de ocultar las pestañas.",
+        "Los tests de la web y el build de la web pasan."
+      ],
+      "dependsOn": [],
+      "definitionRevision": 1,
+      "status": "verified",
+      "blocker": null,
+      "evidence": {
+        "summary": "Chat nav row and project-tabs hiding now switch at lg (1024px) instead of md.",
+        "validations": [
+          {
+            "command": "npm run test -w @agents-panel/web",
+            "result": "passed",
+            "note": "42 files, 418 tests passed"
+          },
+          {
+            "command": "npm run build -w @agents-panel/web",
+            "result": "passed",
+            "note": "ng build complete"
+          }
+        ],
+        "filesChanged": [
+          "apps/web/src/app/chats/chat.page.ts",
+          "apps/web/src/app/shell/media.ts",
+          "apps/web/src/app/shell/nav.spec.ts"
+        ],
+        "notes": "Back arrow lg:hidden, Chats button hidden lg:inline-flex; WIDE_QUERY now 64rem, used by project-layout hideTabs (no edit needed there); no md: left in chat.page.ts or project-layout.ts.",
+        "by": "maker-agent",
+        "recordedAt": "2026-11-06T12:57:44.975Z",
+        "definitionRevision": 1,
+        "materialDigest": "c51ed34a7ed027668dc238c65fdaa76e2a6189144849d4e4389defac38d4d58b"
+      },
+      "verdict": {
+        "result": "pass",
+        "checkedCriteria": [
+          "Entre 768 y 1023px el chat muestra la flecha atrás y no el botón Chats; desde 1024px muestra el botón Chats y no la flecha.",
+          "Entre 768 y 1023px las pestañas del proyecto se ocultan en la ruta del chat igual que en mobile; desde 1024px se ven.",
+          "No queda ningún corte md en el layout del chat ni en la decisión de ocultar las pestañas.",
+          "Los tests de la web y el build de la web pasan."
+        ],
+        "findings": [],
+        "by": "checker-agent",
+        "reviewedAt": "2026-11-06T12:57:54.992Z",
+        "definitionRevision": 1,
+        "evidenceDigest": "05bdf3941d15cb1e0beea754602013e5bd2eef8f0a179b8e7623795491958580",
+        "reviewedMaterialDigest": "c51ed34a7ed027668dc238c65fdaa76e2a6189144849d4e4389defac38d4d58b"
+      },
+      "disposition": null
+    },
+    {
+      "id": "W2",
+      "title": "Barra del piloto en la fila de la flecha por debajo de lg",
+      "description": "Por debajo de lg la fila de navegación del chat queda [flecha atrás] [app-autopilot-bar] [Cancelar] y la barra deja de estar escondida en el pliegue del panel.",
+      "context": "Decisión del brief (punto 3 en vez del punto 2): chat.page.ts renderiza app-autopilot-bar en la fila de la flecha solo cuando no es ancho (mismo corte lg que WorkInfoPanel) y el chat tiene piloto (kind work o scope), ocupando el espacio flexible (flex-1 min-w-0) y sin el margen vertical my-2 de la barra; su salida changed llama a refreshWorkState como hoy. WorkInfoPanel deja de incluir la barra dentro del pliegue por debajo de lg y la mantiene en la columna desde lg, así nunca hay dos barras montadas a la vez. El margen de la barra pasa a decidirlo quien la ubica (host o input), no el componente. Archivos: apps/web/src/app/chats/chat.page.ts, apps/web/src/app/chats/work-info-panel.ts, apps/web/src/app/chats/autopilot-bar.ts, apps/web/src/styles/components.css.",
+      "filesToTouch": [
+        "apps/web/src/app/chats/chat.page.ts",
+        "apps/web/src/app/chats/work-info-panel.ts",
+        "apps/web/src/app/chats/autopilot-bar.ts",
+        "apps/web/src/styles/components.css"
+      ],
+      "acceptanceCriteria": [
+        "Por debajo de 1024px, en un chat de tipo work o scope, la barra del piloto se ve sin desplegar nada, en la misma fila que la flecha atrás y antes del botón Cancelar (cuando está).",
+        "Por debajo de 1024px la barra no aparece dentro del pliegue del panel; desde 1024px aparece solo en la columna del panel, como hoy.",
+        "En chats directos o de idea la fila queda como hoy: flecha y, si corre, Cancelar.",
+        "En 360px la fila no desborda horizontalmente: la barra se encoge o envuelve sus botones y la flecha y Cancelar no se cortan.",
+        "Una acción del piloto desde la barra de la fila sigue refrescando el estado del trabajo.",
+        "Los tests de la web y el build de la web pasan."
+      ],
+      "dependsOn": [
+        "W1"
+      ],
+      "definitionRevision": 1,
+      "status": "verified",
+      "blocker": null,
+      "evidence": {
+        "summary": "El piloto va en la fila de la flecha por debajo de lg (solo work/scope, flex-1 min-w-0, sin my-2); WorkInfoPanel lo monta solo cuando es ancho, así nunca hay dos barras. El margen pasó al host.",
+        "validations": [
+          {
+            "command": "npm run -w apps/web build",
+            "result": "passed",
+            "note": "Build de la web ok"
+          },
+          {
+            "command": "npm run -w apps/web test",
+            "result": "passed",
+            "note": "42 archivos, 418 tests ok"
+          }
+        ],
+        "filesChanged": [
+          "apps/web/src/app/chats/chat.page.ts",
+          "apps/web/src/app/chats/work-info-panel.ts",
+          "apps/web/src/app/chats/autopilot-bar.ts"
+        ],
+        "notes": "components.css no hizo falta tocarlo. La barra ya envuelve sus botones (flex-wrap) y el host tiene min-w-0, por eso no desborda en 360px. Sin prueba visual en navegador.",
+        "by": "maker-agent",
+        "recordedAt": "2026-11-06T12:59:25.902Z",
+        "definitionRevision": 1,
+        "materialDigest": "2f74154574d3374cc9a83473c90929170a75ebccd420ba6b791dcdf483425776"
+      },
+      "verdict": {
+        "result": "pass",
+        "checkedCriteria": [
+          "Por debajo de 1024px, en un chat de tipo work o scope, la barra del piloto se ve sin desplegar nada, en la misma fila que la flecha atrás y antes del botón Cancelar (cuando está).",
+          "Por debajo de 1024px la barra no aparece dentro del pliegue del panel; desde 1024px aparece solo en la columna del panel, como hoy.",
+          "En chats directos o de idea la fila queda como hoy: flecha y, si corre, Cancelar.",
+          "En 360px la fila no desborda horizontalmente: la barra se encoge o envuelve sus botones y la flecha y Cancelar no se cortan.",
+          "Una acción del piloto desde la barra de la fila sigue refrescando el estado del trabajo.",
+          "Los tests de la web y el build de la web pasan."
+        ],
+        "findings": [],
+        "by": "checker-agent",
+        "reviewedAt": "2026-11-06T12:59:33.595Z",
+        "definitionRevision": 1,
+        "evidenceDigest": "12aef22a73941d2936aa29415cae5db69e7f3fa712f13e83459538c0c067cabd",
+        "reviewedMaterialDigest": "2f74154574d3374cc9a83473c90929170a75ebccd420ba6b791dcdf483425776"
+      },
+      "disposition": null
+    }
+  ],
+  "activity": [
+    {
+      "seq": 1,
+      "at": "2026-11-06T12:52:23.424Z",
+      "event": "created",
+      "taskId": null,
+      "by": "claude",
+      "reason": "Created through the Work CLI.",
+      "revision": 1
+    },
+    {
+      "seq": 2,
+      "at": "2026-11-06T12:53:29.719Z",
+      "event": "tasks_planned",
+      "taskId": null,
+      "by": "claude",
+      "reason": "Planned 2 Work tasks.",
+      "revision": 2
+    },
+    {
+      "seq": 3,
+      "at": "2026-11-06T12:53:58.768Z",
+      "event": "task_started",
+      "taskId": "W1",
+      "by": "cli",
+      "reason": "Task started through the Work CLI.",
+      "revision": 3
+    },
+    {
+      "seq": 4,
+      "at": "2026-11-06T12:57:44.975Z",
+      "event": "evidence_recorded",
+      "taskId": "W1",
+      "by": "maker-agent",
+      "reason": "Evidence recorded with 2 validation results.",
+      "revision": 4
+    },
+    {
+      "seq": 5,
+      "at": "2026-11-06T12:57:54.992Z",
+      "event": "review_recorded",
+      "taskId": "W1",
+      "by": "checker-agent",
+      "reason": "Task review recorded with pass.",
+      "revision": 5
+    },
+    {
+      "seq": 6,
+      "at": "2026-11-06T12:58:10.463Z",
+      "event": "task_started",
+      "taskId": "W2",
+      "by": "cli",
+      "reason": "Task started through the Work CLI.",
+      "revision": 6
+    },
+    {
+      "seq": 7,
+      "at": "2026-11-06T12:59:25.902Z",
+      "event": "evidence_recorded",
+      "taskId": "W2",
+      "by": "maker-agent",
+      "reason": "Evidence recorded with 2 validation results.",
+      "revision": 7
+    },
+    {
+      "seq": 8,
+      "at": "2026-11-06T12:59:33.595Z",
+      "event": "review_recorded",
+      "taskId": "W2",
+      "by": "checker-agent",
+      "reason": "Task review recorded with pass.",
+      "revision": 8
+    },
+    {
+      "seq": 9,
+      "at": "2026-11-06T12:59:40.773Z",
+      "event": "work_closed",
+      "taskId": null,
+      "by": "pilot",
+      "reason": "Trabajo completado por el piloto",
+      "revision": 9
+    }
+  ],
+  "closure": {
+    "outcome": "completed",
+    "reason": "Trabajo completado por el piloto",
+    "by": "pilot",
+    "closedAt": "2026-11-06T12:59:40.773Z",
+    "briefDigest": "b6d51f7dd0e15adc4852a6a8c00a96c918d0f3b39aa16137f78205785f5ef25c",
+    "finalRevision": 9
+  },
+  "promotion": null,
+  "author": {
+    "name": "Maiki02",
+    "email": "miqueasdavidgentile@gmail.com",
+    "source": "git",
+    "capturedAt": "2026-11-06T12:52:23.424Z"
+  }
+}

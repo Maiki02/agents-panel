@@ -24,7 +24,7 @@ describe('isChatRoute', () => {
 });
 
 describe('hideProjectTabs', () => {
-  it('hides the tabs inside a chat on a phone only', () => {
+  it('hides the tabs inside a chat below the lg breakpoint (phone and tablet)', () => {
     expect(hideProjectTabs('/projects/3/chats/12', false)).toBe(true);
     expect(hideProjectTabs('/projects/3/chats/12', true)).toBe(false);
   });

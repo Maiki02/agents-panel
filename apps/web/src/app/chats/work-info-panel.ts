@@ -17,7 +17,7 @@ import { currentTaskView } from './phase-logic';
 import { PhaseStepper } from './phase-stepper';
 
 /** Same breakpoint as Tailwind's `lg`: from here the panel is a fixed column next to the chat. */
-const WIDE_QUERY = '(min-width: 1024px)';
+export const WIDE_QUERY ='(min-width: 1024px)';
 
 /**
  * Lines of the current task card: the id on top when there is one; without an id (the Plan phase)
@@ -33,7 +33,8 @@ export function taskLines(task: { id: string | null; activity: string }): {
 /**
  * Information of the worktree next to the chat: branch and state, current task, phases, pilot and
  * models. From `lg` it is a column with its own scroll; below, a collapsible summary on top whose
- * folded part keeps the branch, the state and the current task. A direct request has only the
+ * folded part keeps the branch, the state and the current task. The pilot bar is only in the
+ * column: below `lg` the chat page shows it in the back-arrow row. A direct request has only the
  * branch section. Display only: the pilot bar is the one piece that acts, through its own routes.
  */
 @Component({
@@ -111,12 +112,15 @@ export function taskLines(task: { id: string | null; activity: string }): {
         <section aria-label="Fases">
           <app-phase-stepper [state]="state()" [vertical]="true" [showDetails]="false" />
         </section>
-        <app-autopilot-bar
-          [chatId]="chat().id"
-          [kind]="chat().kind"
-          [workState]="chat().workState ?? null"
-          (changed)="pilotChanged.emit()"
-        />
+        @if (wide()) {
+          <app-autopilot-bar
+            class="my-2"
+            [chatId]="chat().id"
+            [kind]="chat().kind"
+            [workState]="chat().workState ?? null"
+            (changed)="pilotChanged.emit()"
+          />
+        }
         <div class="hint m-0 flex flex-col" data-testid="chat-models">
           <span>Modelo pensante: {{ chat().models.thinker }}</span>
           <span>Modelo ejecutor: {{ chat().models.executor }}</span>
