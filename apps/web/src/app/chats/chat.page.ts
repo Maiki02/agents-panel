@@ -45,7 +45,8 @@ import {
   type DebtView,
 } from './approval-logic';
 import { chatBadge, stateBadge } from './status';
-import { WorkInfoPanel } from './work-info-panel';
+import { AutopilotBar } from './autopilot-bar';
+import { WIDE_QUERY, WorkInfoPanel } from './work-info-panel';
 import { Timeline } from './timeline';
 import { GitTab } from './git/git-tab';
 import { Tabs, type TabItem } from '../ui/tabs';
@@ -61,6 +62,7 @@ import { ProjectContext } from '../projects/project-context';
     Icon,
     RouterLink,
     Tabs,
+    AutopilotBar,
     WorkInfoPanel,
     Timeline,
     GitTab,
@@ -83,7 +85,7 @@ import { ProjectContext } from '../projects/project-context';
       <div class="chat-main">
         <div class="chat-top">
           <div class="mb-2 flex items-center justify-between gap-2">
-            <span class="inline-flex md:hidden">
+            <span class="inline-flex shrink-0 lg:hidden">
               <a
                 appButton
                 variant="secondary"
@@ -94,14 +96,32 @@ import { ProjectContext } from '../projects/project-context';
                 <app-icon name="arrowBack" />
               </a>
             </span>
-            <span class="hidden md:inline-flex">
+            <span class="hidden lg:inline-flex">
               <a appButton variant="secondary" [routerLink]="['/projects', projectId(), 'chats']">
                 <app-icon name="chats" />
                 Chats
               </a>
             </span>
+            @if (pilotInRow(); as c) {
+              <app-autopilot-bar
+                class="min-w-0 flex-1"
+                data-testid="row-pilot"
+                [chatId]="c.id"
+                [kind]="c.kind"
+                [workState]="c.workState ?? null"
+                (changed)="refreshWorkState()"
+              />
+            }
             @if (chat()?.status === 'running') {
-              <button appButton variant="danger" type="button" (click)="cancel()">Cancelar</button>
+              <button
+                appButton
+                class="shrink-0"
+                variant="danger"
+                type="button"
+                (click)="cancel()"
+              >
+                Cancelar
+              </button>
             }
           </div>
           @if (chat(); as c) {
@@ -363,6 +383,12 @@ export class ChatPage {
       ...(chat.worktreePath ? [{ id: 'git', label: 'Git' }] : []),
     ];
   });
+  /** From `lg` the pilot bar lives in the info column; below it goes in the back-arrow row. */
+  protected readonly wide = signal(false);
+  protected readonly pilotInRow = computed(() => {
+    const chat = this.chat();
+    return !this.wide() && chat && (chat.kind === 'work' || chat.kind === 'scope') ? chat : null;
+  });
   protected readonly tab = signal('chat');
   protected readonly workState = signal<WorktreeState | null>(null);
   protected readonly timeline = signal<WorktreeTransition[]>([]);
@@ -371,6 +397,17 @@ export class ChatPage {
     inject(DestroyRef).onDestroy(() => {
       this.handle?.close();
     });
+    if (typeof matchMedia === 'function') {
+      const query = matchMedia(WIDE_QUERY);
+      this.wide.set(query.matches);
+      const onChange = (event: MediaQueryListEvent): void => {
+        this.wide.set(event.matches);
+      };
+      query.addEventListener('change', onChange);
+      inject(DestroyRef).onDestroy(() => {
+        query.removeEventListener('change', onChange);
+      });
+    }
     // After the DOM has the new events: keep the feed at its end, moving only the feed box.
     afterRenderEffect(() => {
       this.rows();

@@ -32,9 +32,11 @@ import { ChatsService, apiErrorMessage } from './chats.service';
   selector: 'app-autopilot-bar',
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [Badge, Button, Modal],
+  // The vertical margin belongs to whoever places the bar (host class), not to the bar.
+  host: { class: 'block min-w-0' },
   template: `
     <section
-      class="my-2 flex flex-col gap-1 rounded-card border border-border bg-surface px-3 py-1.5"
+      class="flex flex-col gap-1 rounded-card border border-border bg-surface px-3 py-1.5"
       aria-label="Piloto automático"
     >
       <div class="flex flex-wrap items-center gap-2">
