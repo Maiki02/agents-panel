@@ -72,7 +72,11 @@ import { GitAccountsSection } from './git-accounts.section';
               @if (account.organization) {
                 · {{ account.organization }}
               }
-              · <code>{{ account.configDir ?? '~/.claude (principal)' }}</code> · alta
+              · <code>{{ account.configDir ?? '~/.claude (sin carpeta propia)' }}</code>
+              @if (account.command) {
+                · comando <code>{{ account.command }}</code>
+              }
+              · alta
               {{ account.createdAt | date: 'shortDate' }}
             </p>
             @for (warning of warnings(account); track warning) {

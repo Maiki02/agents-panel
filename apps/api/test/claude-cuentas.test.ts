@@ -78,4 +78,36 @@ describe('11-claude-cuentas.sh', () => {
     expect(second).toContain('ya enlazado: projects');
     expect(readFileSync(join(main, 'history.jsonl'), 'utf8')).toBe('h1\nh2\n');
   });
+  it('creates a missing ~/.claude-<name> folder and the command claude-<name>', () => {
+    const { home, main } = sandbox();
+    const dir = join(home, '.claude-work');
+    const out = execFileSync('bash', [SCRIPT, dir], {
+      env: { ...process.env, HOME: home },
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    expect(out).toContain('creado: ');
+    expect(out).toContain('comando creado: claude-work');
+    expect(out).toContain('falta el login: claude-work');
+    expect(readlinkSync(join(dir, 'projects'))).toBe(join(main, 'projects'));
+    const wrapper = join(home, '.local', 'bin', 'claude-work');
+    expect(readFileSync(wrapper, 'utf8')).toContain(`export CLAUDE_CONFIG_DIR="${dir}"`);
+    expect(lstatSync(wrapper).mode & 0o111).not.toBe(0);
+    const again = execFileSync('bash', [SCRIPT, dir], {
+      env: { ...process.env, HOME: home },
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    expect(again).toContain('comando ya creado: claude-work');
+  });
+
+  it('refuses the global folder itself', () => {
+    const { home, main } = sandbox();
+    expect(() =>
+      execFileSync('bash', [SCRIPT, main], {
+        env: { ...process.env, HOME: home },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      }),
+    ).toThrow();
+  });
 });

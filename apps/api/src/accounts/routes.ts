@@ -11,11 +11,11 @@ const idParams = {
 
 const createBody = {
   type: 'object',
-  required: ['name', 'configDir'],
+  required: ['name', 'slug'],
   additionalProperties: false,
   properties: {
     name: { type: 'string', minLength: 1, maxLength: 80 },
-    configDir: { type: 'string', minLength: 1, maxLength: 1024 },
+    slug: { type: 'string', minLength: 1, maxLength: 32 },
   },
 } as const;
 
@@ -51,7 +51,7 @@ export function registerAccountRoutes(app: FastifyInstance, accounts: AccountSer
     { schema: { body: createBody }, preValidation: onlyKeys(Object.keys(createBody.properties)) },
     async (request, reply): Promise<ClaudeAccount | undefined> => {
       try {
-        const created = accounts.create(request.body);
+        const created = await accounts.create(request.body);
         await reply.code(201).send(created);
         return undefined;
       } catch (error) {

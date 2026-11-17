@@ -1,4 +1,12 @@
-import { mkdirSync, mkdtempSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import {
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  statSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -53,12 +61,10 @@ class FakeProcess implements ReloginProcess {
 }
 
 async function boot(options: { banner?: string | null; startMs?: number; finishMs?: number } = {}) {
-  const home = mkdtempSync(join(tmpdir(), 'panel-relogin-'));
+  const home = realpathSync(mkdtempSync(join(tmpdir(), 'panel-relogin-')));
   dirs.push(home);
   mkdirSync(join(home, '.claude'), { recursive: true });
   writeFileSync(join(home, '.claude', '.credentials.json'), '{"old":true}');
-  mkdirSync(join(home, '.claude2'));
-  writeFileSync(join(home, '.claude2', '.credentials.json'), '{"old":true}');
 
   const spawned: { env: Record<string, string>; proc: FakeProcess }[] = [];
   const banner =
@@ -108,12 +114,10 @@ async function boot(options: { banner?: string | null; startMs?: number; finishM
     call('POST', `/api/accounts/${String(id)}/relogin`, code === null ? {} : { totp: code });
   const submit = (id: number, code: string) =>
     call('POST', `/api/accounts/${String(id)}/relogin/code`, { code });
-  // Account 2 is the second login (~/.claude2).
-  const added = await call('POST', '/api/accounts', {
-    name: 'segunda',
-    configDir: join(home, '.claude2'),
-  });
+  // Account 2 is the second login (~/.claude-work), created by the panel.
+  const added = await call('POST', '/api/accounts', { name: 'segunda', slug: 'work' });
   const second = added.json<ClaudeAccount>();
+  writeFileSync(join(home, '.claude-work', '.credentials.json'), '{"old":true}');
   return { home, spawned, call, start, submit, second, headers, totp };
 }
 
@@ -151,7 +155,7 @@ describe('POST /api/accounts/:id/relogin', () => {
     await start(1);
     await start(second.id);
     expect(spawned[0]?.env['CLAUDE_CONFIG_DIR']).toBeUndefined();
-    expect(spawned[1]?.env['CLAUDE_CONFIG_DIR']).toBe(join(home, '.claude2'));
+    expect(spawned[1]?.env['CLAUDE_CONFIG_DIR']).toBe(join(home, '.claude-work'));
     for (const { env } of spawned) {
       expect(
         Object.keys(env).every((key) =>
@@ -233,7 +237,7 @@ describe('POST /api/accounts/:id/relogin/code', () => {
   it('works for a second account (its own directory)', async () => {
     const { start, submit, spawned, home, second } = await boot();
     await start(second.id);
-    accepting(home, spawned, '.claude2');
+    accepting(home, spawned, '.claude-work');
     const res = await submit(second.id, CODE);
     expect(res.statusCode).toBe(200);
     expect(res.json<ClaudeAccount>()).toMatchObject({ id: second.id, loggedIn: true });

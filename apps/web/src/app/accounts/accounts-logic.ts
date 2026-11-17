@@ -8,22 +8,41 @@ export function accountLabel(account: ClaudeAccount): string {
 /** What keeps an account from working as expected; empty when nothing does. */
 export function accountWarnings(account: ClaudeAccount): string[] {
   const warnings: string[] = [];
-  if (!account.loggedIn) {
+  if (account.configDir === null) {
     warnings.push(
-      `Sin login en la VM: usá «Reloguear» o, a mano, correr CLAUDE_CONFIG_DIR=${account.configDir ?? '~/.claude'} claude y hacer /login.`,
+      'Sin carpeta propia: el login vive en la config global ~/.claude. Correr scripts/vm/13-claude-global.sh.',
+    );
+  }
+  if (!account.loggedIn) {
+    const manual =
+      account.command ?? `CLAUDE_CONFIG_DIR=${account.configDir ?? '~/.claude'} claude`;
+    warnings.push(
+      `Sin login en la VM: usá «Reloguear» o, a mano, correr ${manual} y hacer /login.`,
     );
   }
   if (!account.linked) {
     warnings.push(
-      'Sin enlazar a ~/.claude: no puede retomar sesiones de otra cuenta. Correr scripts/vm/11-claude-cuentas.sh.',
+      'Sin enlazar a la config global ~/.claude: no puede retomar sesiones de otra cuenta. Correr scripts/vm/11-claude-cuentas.sh.',
+    );
+  }
+  if (account.configDir !== null && account.command === null) {
+    warnings.push(
+      'Sin comando claude-<cuenta> en la VM: la carpeta tiene que llamarse ~/.claude-<cuenta>; correr scripts/vm/11-claude-cuentas.sh.',
     );
   }
   return warnings;
 }
 
-/** The "Nueva cuenta" Agregar button needs both fields filled and no request in flight. */
-export function canAddAccount(busy: boolean, name: string, configDir: string): boolean {
-  return !busy && name.trim() !== '' && configDir.trim() !== '';
+/** Same rule as the API: the account's folder is ~/.claude-<slug> and its command claude-<slug>. */
+const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,31}$/;
+
+export function validSlug(slug: string): boolean {
+  return SLUG_RE.test(slug.trim());
+}
+
+/** The "Nueva cuenta" Agregar button needs a name, a valid command and no request in flight. */
+export function canAddAccount(busy: boolean, name: string, slug: string): boolean {
+  return !busy && name.trim() !== '' && validSlug(slug);
 }
 
 /** Every Claude account can be logged in again, also one that still has its (expired) credentials. */

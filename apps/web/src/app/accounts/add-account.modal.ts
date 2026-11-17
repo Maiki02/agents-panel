@@ -12,7 +12,10 @@ import { Modal } from '../ui/modal';
 import { canAddAccount } from './accounts-logic';
 import { AccountsService } from './accounts.service';
 
-/** "Nueva cuenta" modal: name plus the absolute config dir of a login already made in the VM. */
+/**
+ * "Nueva cuenta" modal: name plus the command. The panel creates ~/.claude-<slug> linked to the
+ * global ~/.claude and the command claude-<slug>; the login comes after, with «Reloguear».
+ */
 @Component({
   selector: 'app-add-account-modal',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -20,9 +23,10 @@ import { AccountsService } from './accounts.service';
   template: `
     <app-modal heading="Nueva cuenta" (closed)="closed.emit()">
       <p class="hint">
-        Antes, en la VM: <code>CLAUDE_CONFIG_DIR=~/.claude2 claude</code> (y <code>/login</code>) y
-        <code>bash scripts/vm/11-claude-cuentas.sh ~/.claude2</code> para compartir skills, permisos
-        y sesiones con la principal.
+        El panel crea la carpeta <code>~/.claude-{{ slugPreview() }}</code
+        >, la enlaza con la config global <code>~/.claude</code> (skills, permisos y sesiones) y
+        deja el comando <code>claude-{{ slugPreview() }}</code> en la VM. Después, «Reloguear» para
+        hacer el login.
       </p>
       <form (submit)="submit($event)">
         <label for="account-name">Nombre</label>
@@ -30,19 +34,21 @@ import { AccountsService } from './accounts.service';
           id="account-name"
           name="account-name"
           autocomplete="off"
-          placeholder="Miqueas - Bimtrazer"
+          placeholder="Trabajo"
           data-autofocus
           [value]="name()"
           (input)="name.set(text($event))"
         />
-        <label for="account-dir">Directorio de config (ruta absoluta)</label>
+        <label for="account-slug">Comando (claude-…)</label>
         <input
-          id="account-dir"
-          name="account-dir"
+          id="account-slug"
+          name="account-slug"
           autocomplete="off"
-          placeholder="/home/ubuntu/.claude2"
-          [value]="dir()"
-          (input)="dir.set(text($event))"
+          autocapitalize="off"
+          spellcheck="false"
+          placeholder="work"
+          [value]="slug()"
+          (input)="slug.set(text($event))"
         />
         @if (error(); as message) {
           <p class="error" role="alert">{{ message }}</p>
@@ -60,11 +66,12 @@ export class AddAccountModal {
   readonly closed = output();
 
   protected readonly name = signal('');
-  protected readonly dir = signal('');
+  protected readonly slug = signal('');
+  protected readonly slugPreview = computed(() => this.slug().trim() || '<comando>');
   protected readonly busy = signal(false);
   protected readonly error = signal<string | null>(null);
   protected readonly canSubmit = computed(() =>
-    canAddAccount(this.busy(), this.name(), this.dir()),
+    canAddAccount(this.busy(), this.name(), this.slug()),
   );
 
   protected text(event: Event): string {
@@ -77,7 +84,7 @@ export class AddAccountModal {
     this.busy.set(true);
     this.error.set(null);
     try {
-      await this.service.create({ name: this.name().trim(), configDir: this.dir().trim() });
+      await this.service.create({ name: this.name().trim(), slug: this.slug().trim() });
       this.closed.emit();
     } catch (cause) {
       // Stay open with what was typed so it can be fixed.

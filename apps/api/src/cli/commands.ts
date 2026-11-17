@@ -8,6 +8,8 @@ import { ProjectRepository } from '../projects/repo.js';
 import { ProjectRepoRepository } from '../projects/repos-repo.js';
 import { ProjectService } from '../projects/service.js';
 import type { Config } from '../config.js';
+import { AccountRepository } from '../accounts/repo.js';
+import { AccountError, AccountService } from '../accounts/service.js';
 import { PROJECT_USAGE, runProjectCommand } from './projects.js';
 
 export interface CliIo {
@@ -25,6 +27,8 @@ export interface CliDeps {
   now?: () => number;
   /** Clone settings; `project:add` only registers local folders, so tests may leave it out. */
   projectConfig?: Pick<Config, 'projectsDir' | 'minFreeDiskGb'>;
+  /** Home of the Claude accounts (~/.claude and ~/.claude-<slug>); tests use a temporary one. */
+  accountsHome?: string;
 }
 
 export class CliError extends Error {
@@ -39,6 +43,8 @@ export const USAGE = `Usage: npm run -w @agents-panel/api cli -- <command>
   user:reset-2fa <username>       Enroll a new TOTP secret and recovery codes
   user:unlock <username>          Clear a login lock
   push:vapid-keys                 Print a VAPID key pair for the Web Push variables of the .env
+  account:list                    List the Claude accounts (id, folder, command, name)
+  account:dir <id> <folder>       Point a Claude account to another folder (absolute, in the home)
 
 ${PROJECT_USAGE}`;
 
@@ -61,6 +67,10 @@ export async function runCli(argv: readonly string[], io: CliIo, deps: CliDeps):
     })
   ) {
     return;
+  }
+
+  function accountService(): AccountService {
+    return new AccountService(new AccountRepository(deps.db, now), deps.accountsHome);
   }
 
   function requireUser(): User {
@@ -154,6 +164,32 @@ export async function runCli(argv: readonly string[], io: CliIo, deps: CliDeps):
       io.print(`PUSH_VAPID_PUBLIC_KEY=${keys.publicKey}`);
       io.print(`PUSH_VAPID_PRIVATE_KEY=${keys.privateKey}`);
       io.print('PUSH_VAPID_SUBJECT=mailto:you@example.com');
+      return;
+    }
+    case 'account:list': {
+      for (const account of accountService().list()) {
+        const dir = account.configDir ?? '(sin carpeta: ~/.claude)';
+        const flags = `${account.active ? ' [activa]' : ''}${account.loggedIn ? '' : ' [sin login]'}`;
+        io.print(
+          `${String(account.id)}\t${dir}\t${account.command ?? '-'}\t${account.name}${flags}`,
+        );
+      }
+      return;
+    }
+    case 'account:dir': {
+      const [, rawId, dir] = argv;
+      const id = Number(rawId);
+      if (!Number.isInteger(id) || id < 1 || !dir)
+        throw new CliError('Usage: account:dir <id> <folder>');
+      try {
+        const account = accountService().setDir(id, dir);
+        io.print(
+          `${account.name}: ${account.configDir ?? ''} (${account.command ?? 'sin comando'})`,
+        );
+      } catch (error) {
+        if (error instanceof AccountError) throw new CliError(error.message);
+        throw error;
+      }
       return;
     }
     default:

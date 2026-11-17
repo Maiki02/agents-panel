@@ -701,7 +701,10 @@ export const WORKTREE_STATE_INFO: Record<WorktreeStateId, { label: string; who: 
 export interface ClaudeAccount {
   id: number;
   name: string;
+  /** Its CLAUDE_CONFIG_DIR (~/.claude-<slug>); null only in the legacy layout (login in ~/.claude). */
   configDir: string | null;
+  /** Command that opens Claude Code with this account (claude-<slug>); null when it is missing. */
+  command: string | null;
   active: boolean;
   /** From `oauthAccount` of the account's .claude.json; null when it cannot be read. */
   email: string | null;
@@ -709,16 +712,17 @@ export interface ClaudeAccount {
   /** The directory has a login (.credentials.json). */
   loggedIn: boolean;
   /**
-   * Its projects/ is the one of ~/.claude (scripts/vm/11-claude-cuentas.sh): it can resume a
-   * session started with another account. Always true for the default account.
+   * Its projects/ is the one of the global ~/.claude (scripts/vm/11-claude-cuentas.sh): it can
+   * resume a session started with another account. Always true for the legacy account.
    */
   linked: boolean;
   createdAt: number;
 }
 
+/** A new account: the panel creates ~/.claude-<slug>, linked to ~/.claude, and claude-<slug>. */
 export interface NewClaudeAccount {
   name: string;
-  configDir: string;
+  slug: string;
 }
 
 /** Disk use of one registered project. null means "sin dato" (absent or unreadable folder). */

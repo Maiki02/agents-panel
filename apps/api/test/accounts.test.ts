@@ -1,10 +1,21 @@
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readlinkSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import type { ClaudeAccount } from '@agents-panel/shared';
 import { AccountRepository } from '../src/accounts/repo.js';
+import { AccountService } from '../src/accounts/service.js';
 import { SESSION_COOKIE, SessionService } from '../src/auth/sessions.js';
 import { UserRepository } from '../src/auth/users.js';
 import { openDatabase } from '../src/db/index.js';
@@ -18,9 +29,9 @@ afterEach(async () => {
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
-/** A fake home: ~/.claude logged in, ~/.claude2 logged in and linked, ~/.claude3 logged in, not linked. */
+/** A fake home in the legacy layout: ~/.claude logged in, ~/.claude2 logged in and linked, ~/.claude3 not linked. */
 function fakeHome(): string {
-  const home = mkdtempSync(join(tmpdir(), 'panel-accounts-'));
+  const home = realpathSync(mkdtempSync(join(tmpdir(), 'panel-accounts-')));
   dirs.push(home);
   mkdirSync(join(home, '.claude', 'projects'), { recursive: true });
   writeFileSync(join(home, '.claude', '.credentials.json'), '{"secret":"main"}');
@@ -96,57 +107,55 @@ describe('account routes', () => {
     expect(res.body).not.toContain('secret');
   });
 
-  it('adds an account and tells whether it is linked', async () => {
+  it('creates the account folder linked to the global ~/.claude and its command', async () => {
     const { home, call } = await boot();
-    const two = await call('POST', '/api/accounts', {
-      name: 'Bimtrazer',
-      configDir: join(home, '.claude2'),
-    });
-    expect(two.statusCode).toBe(201);
-    expect(two.json()).toMatchObject({
-      email: 'two@example.com',
-      loggedIn: true,
+    const res = await call('POST', '/api/accounts', { name: 'Trabajo', slug: 'work' });
+    expect(res.statusCode, res.body).toBe(201);
+    const dir = join(home, '.claude-work');
+    expect(res.json()).toMatchObject({
+      configDir: dir,
+      command: 'claude-work',
+      loggedIn: false,
       linked: true,
       active: false,
     });
-    const three = await call('POST', '/api/accounts', {
-      name: 'Tres',
-      configDir: join(home, '.claude3'),
-    });
-    expect(three.json()).toMatchObject({ linked: false, email: null });
+    expect(readlinkSync(join(dir, 'projects'))).toBe(join(home, '.claude', 'projects'));
+    expect(readlinkSync(join(dir, 'skills'))).toBe(join(home, '.claude', 'skills'));
+    expect(existsSync(join(dir, '.credentials.json'))).toBe(false);
+    const wrapper = readFileSync(join(home, '.local', 'bin', 'claude-work'), 'utf8');
+    expect(wrapper).toContain(`export CLAUDE_CONFIG_DIR="${dir}"`);
+    expect(wrapper).toContain(`exec "${join(home, '.local', 'bin', 'claude')}" "$@"`);
+    // Without a login it cannot be the active one.
+    const id = res.json<ClaudeAccount>().id;
+    expect((await call('PUT', '/api/accounts/active', { id })).statusCode).toBe(409);
   });
 
-  it('refuses bad directories and repeated names', async () => {
-    const { home, call } = await boot();
-    const cases: [string, string, number][] = [
-      ['A', '.claude2', 400],
-      ['B', '/etc', 400],
-      ['C', join(home, 'missing'), 400],
-      ['D', join(home, 'no-login'), 400],
-      ['E', join(home, '.claude'), 400],
-    ];
-    for (const [name, configDir, status] of cases) {
-      const res = await call('POST', '/api/accounts', { name, configDir });
-      expect(res.statusCode, configDir).toBe(status);
+  it('refuses bad commands, repeated names and repeated folders', async () => {
+    const { call } = await boot();
+    for (const slug of ['Work', '../x', 'a b', '-x', 'a'.repeat(33)]) {
+      const res = await call('POST', '/api/accounts', { name: `n-${slug}`, slug });
+      expect(res.statusCode, slug).toBe(400);
     }
-    await call('POST', '/api/accounts', { name: 'Dos', configDir: join(home, '.claude2') });
-    const sameName = await call('POST', '/api/accounts', {
-      name: 'Dos',
-      configDir: join(home, '.claude3'),
-    });
-    expect(sameName.statusCode).toBe(409);
-    const sameDir = await call('POST', '/api/accounts', {
-      name: 'Otra',
-      configDir: join(home, '.claude2'),
-    });
-    expect(sameDir.statusCode).toBe(409);
+    expect((await call('POST', '/api/accounts', { name: 'X', configDir: '/tmp' })).statusCode).toBe(
+      400,
+    );
+    expect((await call('POST', '/api/accounts', { name: 'Dos', slug: 'dos' })).statusCode).toBe(
+      201,
+    );
+    expect((await call('POST', '/api/accounts', { name: 'Dos', slug: 'tres' })).statusCode).toBe(
+      409,
+    );
+    expect((await call('POST', '/api/accounts', { name: 'Otra', slug: 'dos' })).statusCode).toBe(
+      409,
+    );
   });
 
-  it('keeps exactly one active account and protects the default and the active one', async () => {
+  it('keeps exactly one active account and protects the legacy and the active one', async () => {
     const { home, db, call } = await boot();
     const two = (
-      await call('POST', '/api/accounts', { name: 'Dos', configDir: join(home, '.claude2') })
+      await call('POST', '/api/accounts', { name: 'Dos', slug: 'work' })
     ).json<ClaudeAccount>();
+    writeFileSync(join(home, '.claude-work', '.credentials.json'), '{"secret":"two"}');
     const switched = await call('PUT', '/api/accounts/active', { id: two.id });
     expect(switched.statusCode).toBe(200);
     const list = (await call('GET', '/api/accounts')).json<ClaudeAccount[]>();
@@ -180,5 +189,31 @@ describe('account routes', () => {
       payload: { id: 1 },
     });
     expect(res.statusCode).toBe(403);
+  });
+});
+
+describe('moving an account to its own folder (CLI account:dir)', () => {
+  it('points the legacy account to ~/.claude-personal and validates the folder', () => {
+    const home = fakeHome();
+    const db = openDatabase(':memory:');
+    const service = new AccountService(new AccountRepository(db), home, () => Promise.resolve());
+    const [legacy] = service.list();
+    const id = legacy?.id ?? 0;
+    for (const bad of [join(home, '.claude'), join(home, 'missing'), '/etc', 'relative']) {
+      expect(() => service.setDir(id, bad), bad).toThrow();
+    }
+    const personal = join(home, '.claude-personal');
+    mkdirSync(join(home, '.local', 'bin'), { recursive: true });
+    writeFileSync(join(home, '.local', 'bin', 'claude-personal'), '#!/bin/sh\n');
+    mkdirSync(personal);
+    symlinkSync(join(home, '.claude', 'projects'), join(personal, 'projects'));
+    writeFileSync(join(personal, '.credentials.json'), '{}');
+    expect(service.setDir(id, personal)).toMatchObject({
+      configDir: personal,
+      command: 'claude-personal',
+      loggedIn: true,
+      linked: true,
+    });
+    expect(service.activeForRun().configDir).toBe(personal);
   });
 });
