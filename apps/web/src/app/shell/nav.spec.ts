@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   APP_TITLE,
+  EXTERNAL_NAV_ITEMS,
   NAV_ITEMS,
+  externalHref,
   activeNavPath,
   headerTitle,
   hideProjectTabs,
@@ -43,6 +45,15 @@ describe('side menu', () => {
       ['Cuentas', 'account'],
       ['Notificaciones', 'notifications'],
     ]);
+  });
+
+  it('links El Curiosito on port 8443 of the same host, without a hostname in the code', () => {
+    expect(EXTERNAL_NAV_ITEMS.map((item) => item.label)).toEqual(['El Curiosito']);
+    for (const item of EXTERNAL_NAV_ITEMS) {
+      expect(externalHref(item, { protocol: 'https:', hostname: 'vm.example.ts.net' })).toBe(
+        'https://vm.example.ts.net:8443/',
+      );
+    }
   });
 
   it('marks Proyectos on the list and inside any project', () => {

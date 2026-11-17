@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { Icon } from '../ui/icon';
-import { NAV_ITEMS } from './nav-logic';
+import { EXTERNAL_NAV_ITEMS, NAV_ITEMS, externalHref } from './nav-logic';
 
 /**
  * The options of the side menu, each with its Material icon. The active one gets a raised
@@ -33,6 +33,25 @@ import { NAV_ITEMS } from './nav-logic';
             </a>
           </li>
         }
+        @for (item of externalItems; track item.port) {
+          <li
+            [class.mt-3]="$first"
+            [class.border-t]="$first"
+            [class.border-border]="$first"
+            [class.pt-3]="$first"
+          >
+            <a
+              [href]="hrefOf(item)"
+              target="_blank"
+              rel="noopener"
+              class="flex min-h-11 items-center gap-3 rounded-control px-3 py-2 text-sm text-muted transition-colors hover:bg-surface-raised hover:text-text hover:no-underline"
+              (click)="navigated.emit()"
+            >
+              <app-icon [name]="item.icon" />
+              <span>{{ item.label }}</span>
+            </a>
+          </li>
+        }
       </ul>
     </nav>
   `,
@@ -43,4 +62,9 @@ export class SideNav {
   readonly navigated = output();
 
   protected readonly items = NAV_ITEMS;
+  protected readonly externalItems = EXTERNAL_NAV_ITEMS;
+
+  protected hrefOf(item: (typeof EXTERNAL_NAV_ITEMS)[number]): string {
+    return externalHref(item, window.location);
+  }
 }

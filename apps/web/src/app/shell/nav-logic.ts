@@ -14,6 +14,28 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { path: '/settings/notifications', label: 'Notificaciones', icon: 'notifications' },
 ];
 
+/**
+ * Other panels published on the same VM with Tailscale Funnel, on another port of the same host.
+ * They share the login: the session cookie does not depend on the port.
+ */
+export interface ExternalNavItem {
+  readonly port: number;
+  readonly label: string;
+  readonly icon: IconName;
+}
+
+export const EXTERNAL_NAV_ITEMS: readonly ExternalNavItem[] = [
+  { port: 8443, label: 'El Curiosito', icon: 'openInNew' },
+];
+
+/** URL of an external panel on the host the browser is using (no hostname in the repo). */
+export function externalHref(
+  item: ExternalNavItem,
+  location: { protocol: string; hostname: string },
+): string {
+  return `${location.protocol}//${location.hostname}:${String(item.port)}/`;
+}
+
 export const APP_TITLE = 'Panel de agentes';
 
 function pathOf(url: string): string {

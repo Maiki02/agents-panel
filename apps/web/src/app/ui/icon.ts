@@ -10,6 +10,7 @@ import forum from '@material-symbols/svg-400/outlined/forum.svg';
 import logout from '@material-symbols/svg-400/outlined/logout.svg';
 import menu from '@material-symbols/svg-400/outlined/menu.svg';
 import notifications from '@material-symbols/svg-400/outlined/notifications.svg';
+import openInNew from '@material-symbols/svg-400/outlined/open_in_new.svg';
 import refresh from '@material-symbols/svg-400/outlined/refresh.svg';
 import settings from '@material-symbols/svg-400/outlined/settings.svg';
 import speed from '@material-symbols/svg-400/outlined/speed.svg';
@@ -33,6 +34,7 @@ const ICON_SVGS = {
   logout,
   menu,
   notifications,
+  openInNew,
   plus: add,
   refresh,
   settings,
