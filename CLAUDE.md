@@ -97,8 +97,9 @@ Valen para cualquier cambio futuro en el panel (detalle en `docs/plan.md`, «Ser
 
 ## Cuentas de Claude
 
-- La VM tiene más de un login de Claude Code: `~/.claude` es la principal y la fuente de la verdad; las demás (`~/.claude2`, …) enlazan su config con `scripts/vm/11-claude-cuentas.sh` (paso 17 de `docs/vm-setup.md`). Nunca se enlazan ni se copian `.credentials.json` ni `.claude.json`.
-- El panel corre cada turno con la cuenta activa (una para todo el panel, se elige en la web): `CLAUDE_CONFIG_DIR` de la cuenta, o la variable quitada para la principal. Toda sesión guarda su `account_id`; lo que mida uso (tokens, cupo) lo hace por cuenta.
+- `~/.claude` es la **config global** (skills, `settings.json`, sesiones y memoria en `projects/`, plugins) y no tiene login. Cada cuenta tiene su carpeta `~/.claude-<cuenta>` (su `CLAUDE_CONFIG_DIR`) enlazada a la global y su comando `claude-<cuenta>` en `~/.local/bin`: `claude-personal` (personal; `claude` a secas es alias de este) y `claude-work` (trabajo). Se crean con `scripts/vm/11-claude-cuentas.sh` (paso 17 de `docs/vm-setup.md`; la migración desde el esquema viejo es `13-claude-global.sh`, paso 19). Nunca se enlazan ni se copian `.credentials.json` entre cuentas.
+- El panel corre cada turno con la cuenta activa (una para todo el panel, se elige en la web) y `CLAUDE_CONFIG_DIR` = su carpeta: lo mismo que su comando. Toda sesión guarda su `account_id`; lo que mida uso (tokens, cupo) lo hace por cuenta.
+- **Nueva cuenta desde la web** (Cuentas → Nueva cuenta, nombre y comando): el panel corre `11-claude-cuentas.sh ~/.claude-<comando>` y la da de alta sin login (después, Reloguear). Igual que Actualizar Kyro, esas corridas **no** suman línea a la bitácora; los cambios del script sí.
 
 ## Seguridad del panel
 

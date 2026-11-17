@@ -13,7 +13,8 @@ import {
 const account = (extra: Partial<ClaudeAccount> = {}): ClaudeAccount => ({
   id: 2,
   name: 'Miqueas - Bimtrazer',
-  configDir: '/home/ubuntu/.claude2',
+  configDir: '/home/ubuntu/.claude-work',
+  command: 'claude-work',
   active: false,
   email: 'm@example.com',
   organization: 'Bimtrazer',
@@ -35,20 +36,34 @@ describe('accountWarnings', () => {
     expect(accountWarnings(account())).toEqual([]);
   });
 
+  it('asks for the migration of an account without its own folder', () => {
+    const warnings = accountWarnings(account({ configDir: null, command: null }));
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('13-claude-global.sh');
+  });
+
+  it('warns when the command claude-<account> is missing', () => {
+    const warnings = accountWarnings(account({ command: null }));
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('claude-<cuenta>');
+  });
+
   it('tells how to log in and how to link', () => {
     const warnings = accountWarnings(account({ loggedIn: false, linked: false }));
     expect(warnings).toHaveLength(2);
-    expect(warnings[0]).toContain('CLAUDE_CONFIG_DIR=/home/ubuntu/.claude2 claude');
+    expect(warnings[0]).toContain('correr claude-work y hacer /login');
     expect(warnings[1]).toContain('11-claude-cuentas.sh');
   });
 });
 
 describe('canAddAccount', () => {
-  it('needs a name and a directory, and no request in flight', () => {
-    expect(canAddAccount(false, 'Cuenta', '/home/ubuntu/.claude2')).toBe(true);
-    expect(canAddAccount(false, '  ', '/home/ubuntu/.claude2')).toBe(false);
-    expect(canAddAccount(false, 'Cuenta', ' ')).toBe(false);
-    expect(canAddAccount(true, 'Cuenta', '/home/ubuntu/.claude2')).toBe(false);
+  it('needs a name and a valid command, and no request in flight', () => {
+    expect(canAddAccount(false, 'Trabajo', 'work')).toBe(true);
+    expect(canAddAccount(false, '  ', 'work')).toBe(false);
+    expect(canAddAccount(false, 'Trabajo', ' ')).toBe(false);
+    expect(canAddAccount(false, 'Trabajo', 'Work')).toBe(false);
+    expect(canAddAccount(false, 'Trabajo', '../x')).toBe(false);
+    expect(canAddAccount(true, 'Trabajo', 'work')).toBe(false);
   });
 });
 

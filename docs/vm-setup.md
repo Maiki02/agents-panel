@@ -296,23 +296,31 @@ El panel deja de correr con `tsx watch` y `ng serve`: la API compilada (`node di
 - **CSP y la web compilada (2026-10-06):** la API manda `default-src 'self'` y ahora también lo aplica a la web. El build de Angular inyectaba CSS crítico y un script en línea y la web salía sin estilos. Se desactivó `inlineCritical` en `apps/web/angular.json` (el `index.html` no lleva `<style>` ni `<script>` en línea) y el CSP permite estilos en línea (`style-src 'self' 'unsafe-inline'`, que Angular necesita para los estilos de componentes); los scripts siguen solo `'self'`.
 - Estado (2026-10-06): **corrido en la VM**. Servicio `active` y `enabled`, `127.0.0.1:3000` solo en loopback, nada en 4200, Funnel en `https://<vm>.<tailnet>.ts.net` → `proxy http://127.0.0.1:3000`, `/api/health` 200 y una ruta con sesión 401 por la URL pública, login con TOTP confirmado por la persona.
 
-### 17. Segunda cuenta de Claude: `scripts/vm/11-claude-cuentas.sh`
+### 17. Cuentas de Claude: `scripts/vm/11-claude-cuentas.sh`
 
-Para no frenar cuando una suscripción se queda sin cupo, la VM tiene dos logins de Claude Code: **Miqueas Gentile** en `~/.claude` (la de siempre, fuente de la verdad) y **Miqueas - Bimtrazer** en `~/.claude2`. Claude Code elige el directorio con la variable `CLAUDE_CONFIG_DIR`; sin ella usa `~/.claude` (y `~/.claude.json` afuera de la carpeta).
+Para no frenar cuando una suscripción se queda sin cupo, la VM tiene más de un login de Claude Code. Desde el paso 19 la estructura es **una config global y una carpeta por cuenta**:
 
-1. Login de la cuenta nueva (manual, una vez): `CLAUDE_CONFIG_DIR=~/.claude2 claude` y `/login`.
-2. Enlazar la config compartida:
+| Carpeta | Qué es | Comando |
+|---|---|---|
+| `~/.claude` | Config **global**: skills, `settings.json`, sesiones y memoria (`projects/`), plugins, historial. Sin login | — |
+| `~/.claude-personal` | Login personal (Miqueas Gentile) | `claude-personal` (y `claude` a secas, por alias) |
+| `~/.claude-work` | Login del trabajo (Miqueas - Bimtrazer) | `claude-work` |
+
+Claude Code elige la carpeta con la variable `CLAUDE_CONFIG_DIR`; cada comando `claude-<cuenta>` es un script de `~/.local/bin` que la exporta y ejecuta `~/.local/bin/claude`.
 
 ```bash
-bash ~/proyectos/agents-panel/scripts/vm/11-claude-cuentas.sh            # defecto: ~/.claude2
+bash ~/proyectos/agents-panel/scripts/vm/11-claude-cuentas.sh ~/.claude-<cuenta>   # defecto: ~/.claude-work
 ```
 
-- **Se comparten** (symlink `~/.claude2/<x> → ~/.claude/<x>`): `projects/` (sesiones y memoria: permite retomar con una cuenta una sesión empezada con la otra), `skills/` (Kyro), `agents/`, `commands/`, `plugins/`, `file-history/`, `todos/`, `settings.json` (permisos de `04-claude-permisos.sh`), `history.jsonl` y `CLAUDE.md` si existe.
+- Crea la carpeta si falta (modo 700), la enlaza con `~/.claude` y deja el comando `~/.local/bin/claude-<cuenta>` (solo si la carpeta se llama `~/.claude-<cuenta>`, con minúsculas, números y guiones). El login se hace después: `claude-<cuenta>` y `/login`, o **Reloguear** en la web.
+- **Se comparten** (symlink `~/.claude-<cuenta>/<x> → ~/.claude/<x>`): `projects/` (sesiones y memoria: permite retomar con una cuenta una sesión empezada con otra), `skills/` (Kyro), `agents/`, `commands/`, `plugins/`, `file-history/`, `todos/`, `settings.json` (permisos de `04-claude-permisos.sh`), `history.jsonl` y `CLAUDE.md` si existe.
 - **Quedan por cuenta:** `.credentials.json` (el login), `.claude.json` (cuenta OAuth, confianza por carpeta), `policy-limits*`, `remote-settings.json`, `cache/`, `backups/`, `sessions/`, `session-env/`, `shell-snapshots/`.
-- Lo que la cuenta nueva ya tenía se mezcla en `~/.claude` sin pisar nada: archivos idénticos se descartan, un conflicto queda como `<nombre>.cuenta-extra.<fecha>`, `history.jsonl` se concatena. `plugins/` de la cuenta nueva se descarta (son descargas; se vuelven a bajar). Primero aparta y enlaza, después mezcla, así una sesión abierta sigue escribiendo por la misma ruta.
-- Idempotente: lo ya enlazado dice `ya enlazado`. Para una tercera cuenta: `bash … 11-claude-cuentas.sh ~/.claude3`.
-- **Verificar:** `ls -l ~/.claude2` (los symlinks de arriba), `ls ~/.claude2/skills` (las `kyro-*`) y en `CLAUDE_CONFIG_DIR=~/.claude2 claude` que `/status` muestre la cuenta Bimtrazer y que aparezcan las skills de Kyro.
-- **En el panel:** la cuenta se elige en la web (desplegable del encabezado o **Cuentas**); se da de alta con su directorio después de este paso. Cada turno corre con `CLAUDE_CONFIG_DIR` de la cuenta activa, o sin la variable para la principal (detalle en `docs/plan.md` y `docs/panel-desarrollo.md`). El servicio no necesita cambios.
+- Lo que la carpeta ya tenía se mezcla en `~/.claude` sin pisar nada: archivos idénticos se descartan, un conflicto queda como `<nombre>.cuenta-extra.<fecha>`, `history.jsonl` se concatena. `plugins/` de la cuenta se descarta (son descargas; se vuelven a bajar). Primero aparta y enlaza, después mezcla, así una sesión abierta sigue escribiendo por la misma ruta.
+- Se niega con `~/.claude` (es la global) y con rutas relativas. Idempotente: lo ya hecho dice `ya enlazado` / `comando ya creado`.
+- **Desde el panel:** **Cuentas → Nueva cuenta** (nombre y comando, por ejemplo `work`) corre este mismo script con `~/.claude-<comando>` y da de alta la cuenta sin login; después se usa **Reloguear**. Esas corridas no suman línea a la bitácora (ver `CLAUDE.md`).
+- **Verificar:** `ls -l ~/.claude-<cuenta>` (los symlinks de arriba), `cat ~/.local/bin/claude-<cuenta>` y en `claude-<cuenta>` que `/status` muestre la cuenta y que aparezcan las skills de Kyro.
+- **En el panel:** la cuenta activa se elige en la web (desplegable del encabezado o **Cuentas**). Cada turno, la medición de uso y el relogueo corren con `CLAUDE_CONFIG_DIR` = la carpeta de la cuenta; es exactamente lo que hace su comando `claude-<cuenta>` (detalle en `docs/plan.md` y `docs/panel-desarrollo.md`). El servicio no necesita cambios.
+- Historia: hasta el paso 19 `~/.claude` era a la vez la global y el login principal, y la segunda cuenta vivía en `~/.claude2`.
 
 ### 18. Desplegar el panel desde la web: `scripts/vm/12-panel-deploy.sh`
 
@@ -335,6 +343,38 @@ Para desplegar lo mergeado a `main` sin entrar a la VM. Es lo que corre el botó
 
 Nada por ahora.
 
+### 19. Config global y una carpeta por cuenta: `scripts/vm/13-claude-global.sh`
+
+Migración única del esquema viejo (login principal adentro de `~/.claude`, segunda cuenta en `~/.claude2`) al del paso 17. **Requisitos:** ninguna sesión de Claude Code abierta (tampoco la de tmux `autopilot` ni Remote Control) y el servicio del panel parado: el script mueve `.credentials.json`, y un proceso que refresque el token por la ruta vieja perdería el login.
+
+```bash
+sudo systemctl stop agents-panel
+bash ~/proyectos/agents-panel/scripts/vm/05-remote-control.sh --stop
+bash ~/proyectos/agents-panel/scripts/vm/13-claude-global.sh
+sudo systemctl start agents-panel
+```
+
+- **Qué hace, en orden:** (1) se niega si hay procesos `claude` o el servicio corre; (2) mueve `~/.claude/.credentials.json` a `~/.claude-personal/` y copia `~/.claude.json` a `~/.claude-personal/.claude.json` (el original queda); (3) renombra `~/.claude2` a `~/.claude-work` (sus symlinks son absolutos y siguen valiendo); (4) corre `11-claude-cuentas.sh` para las dos carpetas (enlaces y comandos `claude-personal` / `claude-work`); (5) agrega a `~/.bashrc` un bloque marcado con `alias claude=claude-personal`; (6) apunta las cuentas del panel a sus carpetas con el CLI (`account:list`, `account:dir <id> <carpeta>`).
+- Idempotente: lo ya migrado dice `ya …`. Si encuentra login en las dos carpetas o `~/.claude2` y `~/.claude-work` a la vez, avisa y no toca nada de eso.
+- `05-remote-control.sh` corre Remote Control con `~/.claude-personal` cuando existe (y marca la confianza de carpetas en su `.claude.json`).
+- **Verificar:** `ls ~/.claude/.credentials.json` no existe; `claude-personal` y `claude-work` muestran cada cuenta en `/status`; `npm run -w @agents-panel/api cli -- account:list` lista las dos cuentas con su carpeta y su comando; en la web, **Cuentas** sin avisos.
+- **Volver atrás:** `mv ~/.claude-personal/.credentials.json ~/.claude/`, `mv ~/.claude-work ~/.claude2`, quitar el bloque de `~/.bashrc` y `account:dir` de vuelta (la principal no puede volver a «sin carpeta»: apuntarla a otra carpeta con login).
+
+### 20. El Curiosito (otro proyecto en la VM): `soyelcuriosito/scripts/vm-instalar.sh`
+
+```bash
+git clone https://github.com/Maiki02/soyelcuriosito ~/proyectos/soyelcuriosito
+bash ~/proyectos/soyelcuriosito/scripts/vm-instalar.sh             # pide sudo
+bash ~/proyectos/soyelcuriosito/scripts/vm-instalar.sh --reiniciar # tras copiar .env y secretos/
+```
+
+Generador de Shorts con IA: un panel (Python, `127.0.0.1:8765`) y un vigilante que trae los lotes de voz de Gemini, arma los videos y trae métricas de YouTube. El script vive en ese repo porque es su instalación; el detalle está en su `INSTALACION.md` («Máquina virtual»).
+
+- **Qué cambia en la VM:** paquetes `ffmpeg`, `git-lfs`, `libcairo2-dev`, `pkg-config`, `python3-dev`, `python3-venv`, `fontconfig`; `git lfs install` (filtros globales en `~/.gitconfig`); Poppins en `~/.local/share/fonts`; servicios **de usuario** `curiosito-panel` y `curiosito-vigilante` en `~/.config/systemd/user` (no usan sudo; el linger ya estaba activo); Funnel suma `https://<vm>.<tailnet>.ts.net:8443` → `http://127.0.0.1:8765`. El 443 del agents-panel no se toca.
+- **Login:** el panel del curiosito no tiene usuarios. Valida la cookie `__Host-panel_session` del agents-panel contra `http://127.0.0.1:3000/api/auth/me` (las cookies no distinguen puertos). No hubo cambios en el agents-panel; si se cambia el nombre de la cookie o la ruta `/api/auth/me`, el curiosito deja de dejar entrar a nadie (falla cerrado). El script no publica en Funnel si el panel responde algo distinto de 401 sin sesión.
+- Sin costo (US$0): Funnel en otro puerto del plan gratis de Tailscale; sin recursos de Oracle.
+- **Verificar:** `systemctl --user is-active curiosito-panel curiosito-vigilante`; `tailscale funnel status` muestra `:443` → 3000 y `:8443` → 8765; `curl -s -o /dev/null -w '%{http_code}' https://<vm>.<tailnet>.ts.net:8443/api/videos` da 401; con la sesión iniciada en el agents-panel, el panel carga.
+
 ## Costos
 
 Regla del repo (`CLAUDE.md`): todo cambio que pueda modificar lo que se paga se avisa y se aprueba antes.
@@ -351,6 +391,7 @@ Regla del repo (`CLAUDE.md`): todo cambio que pueda modificar lo que se paga se 
 | 2026-10-05 | Tailscale (repositorio oficial) y Funnel en 443 hacia la web del panel (`09-tailscale-funnel.sh`, paso 15) | US$0: plan gratis de Tailscale (Personal), sin recursos de Oracle | Miqueas, 2026-10-05 (adelantado de la etapa 6) |
 | 2026-10-06 | Servicio systemd `agents-panel` (API + web compilada en 127.0.0.1:3000) y Funnel hacia el puerto 3000 (`10-panel-service.sh`, paso 16) | US$0: sin recursos de Oracle ni planes pagos; sin cambios de shape, disco ni IPs | Miqueas, 2026-10-06 |
 | 2026-10-06 | Segunda cuenta de Claude Code en `~/.claude2` con la config enlazada a `~/.claude` (`11-claude-cuentas.sh`, paso 17) | US$0 en Oracle: symlinks locales. La suscripción de la segunda cuenta la paga la persona por fuera de la VM | Miqueas, 2026-10-06 |
+| 2026-11-17 | El Curiosito: paquetes de apt, servicios systemd de usuario y Funnel en :8443 (paso 20) | US$0: plan gratis de Tailscale, sin recursos de Oracle | Miqueas, 2026-11-17 |
 
 ## Bitácora
 
@@ -396,3 +437,5 @@ Regla del repo (`CLAUDE.md`): todo cambio que pueda modificar lo que se paga se 
 | 2026-10-06 | Paso 18, primer deploy desde la web: el disco ya estaba en `origin/main` (`0d2c659`, alguien había traído el merge de la PR #1 sin reiniciar) y el servicio corría `62d2ec0`; el script comparaba el disco y respondió `DEPLOY_RESTART=no`, y la web quedó en «Reiniciando…». Arreglo: el panel pasa el commit corriendo al script, que compila y reinicia si difiere; la web solo espera el reinicio si la corrida dice `DEPLOY_RESTART=yes` | Test nuevo en `panel-deploy-script.test.ts` (disco al día, servicio atrás). Para aplicarlo hace falta un reinicio manual (`10-panel-service.sh --restart`): el servicio corre el código con el bug. Sin costo |
 | 2026-10-07 | Paso 18: el deploy de `c3e3b85` (la PR #3 cambió `package-lock.json`) falló en el build con código 127: el `npm ci` del script heredó `NODE_ENV=production` del servicio y no instaló las devDependencies (`tsc`). Se cambió a `npm ci --include=dev` en `12-panel-deploy.sh` y se corrió a mano `npm ci --include=dev` + `npm run build` en `~/proyectos/agents-panel` para dejar `node_modules` completo | Build OK; el servicio siguió corriendo `9cde8c6` durante el fallo (el build no llegó a tocar `dist`). Falta desplegar desde la web. Sin costo |
 | 2026-11-03 | Paso 14 cambia de procedimiento (work `kyro-sin-ramas-e-historial`): después de `08-kyro-update.sh` el panel commitea solo `.agents/kyro/` en el clon base de cada proyecto y lo pushea a su rama base sin `--force` ni PR; si falla deshace su commit. El script no cambió | Probado con un `origin` bare local (`apps/api/test/kyro-commit.test.ts`: commit y push, sin cambios, fast-forward previo, otra rama, commits propios sin pushear, push rechazado por hook). **Sin correr todavía contra los proyectos reales** (primera corrida al tocar Actualizar tras desplegar). Sin cambios en la VM. Sin costo |
+| 2026-11-17 | Pasos 17 y 19: `11-claude-cuentas.sh` pasa a crear la carpeta de la cuenta si falta y el comando `~/.local/bin/claude-<cuenta>`; nuevo `13-claude-global.sh` (migración a `~/.claude` global + `~/.claude-personal` + `~/.claude-work`, alias `claude=claude-personal`); `05-remote-control.sh` corre con `~/.claude-personal`. Alta de cuentas desde la web con el script | Scripts escritos y probados con tests (`claude-cuentas.test.ts`, `accounts.test.ts`); **migración pendiente de correr a mano** (requiere cerrar todas las sesiones de Claude). Sin costo |
+| 2026-11-17 | Paso 20: se escribió `soyelcuriosito/scripts/vm-instalar.sh` (paquetes, LFS, Poppins, `.venv`, servicios de usuario, Funnel :8443) y el login del panel con la sesión del agents-panel | Probado con tests (`tests/test_acceso.py` del curiosito). **Sin correr todavía en la VM**: necesita sudo. Sin costo |

@@ -80,6 +80,10 @@ export class AccountRepository {
     return created;
   }
 
+  setConfigDir(id: number, configDir: string): void {
+    this.db.prepare('UPDATE claude_accounts SET config_dir = ? WHERE id = ?').run(configDir, id);
+  }
+
   rename(id: number, name: string): void {
     this.db.prepare('UPDATE claude_accounts SET name = ? WHERE id = ?').run(name, id);
   }

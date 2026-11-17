@@ -9,6 +9,18 @@
 set -euo pipefail
 export PATH="$HOME/.local/bin:$HOME/.npm-global/bin:/usr/local/go/bin:$HOME/go/bin:$PATH"
 
+# Cuenta con la que corre Remote Control: la personal (~/.claude-personal, comando claude-personal,
+# paso 19 de docs/vm-setup.md). Sin esa carpeta (VM sin migrar) usa el login de ~/.claude.
+ACCOUNT_DIR="${CLAUDE_REMOTE_ACCOUNT_DIR:-$HOME/.claude-personal}"
+# tmux no hereda el entorno de este script (usa el de su server): la variable va en el comando.
+if [ -d "$ACCOUNT_DIR" ]; then
+  RUN="env CLAUDE_CONFIG_DIR=$ACCOUNT_DIR claude"
+  CJ="$ACCOUNT_DIR/.claude.json"
+else
+  RUN="env -u CLAUDE_CONFIG_DIR claude"
+  CJ="$HOME/.claude.json"
+fi
+
 # nombre de sesión tmux | carpeta | modo spawn
 # ventas usa same-dir: fe-ventas y be-ventas son repos aparte y un git worktree de la raíz no los trae.
 PROJECTS=(
@@ -49,10 +61,10 @@ for p in "${PROJECTS[@]}"; do
   if [ ! -d "$dir" ]; then echo "SALTEO $name: no existe $dir"; continue; fi
   if tmux has-session -t "$name" 2>/dev/null; then echo "$name ya está corriendo"; continue; fi
   # Marca la carpeta como confiable (si no, el server queda esperando "Trust …? [y/N]" dentro de tmux).
-  CJ="$HOME/.claude.json"; [ -f "$CJ" ] || echo '{}' > "$CJ"
+  [ -f "$CJ" ] || echo '{}' > "$CJ"
   jq --arg d "$dir" '.projects[$d].hasTrustDialogAccepted = true' "$CJ" > "$CJ.tmp" && mv "$CJ.tmp" "$CJ"
   tmux new-session -d -s "$name" -c "$dir" \
-    "claude remote-control --permission-mode auto --spawn $spawn --remote-control-session-name-prefix $name; echo 'Remote Control terminó. Enter para cerrar.'; read"
+    "$RUN remote-control --permission-mode auto --spawn $spawn --remote-control-session-name-prefix $name; echo 'Remote Control terminó. Enter para cerrar.'; read"
   echo "$name iniciado en $dir (spawn=$spawn)"
 done
 echo
