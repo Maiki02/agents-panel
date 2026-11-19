@@ -1,0 +1,622 @@
+{
+  "schemaVersion": 1,
+  "kind": "organic-work",
+  "id": "piloto-menos-tokens",
+  "title": "Piloto: menos tokens, sin tareas de prueba manual y un mensaje lo reanuda",
+  "objective": "El piloto gasta demasiados tokens, se traba en tareas que piden probar algo desplegado y, cuando frena, el mensaje de la persona no lo hace seguir: hay que ir a la card del piloto y apretar Reanudar.",
+  "brief": {
+    "path": "brief.md",
+    "digest": "b5c2efbf62436cb38486b60c8d39c0a45a91675a1e6b73cbd93db743e2e29696",
+    "sourceIdea": null
+  },
+  "state": "closed",
+  "revision": 19,
+  "createdAt": "2026-11-19T03:28:19.255Z",
+  "updatedAt": "2026-11-19T04:01:56.560Z",
+  "handoff": {
+    "nextAction": "done",
+    "nextTaskId": null,
+    "blockedReason": null
+  },
+  "tasks": [
+    {
+      "id": "W1",
+      "title": "Medir tokens y costo por sesión",
+      "description": "Migración nueva que suma a agent_sessions las columnas input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens y cost_usd (nulas por defecto). El manager, al recibir el mensaje result del SDK (usage y total_cost_usd), las guarda en la fila de la sesión. La API expone las sesiones de un chat con su uso y el total del trabajo; la web los muestra en el chat (por sesión, con su paso del piloto, y el total). Vale para toda sesión, del piloto o manual.",
+      "context": "Hoy no hay medición: ningún archivo de apps/api/src lee usage ni total_cost_usd. agent_sessions está en apps/api/src/db/migrations.ts (versión 9 y reescrituras posteriores); el resultado se ve en apps/api/src/agent/manager.ts (~403). Sin node_modules en el worktree: correr npm ci antes de validar. Verificar los nombres de campos contra los tipos del SDK instalado.",
+      "filesToTouch": [
+        "apps/api/src/db/migrations.ts",
+        "apps/api/src/agent/manager.ts",
+        "apps/api/src/agent/runner.ts",
+        "packages/shared/src/index.ts",
+        "apps/api/src/chats/routes.ts",
+        "apps/web/src/app/chats/chat.page.ts",
+        "apps/api/test/agent.test.ts",
+        "docs/plan.md"
+      ],
+      "acceptanceCriteria": [
+        "Al terminar una sesión, su fila de agent_sessions guarda input, output, caché de lectura, caché de escritura y costo en dólares del mensaje result del SDK",
+        "Una sesión sin mensaje result (cancelada o con error antes) deja esas columnas en null y no rompe nada",
+        "La migración es nueva (no edita una existente) y corre sobre una base con sesiones viejas",
+        "La API devuelve el uso por sesión y el total del trabajo, con sesión y sin acceso a chats ajenos",
+        "La web muestra el uso por sesión (con su paso del piloto) y el total del trabajo",
+        "Tests de API y web cubren guardar, leer y mostrar el uso; docs/plan.md lo documenta"
+      ],
+      "dependsOn": [],
+      "definitionRevision": 1,
+      "status": "verified",
+      "blocker": null,
+      "evidence": {
+        "summary": "Migración 26 agent_sessions_usage (input, output, cache read, cache creation, cost_usd, nulas). AgentManager guarda el usage del mensaje result del SDK (usage.*, total_cost_usd; campos verificados contra sdk.d.ts) con usageFromResult y AgentSessionRepository.setUsage; sin result queda null. GET /api/chats/:id/usage devuelve sesiones con su paso y el total. La web suma la pestaña Uso (UsagePanel, usage-logic). docs/plan.md documenta la medición.",
+        "validations": [
+          {
+            "command": "npm run test -w @agents-panel/api",
+            "result": "passed",
+            "note": "91 archivos, 1452 tests; nuevos: guardar usage, sesión sin result en null, migración 26 sobre base con sesiones viejas, ruta /usage con total, 401 sin sesión y 404 de chat inexistente"
+          },
+          {
+            "command": "npm run test -w @agents-panel/web",
+            "result": "passed",
+            "note": "43 archivos, 425 tests; usage-logic.spec cubre filas por sesión con su paso y formatos"
+          },
+          {
+            "command": "npm run typecheck (api, web) + npm run lint",
+            "result": "passed",
+            "note": "El typecheck de packages/shared falla por test/planning.test.ts (sprintTotal), previo y ajeno a esta tarea"
+          }
+        ],
+        "filesChanged": [
+          "apps/api/src/db/migrations.ts",
+          "apps/api/src/agent/manager.ts",
+          "apps/api/src/chats/sessions-repo.ts",
+          "apps/api/src/chats/routes.ts",
+          "apps/api/src/app.ts",
+          "packages/shared/src/index.ts",
+          "apps/web/src/app/chats/chat.page.ts",
+          "apps/web/src/app/chats/chats.service.ts",
+          "apps/web/src/app/chats/usage-logic.ts",
+          "apps/web/src/app/chats/usage-logic.spec.ts",
+          "apps/web/src/app/chats/usage-panel.ts",
+          "apps/api/test/agent.test.ts",
+          "apps/api/test/db.test.ts",
+          "apps/api/test/chat-usage.test.ts",
+          "docs/plan.md"
+        ],
+        "notes": "runner.ts no necesitó cambios: el payload del evento result ya es el mensaje completo del SDK. Chequeo agregado: lint y format sobre los archivos tocados.",
+        "by": "maker-agent",
+        "recordedAt": "2026-11-19T03:42:13.884Z",
+        "definitionRevision": 1,
+        "materialDigest": "725da1c6c2d9114a318b4c8c797eb7e7b3eeafa17172c173516352a98aebec1c"
+      },
+      "verdict": {
+        "result": "pass",
+        "checkedCriteria": [
+          "Al terminar una sesión, su fila de agent_sessions guarda input, output, caché de lectura, caché de escritura y costo en dólares del mensaje result del SDK",
+          "Una sesión sin mensaje result (cancelada o con error antes) deja esas columnas en null y no rompe nada",
+          "La migración es nueva (no edita una existente) y corre sobre una base con sesiones viejas",
+          "La API devuelve el uso por sesión y el total del trabajo, con sesión y sin acceso a chats ajenos",
+          "La web muestra el uso por sesión (con su paso del piloto) y el total del trabajo",
+          "Tests de API y web cubren guardar, leer y mostrar el uso; docs/plan.md lo documenta"
+        ],
+        "findings": [
+          {
+            "severity": "suggestion",
+            "detail": "El panel es de un solo grupo de usuarios: 'sin acceso a chats ajenos' se cumple con el guard de sesión global (401) y el 404 de chat inexistente; no hay propiedad por usuario que filtrar."
+          },
+          {
+            "severity": "suggestion",
+            "detail": "La web se prueba en la lógica pura (usage-logic.spec); el componente UsagePanel y la pestaña no tienen test de render, como el resto de las pantallas del repo."
+          }
+        ],
+        "by": "checker-agent",
+        "reviewedAt": "2026-11-19T03:42:21.322Z",
+        "definitionRevision": 1,
+        "evidenceDigest": "141b8916145cf64d60ed6d65aa9c198b3b928aefb292cf2dc044f5a7e453444b",
+        "reviewedMaterialDigest": "725da1c6c2d9114a318b4c8c797eb7e7b3eeafa17172c173516352a98aebec1c"
+      },
+      "disposition": null
+    },
+    {
+      "id": "W2",
+      "title": "Sesiones del piloto sin MCP ni plugins",
+      "description": "buildQueryOptions recibe si la sesión es del piloto. En ese caso arranca sin servidores MCP (incluidos los conectores de claude.ai) y sin plugins, con la opción que ofrezca el SDK instalado (por ejemplo mcpServers vacío con strictMcpConfig, o la variable de entorno que apaga los conectores), y sigue cargando la config del proyecto (CLAUDE.md y .claude/settings.json) y las reglas de permisos de siempre. Los chats manuales quedan como están.",
+      "context": "apps/api/src/agent/sdk-runner.ts:69-83 usa settingSources ['project','user'] sin mcpServers. El paso del piloto llega al manager como opts.pilot (apps/api/src/pilot/autopilot.ts:470-474); RunParams está en apps/api/src/agent/runner.ts. Confirmar contra los tipos del SDK qué opción deja afuera MCP y plugins sin perder CLAUDE.md, y anotar en las notas de la evidencia cuál se usó y por qué.",
+      "filesToTouch": [
+        "apps/api/src/agent/sdk-runner.ts",
+        "apps/api/src/agent/runner.ts",
+        "apps/api/src/agent/manager.ts",
+        "apps/api/test/sdk-runner.test.ts",
+        "docs/plan.md"
+      ],
+      "acceptanceCriteria": [
+        "Las opciones de una sesión del piloto no cargan servidores MCP ni conectores de claude.ai ni plugins",
+        "Las sesiones del piloto siguen cargando la config del proyecto (CLAUDE.md, .claude/settings.json) y el hook PreToolUse y canUseTool de siempre",
+        "Las opciones de un chat manual no cambian",
+        "Nunca aparece un modo que saltee permisos",
+        "sdk-runner.test.ts cubre los dos casos; docs/plan.md lo documenta"
+      ],
+      "dependsOn": [],
+      "definitionRevision": 1,
+      "status": "verified",
+      "blocker": null,
+      "evidence": {
+        "summary": "RunParams.pilot (true solo en turnos del piloto; el manager lo pasa desde turn.pilot). buildQueryOptions, con pilot, suma mcpServers {}, strictMcpConfig true y settings { disableClaudeAiConnectors: true, enabledPlugins: {id: false} } para cada plugin que enabledPluginIds lee de settings.json de la cuenta. settingSources, permissionMode acceptEdits, allowedTools, hook PreToolUse y canUseTool no cambian; un chat manual produce las mismas opciones de antes. docs/plan.md lo documenta.",
+        "validations": [
+          {
+            "command": "npm run test -w apps/api",
+            "result": "passed",
+            "note": "sdk-runner.test.ts: 9 tests, 5 nuevos (opciones del piloto, config/permisos/hook conservados sin bypass, chat manual sin cambios, enabledPluginIds con y sin settings); suite completa de la API en verde"
+          },
+          {
+            "command": "npm run build -w apps/api",
+            "result": "passed",
+            "note": "tsc contra los tipos del SDK instalado: mcpServers, strictMcpConfig, settings.disableClaudeAiConnectors y settings.enabledPlugins existen"
+          },
+          {
+            "command": "npm run lint",
+            "result": "passed",
+            "note": "eslint sin hallazgos"
+          }
+        ],
+        "filesChanged": [
+          "apps/api/src/agent/sdk-runner.ts",
+          "apps/api/src/agent/runner.ts",
+          "apps/api/src/agent/manager.ts",
+          "apps/api/test/sdk-runner.test.ts",
+          "docs/plan.md"
+        ],
+        "notes": "Opciones del SDK usadas (verificadas en sdk.d.ts): strictMcpConfig con mcpServers vacio deja afuera .mcp.json, settings, servidores de plugins y frontmatter de agentes; settings.disableClaudeAiConnectors apaga los conectores de claude.ai. El SDK no tiene interruptor global de plugins (plugins solo agrega, y los instalados se activan por enabledPlugins de la config de usuario), asi que se pasan en false uno por uno por flag settings, que gana sobre los de usuario. Se descarto sacar 'user' de settingSources: perderia las skills kyro-* y otras reglas de usuario. Limite: un plugin activado solo en la config del proyecto no se lee de ahi (solo de la cuenta); si settings.json de la cuenta no se puede leer no se apaga ninguno. No se corrio una sesion real contra el SDK.",
+        "by": "maker-agent",
+        "recordedAt": "2026-11-19T03:47:27.339Z",
+        "definitionRevision": 1,
+        "materialDigest": "010d5d8af07aa1c02fbe77b99e77d22d6fb0927114a5afc2405d6bdd9a672019"
+      },
+      "verdict": {
+        "result": "pass",
+        "checkedCriteria": [
+          "Las opciones de una sesión del piloto no cargan servidores MCP ni conectores de claude.ai ni plugins",
+          "Las sesiones del piloto siguen cargando la config del proyecto (CLAUDE.md, .claude/settings.json) y el hook PreToolUse y canUseTool de siempre",
+          "Las opciones de un chat manual no cambian",
+          "Nunca aparece un modo que saltee permisos",
+          "sdk-runner.test.ts cubre los dos casos; docs/plan.md lo documenta"
+        ],
+        "findings": [
+          {
+            "severity": "suggestion",
+            "detail": "Los plugins se apagan solo si están en el settings.json de la cuenta; uno activado solo en la config del proyecto seguiría cargando. Está anotado en las notas de la evidencia."
+          },
+          {
+            "severity": "suggestion",
+            "detail": "No hay prueba contra una sesión real del SDK: las opciones se verifican por tipos (tsc) y por tests de buildQueryOptions."
+          }
+        ],
+        "by": "checker-agent",
+        "reviewedAt": "2026-11-19T03:47:33.632Z",
+        "definitionRevision": 1,
+        "evidenceDigest": "b607bd8e6cafa0bc196616b8401eaea97ba47c8123f449657a1759786b77b868",
+        "reviewedMaterialDigest": "010d5d8af07aa1c02fbe77b99e77d22d6fb0927114a5afc2405d6bdd9a672019"
+      },
+      "disposition": null
+    },
+    {
+      "id": "W3",
+      "title": "Una sesión limpia por tarea (política v5)",
+      "description": "La sesión de ejecución termina cuando la tarea que Kyro rutea queda revisada con pass (o bloqueada): el agente no sigue con la próxima. El piloto, al terminar la sesión, vuelve a leer Kyro y abre otra sesión nueva para la siguiente tarea con su context-pack. Se actualizan las cláusulas execute_task/review_task y STEP_INTRO.execute y POLICY_VERSION pasa a 5. El tope de sesiones sin avance sigue funcionando: una sesión que cierra su tarea cuenta como avance.",
+      "context": "apps/api/src/pilot/policy.ts (KNOWN_GATES, STEP_INTRO, POLICY_VERSION=4); apps/api/src/pilot/decide.ts (fingerprint de avance, DEFAULT_MAX_SESSIONS_PER_SPRINT=6); apps/api/src/pilot/prompts.ts buildStepPrompt. docs/plan.md decisión D3 (línea ~356) y políticas v3/v4 (~404-405).",
+      "filesToTouch": [
+        "apps/api/src/pilot/policy.ts",
+        "apps/api/src/pilot/prompts.ts",
+        "apps/api/src/pilot/decide.ts",
+        "apps/api/test/pilot-policy.test.ts",
+        "apps/api/test/pilot-prompts.test.ts",
+        "apps/api/test/pilot-autopilot.test.ts",
+        "apps/api/test/pilot-decide.test.ts",
+        "docs/plan.md",
+        "docs/estados.md"
+      ],
+      "acceptanceCriteria": [
+        "La política de execute dice que la sesión termina cuando la tarea ruteada queda revisada o bloqueada y no sigue con otra",
+        "POLICY_VERSION es 5 y las sesiones lo registran",
+        "Con un sprint de varias tareas, el piloto abre una sesión de ejecución nueva (freshSession) por tarea",
+        "Una sesión que cierra su tarea no suma al tope de sesiones sin avance",
+        "Tests del piloto actualizados; docs/plan.md y docs/estados.md documentan la política v5"
+      ],
+      "dependsOn": [],
+      "definitionRevision": 1,
+      "status": "verified",
+      "blocker": null,
+      "evidence": {
+        "summary": "Policy v5: execute session ends when the routed task is reviewed pass or blocked.",
+        "validations": [
+          {
+            "command": "npm test --workspace apps/api -- test/pilot-policy.test.ts test/pilot-prompts.test.ts test/pilot-autopilot.test.ts test/pilot-decide.test.ts",
+            "result": "passed",
+            "note": "4 files, 130 tests passed"
+          }
+        ],
+        "filesChanged": [
+          "apps/api/src/pilot/policy.ts",
+          "apps/api/test/pilot-policy.test.ts",
+          "apps/api/test/pilot-autopilot.test.ts",
+          "docs/plan.md",
+          "docs/estados.md"
+        ],
+        "notes": "POLICY_VERSION 5; execute_task/review_task clauses and STEP_INTRO.execute updated; autopilot already opens freshSession per step and completedTask already restarts the cap count; docs/plan.md and docs/estados.md document v5.",
+        "by": "maker-agent",
+        "recordedAt": "2026-11-19T03:49:12.696Z",
+        "definitionRevision": 1,
+        "materialDigest": "7ec30096036c77028b31f9d9b69740f95506b8926431ba169c1aa5324bb63165"
+      },
+      "verdict": {
+        "result": "pass",
+        "checkedCriteria": [
+          "La política de execute dice que la sesión termina cuando la tarea ruteada queda revisada o bloqueada y no sigue con otra",
+          "POLICY_VERSION es 5 y las sesiones lo registran",
+          "Con un sprint de varias tareas, el piloto abre una sesión de ejecución nueva (freshSession) por tarea",
+          "Una sesión que cierra su tarea no suma al tope de sesiones sin avance",
+          "Tests del piloto actualizados; docs/plan.md y docs/estados.md documentan la política v5"
+        ],
+        "findings": [],
+        "by": "checker-agent",
+        "reviewedAt": "2026-11-19T03:49:19.151Z",
+        "definitionRevision": 1,
+        "evidenceDigest": "74406b8bab3c53744c32d676d0450685994110ac1fd085f436a95d6bfff6a60c",
+        "reviewedMaterialDigest": "7ec30096036c77028b31f9d9b69740f95506b8926431ba169c1aa5324bb63165"
+      },
+      "disposition": null
+    },
+    {
+      "id": "W4",
+      "title": "Pruebas manuales fuera del sprint y checklist en la PR",
+      "description": "Cláusula nueva de la política (plan y execute, misma v5 de W3): al planificar no se crean tareas cuya única validación es probar algo desplegado o en la URL pública; se anotan, una por línea, en <worktree>/.agents/kyro/manual-checks/<scope-o-work>.md. Al ejecutar, si una parte de la tarea solo se valida desplegada, el agente valida lo que puede correr localmente, anota el resto en ese archivo y cierra la tarea en vez de bloquearla. El panel lee el archivo al armar la PR y suma la sección «Verificación manual» con un checkbox por línea; sin archivo o vacío no la suma.",
+      "context": "Mismo patrón que el informe de QA en .agents/kyro/qa/<scope>/sprint-<n>.md (cláusula qa_or_close). La PR se arma en apps/api/src/pilot/pr-body.ts (buildPrText, readPrText) y apps/api/src/pilot/autopilot.ts (~691-720). Respetar PR_BODY_MAX y el footer.",
+      "filesToTouch": [
+        "apps/api/src/pilot/policy.ts",
+        "apps/api/src/pilot/pr-body.ts",
+        "apps/api/src/pilot/autopilot.ts",
+        "apps/api/test/pilot-policy.test.ts",
+        "apps/api/test/pr-body.test.ts",
+        "docs/plan.md"
+      ],
+      "acceptanceCriteria": [
+        "La política de plan prohíbe tareas de prueba manual en el sprint y dice dónde anotarlas",
+        "La política de execute dice validar localmente, anotar lo que solo se prueba desplegado y cerrar la tarea sin bloquearla",
+        "Con el archivo de verificaciones, la PR de un work o scope trae la sección Verificación manual con un checkbox por línea, antes del footer y dentro de PR_BODY_MAX",
+        "Sin archivo, vacío o ilegible, la PR sale como hoy",
+        "Tests de política y de PR cubren los casos; docs/plan.md documenta el archivo"
+      ],
+      "dependsOn": [
+        "W3"
+      ],
+      "definitionRevision": 1,
+      "status": "verified",
+      "blocker": null,
+      "evidence": {
+        "summary": "Política: dos cláusulas nuevas (manual_checks_plan, manual_checks_execute) en policy.ts. PR: readManualChecks/parseManualChecks/manualChecksSection en pr-body.ts; buildPrText suma la sección «Verificación manual» con un checkbox por línea antes del pie y dentro de PR_BODY_MAX; autopilot.ts la suma también en el texto simple. docs/plan.md documenta el archivo.",
+        "validations": [
+          {
+            "command": "npm run test -w @agents-panel/api",
+            "result": "passed",
+            "note": "91 archivos, 1465 tests, todos pasan; incluye los casos nuevos de política y de PR"
+          },
+          {
+            "command": "npm run typecheck -w @agents-panel/api",
+            "result": "passed",
+            "note": "sin errores"
+          }
+        ],
+        "filesChanged": [
+          "apps/api/src/pilot/policy.ts",
+          "apps/api/src/pilot/pr-body.ts",
+          "apps/api/src/pilot/autopilot.ts",
+          "apps/api/test/pilot-policy.test.ts",
+          "apps/api/test/pr-body.test.ts",
+          "docs/plan.md"
+        ],
+        "notes": "Sin archivo, vacío, ilegible, enlace simbólico o nombre inseguro, la PR sale igual que antes (los tests lo cubren). Tope de lectura: 32 KiB, 100 líneas de 500 caracteres.",
+        "by": "maker-agent",
+        "recordedAt": "2026-11-19T03:54:20.660Z",
+        "definitionRevision": 1,
+        "materialDigest": "c8edf805378c0c698066b5f5cd8d8f87099bc4678e9827dbf3ff6f36afecbea7"
+      },
+      "verdict": {
+        "result": "pass",
+        "checkedCriteria": [
+          "La política de plan prohíbe tareas de prueba manual en el sprint y dice dónde anotarlas",
+          "La política de execute dice validar localmente, anotar lo que solo se prueba desplegado y cerrar la tarea sin bloquearla",
+          "Con el archivo de verificaciones, la PR de un work o scope trae la sección Verificación manual con un checkbox por línea, antes del footer y dentro de PR_BODY_MAX",
+          "Sin archivo, vacío o ilegible, la PR sale como hoy",
+          "Tests de política y de PR cubren los casos; docs/plan.md documenta el archivo"
+        ],
+        "findings": [],
+        "by": "checker-agent",
+        "reviewedAt": "2026-11-19T03:54:32.783Z",
+        "definitionRevision": 1,
+        "evidenceDigest": "55394e7bc88150afdf8ef86a10eae79ae50d73683f9406278d23b764506787df",
+        "reviewedMaterialDigest": "c8edf805378c0c698066b5f5cd8d8f87099bc4678e9827dbf3ff6f36afecbea7"
+      },
+      "disposition": null
+    },
+    {
+      "id": "W5",
+      "title": "Un mensaje reanuda el piloto frenado",
+      "description": "Cuando la persona manda un mensaje en el chat y el run del piloto está stopped, el turno corre como hoy y, si termina bien, el panel reanuda el run (runs.resume) y llama a pilot.resumeByUser, igual que Reanudar (incluido el kyro work unblock de un work bloqueado). Con el run paused u off, o si el turno termina con error o cancelado, no se reanuda. El Timeline anota «Piloto reanudado por tu mensaje» con actor user. La web, con el piloto frenado, avisa en el compositor que el mensaje reanuda el piloto y la card se actualiza sola.",
+      "context": "Ruta POST /api/chats/:id/messages (apps/api/src/chats/routes.ts:261-267) → ChatService.sendMessage (apps/api/src/chats/service.ts:252-256) → startTurn, sin piloto. Reanudar: apps/api/src/pilot/routes.ts:114-173, runs.resume (runs-repo.ts:167-173), onResume en apps/api/src/app.ts:589-592 → Autopilot.resumeByUser (autopilot.ts:250-253). Web: autopilot-logic.ts, autopilot-bar.ts, chat.page.ts (send ~613-629). CLAUDE.md: las rutas de operaciones dan 409 con el piloto active/queued/waiting_quota; con stopped el mensaje ya se acepta.",
+      "filesToTouch": [
+        "apps/api/src/chats/service.ts",
+        "apps/api/src/app.ts",
+        "apps/api/src/pilot/autopilot.ts",
+        "apps/api/test/chats.test.ts",
+        "apps/api/test/pilot-unblock.test.ts",
+        "apps/web/src/app/chats/autopilot-logic.ts",
+        "apps/web/src/app/chats/autopilot-logic.spec.ts",
+        "apps/web/src/app/chats/chat.page.ts",
+        "docs/plan.md",
+        "docs/estados.md"
+      ],
+      "acceptanceCriteria": [
+        "Con el run stopped, un mensaje que termina bien deja el run activo y el piloto sigue sin tocar la card",
+        "Con un work en tarea_bloqueada, ese mensaje provoca el kyro work unblock como Reanudar",
+        "Con el run paused u off, el mensaje no reanuda el piloto",
+        "Si el turno del mensaje termina con error o la persona lo cancela, el piloto no se reanuda",
+        "El Timeline registra la reanudación con actor user",
+        "La web avisa en el compositor que el mensaje reanuda el piloto cuando está frenado",
+        "Tests de API y web cubren los casos; docs/plan.md y docs/estados.md lo documentan"
+      ],
+      "dependsOn": [],
+      "definitionRevision": 1,
+      "status": "verified",
+      "blocker": null,
+      "evidence": {
+        "summary": "ChatService.sendMessage lee si el run está stopped antes del turno; al terminar (chats.status idle, no error ni cancelled) y con el run aún stopped llama a onMessageResume. app.ts anota en el Timeline «Piloto reanudado por tu mensaje» (actor user) y llama a Autopilot.resumeByMessage (runs.resume + resumeByUser, con el unblock de un work bloqueado). Paused, off, sin run, error y cancelado no reanudan. La web avisa en el compositor con el piloto frenado y relee el run al terminar el turno (la barra tiene refreshKey). docs/plan.md y docs/estados.md lo documentan.",
+        "validations": [
+          {
+            "command": "npm run test --workspace=@agents-panel/api (chats.test.ts, pilot-unblock.test.ts)",
+            "result": "passed",
+            "note": "stopped reanuda; paused/off/sin run no; error y cancelado no; resumeByMessage desbloquea la tarea como Reanudar"
+          },
+          {
+            "command": "npm run test --workspace=@agents-panel/api",
+            "result": "passed",
+            "note": "91 archivos, 1472 tests"
+          },
+          {
+            "command": "npm run test --workspace=@agents-panel/web",
+            "result": "passed",
+            "note": "43 archivos, 426 tests; incluye messageResumesPilot"
+          },
+          {
+            "command": "npm run build (api y web) y npm run lint",
+            "result": "passed",
+            "note": "limpios"
+          }
+        ],
+        "filesChanged": [
+          "apps/api/src/chats/service.ts",
+          "apps/api/src/app.ts",
+          "apps/api/src/pilot/autopilot.ts",
+          "apps/api/test/chats.test.ts",
+          "apps/api/test/pilot-unblock.test.ts",
+          "apps/web/src/app/chats/autopilot-logic.ts",
+          "apps/web/src/app/chats/autopilot-logic.spec.ts",
+          "apps/web/src/app/chats/autopilot-bar.ts",
+          "apps/web/src/app/chats/chat.page.ts",
+          "docs/plan.md",
+          "docs/estados.md"
+        ],
+        "notes": "El Timeline de la reanudación por mensaje (app.ts) no tiene test propio: se cubre por revisión de código.",
+        "by": "maker-agent",
+        "recordedAt": "2026-11-19T04:01:44.143Z",
+        "definitionRevision": 1,
+        "materialDigest": "a1521c4cf1d255b925715e6116ecc15dde0eb3a55d7340626835d64ca9f9beea"
+      },
+      "verdict": {
+        "result": "pass",
+        "checkedCriteria": [
+          "Con el run stopped, un mensaje que termina bien deja el run activo y el piloto sigue sin tocar la card",
+          "Con un work en tarea_bloqueada, ese mensaje provoca el kyro work unblock como Reanudar",
+          "Con el run paused u off, el mensaje no reanuda el piloto",
+          "Si el turno del mensaje termina con error o la persona lo cancela, el piloto no se reanuda",
+          "El Timeline registra la reanudación con actor user",
+          "La web avisa en el compositor que el mensaje reanuda el piloto cuando está frenado",
+          "Tests de API y web cubren los casos; docs/plan.md y docs/estados.md lo documentan"
+        ],
+        "findings": [],
+        "by": "checker-agent",
+        "reviewedAt": "2026-11-19T04:01:48.853Z",
+        "definitionRevision": 1,
+        "evidenceDigest": "35bc95640f940934c49908ef7392edb4c2b90b56e9ee6a154551a74643fe27a9",
+        "reviewedMaterialDigest": "a1521c4cf1d255b925715e6116ecc15dde0eb3a55d7340626835d64ca9f9beea"
+      },
+      "disposition": null
+    }
+  ],
+  "activity": [
+    {
+      "seq": 1,
+      "at": "2026-11-19T03:28:19.255Z",
+      "event": "created",
+      "taskId": null,
+      "by": "claude",
+      "reason": "Created through the Work CLI.",
+      "revision": 1
+    },
+    {
+      "seq": 2,
+      "at": "2026-11-19T03:28:58.964Z",
+      "event": "tasks_planned",
+      "taskId": null,
+      "by": "claude",
+      "reason": "Planned 5 Work tasks.",
+      "revision": 2
+    },
+    {
+      "seq": 3,
+      "at": "2026-11-19T03:29:32.508Z",
+      "event": "brief_amended",
+      "taskId": null,
+      "by": "claude",
+      "reason": "Registrar las decisiones tomadas por el agente sin preguntar (kyro adr solo escribe en scopes de Forge)",
+      "revision": 3
+    },
+    {
+      "seq": 4,
+      "at": "2026-11-19T03:29:59.021Z",
+      "event": "task_started",
+      "taskId": "W1",
+      "by": "cli",
+      "reason": "Task started through the Work CLI.",
+      "revision": 4
+    },
+    {
+      "seq": 5,
+      "at": "2026-11-19T03:42:13.884Z",
+      "event": "evidence_recorded",
+      "taskId": "W1",
+      "by": "maker-agent",
+      "reason": "Evidence recorded with 3 validation results.",
+      "revision": 5
+    },
+    {
+      "seq": 6,
+      "at": "2026-11-19T03:42:21.322Z",
+      "event": "review_recorded",
+      "taskId": "W1",
+      "by": "checker-agent",
+      "reason": "Task review recorded with pass.",
+      "revision": 6
+    },
+    {
+      "seq": 7,
+      "at": "2026-11-19T03:42:37.068Z",
+      "event": "task_started",
+      "taskId": "W2",
+      "by": "cli",
+      "reason": "Task started through the Work CLI.",
+      "revision": 7
+    },
+    {
+      "seq": 8,
+      "at": "2026-11-19T03:47:27.339Z",
+      "event": "evidence_recorded",
+      "taskId": "W2",
+      "by": "maker-agent",
+      "reason": "Evidence recorded with 3 validation results.",
+      "revision": 8
+    },
+    {
+      "seq": 9,
+      "at": "2026-11-19T03:47:33.632Z",
+      "event": "review_recorded",
+      "taskId": "W2",
+      "by": "checker-agent",
+      "reason": "Task review recorded with pass.",
+      "revision": 9
+    },
+    {
+      "seq": 10,
+      "at": "2026-11-19T03:47:52.077Z",
+      "event": "task_started",
+      "taskId": "W3",
+      "by": "cli",
+      "reason": "Task started through the Work CLI.",
+      "revision": 10
+    },
+    {
+      "seq": 11,
+      "at": "2026-11-19T03:49:12.696Z",
+      "event": "evidence_recorded",
+      "taskId": "W3",
+      "by": "maker-agent",
+      "reason": "Evidence recorded with 1 validation result.",
+      "revision": 11
+    },
+    {
+      "seq": 12,
+      "at": "2026-11-19T03:49:19.151Z",
+      "event": "review_recorded",
+      "taskId": "W3",
+      "by": "checker-agent",
+      "reason": "Task review recorded with pass.",
+      "revision": 12
+    },
+    {
+      "seq": 13,
+      "at": "2026-11-19T03:49:33.680Z",
+      "event": "task_started",
+      "taskId": "W4",
+      "by": "cli",
+      "reason": "Task started through the Work CLI.",
+      "revision": 13
+    },
+    {
+      "seq": 14,
+      "at": "2026-11-19T03:54:20.660Z",
+      "event": "evidence_recorded",
+      "taskId": "W4",
+      "by": "maker-agent",
+      "reason": "Evidence recorded with 2 validation results.",
+      "revision": 14
+    },
+    {
+      "seq": 15,
+      "at": "2026-11-19T03:54:32.783Z",
+      "event": "review_recorded",
+      "taskId": "W4",
+      "by": "checker-agent",
+      "reason": "Task review recorded with pass.",
+      "revision": 15
+    },
+    {
+      "seq": 16,
+      "at": "2026-11-19T03:54:45.343Z",
+      "event": "task_started",
+      "taskId": "W5",
+      "by": "maker-agent",
+      "reason": "Task started through the Work CLI.",
+      "revision": 16
+    },
+    {
+      "seq": 17,
+      "at": "2026-11-19T04:01:44.143Z",
+      "event": "evidence_recorded",
+      "taskId": "W5",
+      "by": "maker-agent",
+      "reason": "Evidence recorded with 4 validation results.",
+      "revision": 17
+    },
+    {
+      "seq": 18,
+      "at": "2026-11-19T04:01:48.853Z",
+      "event": "review_recorded",
+      "taskId": "W5",
+      "by": "checker-agent",
+      "reason": "Task review recorded with pass.",
+      "revision": 18
+    },
+    {
+      "seq": 19,
+      "at": "2026-11-19T04:01:56.560Z",
+      "event": "work_closed",
+      "taskId": null,
+      "by": "pilot",
+      "reason": "Trabajo completado por el piloto",
+      "revision": 19
+    }
+  ],
+  "closure": {
+    "outcome": "completed",
+    "reason": "Trabajo completado por el piloto",
+    "by": "pilot",
+    "closedAt": "2026-11-19T04:01:56.560Z",
+    "briefDigest": "b5c2efbf62436cb38486b60c8d39c0a45a91675a1e6b73cbd93db743e2e29696",
+    "finalRevision": 19
+  },
+  "promotion": null,
+  "author": {
+    "name": "Maiki02",
+    "email": "miqueasdavidgentile@gmail.com",
+    "source": "git",
+    "capturedAt": "2026-11-19T03:28:19.255Z"
+  }
+}

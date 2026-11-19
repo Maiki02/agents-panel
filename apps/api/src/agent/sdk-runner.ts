@@ -4,6 +4,9 @@ import {
   type Options,
   type SDKMessage,
 } from '@anthropic-ai/claude-agent-sdk';
+import { readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import { ALLOWED_TOOLS } from './permissions.js';
 import { ASK_USER_QUESTION, type AgentEvent, type AgentRunner, type RunParams } from './runner.js';
 
@@ -63,15 +66,58 @@ export function accountEnv(
 }
 
 /**
- * SDK options for one turn. Pure so it can be tested: permissions stay on (acceptEdits plus an
- * allowlist) and no mode that skips permission checks is ever an option.
+ * Ids ("name@marketplace") of the plugins the account's user settings enable. The SDK has no switch
+ * that turns installed plugins off, so a pilot session overrides each one to false through the
+ * flag settings (which win over user settings). Unreadable or malformed settings give no plugins.
  */
-export function buildQueryOptions(params: RunParams, abortController: AbortController): Options {
+export function enabledPluginIds(configDir: string | null | undefined): string[] {
+  try {
+    const dir = configDir ?? join(homedir(), '.claude');
+    const parsed: unknown = JSON.parse(readFileSync(join(dir, 'settings.json'), 'utf8'));
+    const plugins =
+      typeof parsed === 'object' && parsed !== null
+        ? (parsed as Record<string, unknown>)['enabledPlugins']
+        : undefined;
+    if (typeof plugins !== 'object' || plugins === null) return [];
+    return Object.entries(plugins).flatMap(([id, on]) => (on ? [id] : []));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Pilot sessions run lean (they only spend tokens on connectors and plugins): strictMcpConfig with
+ * an empty mcpServers ignores .mcp.json, settings and plugin MCP servers; disableClaudeAiConnectors
+ * turns off the claude.ai connectors; enabledPlugins overrides every enabled plugin to false.
+ * settingSources stays ['project','user'], so CLAUDE.md, .claude/settings.json and the skills load.
+ */
+function pilotLeanOptions(pluginIds: readonly string[]): Pick<Options, 'mcpServers' | 'strictMcpConfig' | 'settings'> {
+  return {
+    mcpServers: {},
+    strictMcpConfig: true,
+    settings: {
+      disableClaudeAiConnectors: true,
+      enabledPlugins: Object.fromEntries(pluginIds.map((id) => [id, false])),
+    },
+  };
+}
+
+/**
+ * SDK options for one turn. Pure so it can be tested: permissions stay on (acceptEdits plus an
+ * allowlist) and no mode that skips permission checks is ever an option. `pluginIds` are the
+ * plugins to switch off in a pilot session (see enabledPluginIds).
+ */
+export function buildQueryOptions(
+  params: RunParams,
+  abortController: AbortController,
+  pluginIds: readonly string[] = [],
+): Options {
   return {
     cwd: params.cwd,
     model: params.model,
     env: { ...accountEnv(params.configDir), ...params.gitEnv },
     settingSources: ['project', 'user'],
+    ...(params.pilot ? pilotLeanOptions(pluginIds) : {}),
     permissionMode: 'acceptEdits',
     allowedTools: ALLOWED_TOOLS,
     abortController,
@@ -98,7 +144,11 @@ export class SdkRunner implements AgentRunner {
     try {
       const stream = query({
         prompt: params.prompt,
-        options: buildQueryOptions(params, abortController),
+        options: buildQueryOptions(
+          params,
+          abortController,
+          params.pilot ? enabledPluginIds(params.configDir) : [],
+        ),
       });
       for await (const message of stream) yield toEvent(message);
     } finally {

@@ -5,7 +5,23 @@ import {
   type AutopilotStatus,
   type ChatKind,
 } from '@agents-panel/shared';
-import { pilotControls, pilotIdleReason, pilotStatus, visiblePilotActions } from './autopilot-logic';
+import {
+  messageResumesPilot,
+  pilotControls,
+  pilotIdleReason,
+  pilotStatus,
+  visiblePilotActions,
+} from './autopilot-logic';
+
+describe('messageResumesPilot', () => {
+  it('is true only for a stopped run', () => {
+    expect(messageResumesPilot(run('stopped'))).toBe(true);
+    for (const status of AUTOPILOT_STATUSES.filter((s) => s !== 'stopped')) {
+      expect(messageResumesPilot(run(status))).toBe(false);
+    }
+    expect(messageResumesPilot(null)).toBe(false);
+  });
+});
 
 function run(status: AutopilotStatus, over: Partial<AutopilotRun> = {}): AutopilotRun {
   return {

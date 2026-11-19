@@ -133,6 +133,14 @@ export function pilotStatus(
   };
 }
 
+/** A message that ends well resumes a stopped pilot (paused, off and finished runs stay as they are). */
+export function messageResumesPilot(run: AutopilotRun | null): boolean {
+  return run?.status === 'stopped';
+}
+
+export const PILOT_MESSAGE_HINT =
+  'El piloto está frenado: si tu mensaje termina bien, el piloto se reanuda.';
+
 export const PILOT_LABEL: Record<PilotControl, string> = {
   on: 'Encender piloto',
   off: 'Apagar piloto',

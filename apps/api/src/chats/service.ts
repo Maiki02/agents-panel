@@ -89,6 +89,8 @@ export interface ChatServiceDeps {
   autopilot?: AutopilotRunRepository;
   /** Called once the chat exists and its first turn started, when the autopilot is on. */
   onAutopilotStart?: (chatId: number) => void;
+  /** Called when a message's turn ended well on a chat whose pilot was stopped: resumes it. */
+  onMessageResume?: (chatId: number) => void;
   /** Timed steps of the panel; absent in tests that do not measure them. */
   steps?: PanelStepRepository;
 }
@@ -252,7 +254,25 @@ export class ChatService {
   sendMessage(chatId: number, text: string): void {
     this.requireChat(chatId);
     this.assertWritable(chatId);
+    // Read before the turn: a pilot stopped now resumes when this message's turn ends well.
+    const wasStopped = this.deps.autopilot?.get(chatId)?.status === 'stopped';
     this.startTurn(chatId, text);
+    if (wasStopped && this.deps.onMessageResume !== undefined) {
+      void this.resumeAfterTurn(chatId);
+    }
+  }
+
+  /** Resumes the pilot only when the turn ended without error or cancel and the run is still stopped. */
+  private async resumeAfterTurn(chatId: number): Promise<void> {
+    try {
+      await this.deps.manager.waitForIdle(chatId);
+      const ok = this.deps.chats.findById(chatId)?.status === 'idle';
+      if (ok && this.deps.autopilot?.get(chatId)?.status === 'stopped') {
+        this.deps.onMessageResume?.(chatId);
+      }
+    } catch {
+      // The message already ran; a failed resume is left for the Reanudar button.
+    }
   }
 
   cancel(chatId: number): void {

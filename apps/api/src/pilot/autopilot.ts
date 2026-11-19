@@ -43,7 +43,13 @@ import { realGit, type MergeGit, type PilotGit } from './git-ops.js';
 import { forgeOf, type ForgeResolver } from '../forge/provider.js';
 import type { PilotGh } from './github-cli.js';
 import { runMergePhase, type MergePhaseOutcome } from './merge-phase.js';
-import { readPrText, type PrDataReader } from './pr-body.js';
+import {
+  PR_FOOTER,
+  manualChecksSection,
+  readManualChecks,
+  readPrText,
+  type PrDataReader,
+} from './pr-body.js';
 import type { SecretFinding } from './secrets.js';
 import type { AutopilotRunRepository } from './runs-repo.js';
 import type { UsageRepository } from '../usage/repo.js';
@@ -250,6 +256,12 @@ export class Autopilot {
   resumeByUser(chatId: number): void {
     this.resumedByUser.add(chatId);
     this.kick(chatId);
+  }
+
+  /** A message of the user ended well on a stopped pilot: back to active, like the Reanudar button. */
+  resumeByMessage(chatId: number): void {
+    this.deps.runs.resume(chatId);
+    this.resumeByUser(chatId);
   }
 
   /** Starts (or continues) the loop of a chat in the background. */
@@ -694,7 +706,10 @@ export class Autopilot {
       name: state.kind === 'scope' ? state.scope : state.work,
     });
     if (detailed !== null) return detailed;
-    const footer = 'Abierta por el piloto del panel. Revisá los cambios antes de mergear.';
+    const manual = manualChecksSection(
+      await readManualChecks(chat.worktreePath, state.kind === 'scope' ? state.scope : state.work),
+    );
+    const footer = manual === '' ? PR_FOOTER : `${manual}\n${PR_FOOTER}`;
     if (state.kind === 'work') {
       return {
         title: `Work ${state.work}`,

@@ -133,6 +133,23 @@ export interface AgentSession {
   endedAt: number | null;
   /** Final chat status of the turn (idle, error, cancelled); null while running. */
   result: string | null;
+  /** Usage of the SDK result message; null when the session ended without one. */
+  usage: SessionUsage | null;
+}
+
+/** Tokens and estimated cost (USD) of one session, from the `result` message of the SDK. */
+export interface SessionUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
+  costUsd: number;
+}
+
+/** Sessions of a chat with their usage, and the total of the work (sessions without usage add 0). */
+export interface ChatUsage {
+  sessions: AgentSession[];
+  total: SessionUsage;
 }
 
 /** A registered project (a git repo the panel can open worktrees on). */

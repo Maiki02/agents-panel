@@ -89,6 +89,8 @@ export class AutopilotBar {
   readonly kind = input.required<ChatKind>();
   /** Fine state of the work: the bar reads the run again whenever it changes. */
   readonly workState = input<WorktreeStateId | null>(null);
+  /** Bumped by the page when the run may have changed without the work state moving. */
+  readonly refreshKey = input(0);
   /** An action went through: the page reads the state again. */
   readonly changed = output();
 
@@ -114,6 +116,7 @@ export class AutopilotBar {
   constructor() {
     effect(() => {
       this.workState();
+      this.refreshKey();
       const id = this.chatId();
       void this.load(id);
     });

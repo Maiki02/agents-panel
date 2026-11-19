@@ -13,6 +13,7 @@ import type {
   QuestionAnswer,
   WorktreeState,
   WorktreeTransition,
+  ChatUsage,
 } from '@agents-panel/shared';
 import { firstValueFrom } from 'rxjs';
 import { SwrCache } from '../shared/swr-cache';
@@ -152,6 +153,11 @@ export class ChatsService {
 
   autopilot(id: number): Promise<AutopilotInfo> {
     return firstValueFrom(this.http.get<AutopilotInfo>(`/api/chats/${String(id)}/autopilot`));
+  }
+
+  /** Sessions of the chat with their tokens and cost, and the total of the work. */
+  usage(id: number): Promise<ChatUsage> {
+    return firstValueFrom(this.http.get<ChatUsage>(`/api/chats/${String(id)}/usage`));
   }
 
   /** PRs of the work: the ones the pilot kept or, for a finished work, the ones GitHub has. */

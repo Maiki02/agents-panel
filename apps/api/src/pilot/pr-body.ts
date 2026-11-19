@@ -1,3 +1,6 @@
+import { lstat, open, realpath } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import path from 'node:path';
 import type { PrData, PrSprint, PrTask } from '../kyro/state.js';
 
 /** GitHub rejects a PR body longer than this many characters. */
@@ -20,6 +23,64 @@ const TRUNCATED = '…(recortado)';
 export interface PrText {
   title: string;
   body: string;
+}
+
+/** Limits of the manual checks file: it never grows the PR past its limit. */
+const MANUAL_MAX_BYTES = 32_768;
+const MANUAL_MAX_LINES = 100;
+const MANUAL_LINE_MAX = 500;
+const SAFE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+
+/** Fixed path, relative to the worktree, of the manual checks of a scope or work. */
+export function manualChecksPath(name: string): string {
+  return path.posix.join('.agents', 'kyro', 'manual-checks', `${name}.md`);
+}
+
+/** Lines of the manual checks file: bullets and checkboxes dropped, blanks and headings skipped. */
+export function parseManualChecks(text: string): string[] {
+  const lines: string[] = [];
+  for (const raw of text.replace(/\r\n?/g, '\n').split('\n')) {
+    const line = raw
+      .trim()
+      .replace(/^(?:[-*+]\s+)?(?:\[[ xX]\]\s+)?/, '')
+      .trim();
+    if (line === '' || line.startsWith('#')) continue;
+    lines.push(line.length > MANUAL_LINE_MAX ? `${line.slice(0, MANUAL_LINE_MAX)}…` : line);
+    if (lines.length >= MANUAL_MAX_LINES) break;
+  }
+  return lines;
+}
+
+/**
+ * The manual checks the agent noted for a scope or work, or [] when the file is missing, empty,
+ * unreadable or not a regular file inside the worktree (symlinks included).
+ */
+export async function readManualChecks(worktree: string, name: string): Promise<string[]> {
+  if (!SAFE_NAME.test(name) || name.includes('..')) return [];
+  const file = path.join(worktree, manualChecksPath(name));
+  try {
+    const root = await realpath(worktree);
+    const real = await realpath(path.dirname(file));
+    if (real !== root && !real.startsWith(root + path.sep)) return [];
+    if (!(await lstat(file)).isFile()) return [];
+    const handle = await open(file, constants.O_RDONLY | constants.O_NOFOLLOW);
+    try {
+      const buffer = Buffer.alloc(MANUAL_MAX_BYTES);
+      const { bytesRead } = await handle.read(buffer, 0, MANUAL_MAX_BYTES, 0);
+      return parseManualChecks(buffer.toString('utf8', 0, bytesRead));
+    } finally {
+      await handle.close();
+    }
+  } catch {
+    return [];
+  }
+}
+
+/** The «Verificación manual» section (a checkbox per line), or '' when there is nothing to check. */
+export function manualChecksSection(checks: readonly string[]): string {
+  if (checks.length === 0) return '';
+  const items = checks.map((check) => `- [ ] ${check.replace(/\s+/g, ' ')}`);
+  return ['## Verificación manual', ...items, ''].join('\n');
 }
 
 /** Cuts `text` to `max` characters, marking the cut; never splits a surrogate pair. */
@@ -91,7 +152,8 @@ export async function readPrText(
       target.kind === 'work'
         ? await reader?.workPrData?.(cwd, target.name)
         : await reader?.scopePrData?.(cwd, target.name);
-    return data === undefined ? null : buildPrText(data);
+    if (data === undefined) return null;
+    return buildPrText(data, await readManualChecks(cwd, target.name));
   } catch {
     return null;
   }
@@ -102,7 +164,7 @@ export async function readPrText(
  * throws, so a missing title, objective, task or sprint only leaves that part out. The body never
  * passes {@link PR_BODY_MAX} and always ends with the pilot's footer.
  */
-export function buildPrText(data: PrData): PrText {
+export function buildPrText(data: PrData, manualChecks: readonly string[] = []): PrText {
   const label = data.kind === 'work' ? 'Work' : 'Scope';
   const title = clip(data.title.replace(/\s+/g, ' ').trim() || `${label} ${data.slug}`, 250);
   const lines: string[] = [];
@@ -119,7 +181,8 @@ export function buildPrText(data: PrData): PrText {
       for (const sprint of data.sprints) lines.push(...sprintBlock(sprint));
     }
   }
-  const footer = `\n${PR_FOOTER}`;
+  const manual = manualChecksSection(manualChecks);
+  const tail = `${manual === '' ? '' : `\n${manual}`}\n${PR_FOOTER}`;
   const content = lines.join('\n').replace(/\n+$/, '\n');
-  return { title, body: fit(content, PR_BODY_MAX - footer.length) + footer };
+  return { title, body: fit(content, PR_BODY_MAX - tail.length) + tail };
 }

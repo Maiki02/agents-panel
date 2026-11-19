@@ -1,4 +1,10 @@
-import type { AgentSession, AutopilotStep, ModelProvider, ModelRole } from '@agents-panel/shared';
+import type {
+  AgentSession,
+  AutopilotStep,
+  ModelProvider,
+  ModelRole,
+  SessionUsage,
+} from '@agents-panel/shared';
 import type { Db } from '../db/index.js';
 
 interface SessionRow {
@@ -15,9 +21,15 @@ interface SessionRow {
   started_at: number;
   ended_at: number | null;
   result: string | null;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  cache_read_tokens: number | null;
+  cache_creation_tokens: number | null;
+  cost_usd: number | null;
 }
 
 function toSession(row: SessionRow): AgentSession {
+  const measured = row.input_tokens !== null && row.cost_usd !== null;
   return {
     id: row.id,
     chatId: row.chat_id,
@@ -32,7 +44,55 @@ function toSession(row: SessionRow): AgentSession {
     startedAt: row.started_at,
     endedAt: row.ended_at,
     result: row.result,
+    usage: measured
+      ? {
+          inputTokens: row.input_tokens ?? 0,
+          outputTokens: row.output_tokens ?? 0,
+          cacheReadTokens: row.cache_read_tokens ?? 0,
+          cacheCreationTokens: row.cache_creation_tokens ?? 0,
+          costUsd: row.cost_usd ?? 0,
+        }
+      : null,
   };
+}
+
+const num = (value: unknown): number =>
+  typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : 0;
+
+/** Reads the usage out of an SDK `result` message; null when the payload does not carry it. */
+export function usageFromResult(payload: unknown): SessionUsage | null {
+  if (typeof payload !== 'object' || payload === null) return null;
+  const message = payload as Record<string, unknown>;
+  const usage = message['usage'];
+  if (typeof usage !== 'object' || usage === null) return null;
+  const u = usage as Record<string, unknown>;
+  return {
+    inputTokens: num(u['input_tokens']),
+    outputTokens: num(u['output_tokens']),
+    cacheReadTokens: num(u['cache_read_input_tokens']),
+    cacheCreationTokens: num(u['cache_creation_input_tokens']),
+    costUsd: num(message['total_cost_usd']),
+  };
+}
+
+/** Adds the usage of every session that has one. */
+export function totalUsage(sessions: readonly AgentSession[]): SessionUsage {
+  const total: SessionUsage = {
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheReadTokens: 0,
+    cacheCreationTokens: 0,
+    costUsd: 0,
+  };
+  for (const { usage } of sessions) {
+    if (!usage) continue;
+    total.inputTokens += usage.inputTokens;
+    total.outputTokens += usage.outputTokens;
+    total.cacheReadTokens += usage.cacheReadTokens;
+    total.cacheCreationTokens += usage.cacheCreationTokens;
+    total.costUsd += usage.costUsd;
+  }
+  return total;
 }
 
 export class AgentSessionRepository {
@@ -76,6 +136,23 @@ export class AgentSessionRepository {
     this.db
       .prepare('UPDATE agent_sessions SET sdk_session_id = ? WHERE id = ?')
       .run(sdkSessionId, id);
+  }
+
+  /** Keeps the usage of the session's result message (cumulative: the last one wins). */
+  setUsage(id: number, usage: SessionUsage): void {
+    this.db
+      .prepare(
+        `UPDATE agent_sessions SET input_tokens = ?, output_tokens = ?, cache_read_tokens = ?,
+           cache_creation_tokens = ?, cost_usd = ? WHERE id = ?`,
+      )
+      .run(
+        usage.inputTokens,
+        usage.outputTokens,
+        usage.cacheReadTokens,
+        usage.cacheCreationTokens,
+        usage.costUsd,
+        id,
+      );
   }
 
   close(id: number, result: string): void {

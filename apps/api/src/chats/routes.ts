@@ -4,6 +4,7 @@ import {
   planningTarget,
   type Chat,
   type ChatKind,
+  type ChatUsage,
   type IdeaAction,
   type IdeaDocument,
 } from '@agents-panel/shared';
@@ -14,6 +15,7 @@ import { onlyKeys } from '../http/only-keys.js';
 import { ChatError, type ChatService } from './service.js';
 import type { ChatRepository } from './repo.js';
 import type { WorktreeStateRepository } from '../worktrees/state-repo.js';
+import { totalUsage, type AgentSessionRepository } from './sessions-repo.js';
 
 const idParams = {
   type: 'object',
@@ -94,9 +96,10 @@ export function registerChatRoutes(
     worktreeState: WorktreeStateRepository;
     ideas: IdeaScanner;
     ideaActions: IdeaActions;
+    sessions?: AgentSessionRepository;
   },
 ): void {
-  const { chats, service, worktreeState, ideas, ideaActions } = deps;
+  const { chats, service, worktreeState, ideas, ideaActions, sessions } = deps;
   /** The list and the sidebar show the fine state of a work next to the chat. */
   const withState = (chat: Chat): Chat => {
     if (chat.kind === 'direct') return { ...chat, workState: null, planning: null };
@@ -217,6 +220,17 @@ export function registerChatRoutes(
     (request) => {
       requireStateful(service, request.params.id);
       return worktreeState.timeline(request.params.id);
+    },
+  );
+
+  /** Sessions of the chat with their usage, and the total of the work. */
+  app.get<{ Params: { id: number } }>(
+    '/api/chats/:id/usage',
+    { schema: { params: idParams } },
+    (request): ChatUsage => {
+      service.requireChat(request.params.id);
+      const list = sessions?.listByChat(request.params.id) ?? [];
+      return { sessions: list, total: totalUsage(list) };
     },
   );
 

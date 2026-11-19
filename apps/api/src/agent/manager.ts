@@ -14,7 +14,7 @@ import {
   type QuestionRepository,
 } from '../chats/questions-repo.js';
 import type { ChatRepository } from '../chats/repo.js';
-import type { AgentSessionRepository } from '../chats/sessions-repo.js';
+import { usageFromResult, type AgentSessionRepository } from '../chats/sessions-repo.js';
 import { observationFromRateLimitEvent, type UsageRepository } from '../usage/repo.js';
 import type { TurnInfo, TurnObserver } from '../worktrees/state-tracker.js';
 import { NO_BASH_EXTRAS, decide, type BashExtras } from './permissions.js';
@@ -103,7 +103,11 @@ function kyroBashCalls(payload: unknown): string[] {
     const input = block['input'];
     const command =
       typeof input === 'object' && input !== null && 'command' in input ? input.command : null;
-    if (typeof block['id'] === 'string' && typeof command === 'string' && KYRO_COMMAND.test(command)) {
+    if (
+      typeof block['id'] === 'string' &&
+      typeof command === 'string' &&
+      KYRO_COMMAND.test(command)
+    ) {
       ids.push(block['id']);
     }
   }
@@ -368,6 +372,7 @@ export class AgentManager {
         model: turn.model,
         role: turn.role,
         configDir: turn.configDir,
+        ...(turn.pilot ? { pilot: true } : {}),
         ...(gitEnv ? { gitEnv } : {}),
         // A pilot step opens a new SDK session instead of continuing the previous one.
         ...(chat.sdkSessionId && !freshSession ? { resumeSessionId: chat.sdkSessionId } : {}),
@@ -400,6 +405,8 @@ export class AgentManager {
         if (reported !== undefined && reported !== turn.model) {
           this.record(chatId, 'model_mismatch', { requested: turn.model, reported });
         }
+        if (event.type.startsWith('result:'))
+          this.saveSessionUsage(turn.sessionRowId, event.payload);
         if (event.type.startsWith('result:') && event.type !== 'result:success') final = 'error';
         if (event.type === 'assistant') {
           for (const id of kyroBashCalls(event.payload)) kyroCalls.add(id);
@@ -456,6 +463,17 @@ export class AgentManager {
         behavior: 'deny',
         message: 'The turn ended before the question was answered',
       });
+    }
+  }
+
+  /** Stores the usage of a result message in the session row; a failure never breaks the turn. */
+  private saveSessionUsage(sessionRowId: number | null, payload: unknown): void {
+    if (sessionRowId === null || !this.sessions) return;
+    try {
+      const usage = usageFromResult(payload);
+      if (usage) this.sessions.setUsage(sessionRowId, usage);
+    } catch {
+      // Measuring is passive: losing it is better than losing the turn.
     }
   }
 

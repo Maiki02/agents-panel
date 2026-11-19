@@ -359,6 +359,31 @@ export function buildApp(deps: AppDeps, options: FastifyServerOptions = {}): Fas
     onAutopilotStart: (chatId) => {
       pilot.kick(chatId);
     },
+    // A message whose turn ended well on a stopped pilot resumes it, like the Reanudar button.
+    onMessageResume: (chatId) => {
+      const current = worktreeState.get(chatId);
+      if (current !== undefined) {
+        worktreeState.transition(chatId, {
+          state: current.state,
+          actor: 'user',
+          reason: 'Piloto reanudado por tu mensaje',
+          detail: current.detail,
+          phase: current.phase,
+          sprintCurrent: current.sprintCurrent,
+          sprintClosed: current.sprintClosed,
+          sprintTotal: current.sprintTotal,
+          taskDone: current.taskDone,
+          taskTotal: current.taskTotal,
+          openDebt: current.openDebt,
+          blockedReason: current.blockedReason,
+          role: current.role,
+          model: current.model,
+          data: { action: 'resume', via: 'message' },
+          record: true,
+        });
+      }
+      pilot.resumeByMessage(chatId);
+    },
   });
 
   const runs = new MaintenanceRunRepository(deps.db, now);
@@ -536,6 +561,7 @@ export function buildApp(deps: AppDeps, options: FastifyServerOptions = {}): Fas
     worktreeState,
     ideas: ideaScanner,
     ideaActions,
+    sessions: agentSessions,
   });
   // A plugin: its own error handler maps the git operation errors without touching the others.
   void app.register((instance) => {

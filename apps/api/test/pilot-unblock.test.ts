@@ -187,6 +187,15 @@ describe('resuming a work whose task Kyro holds as blocked', () => {
     );
   });
 
+  it('resumes a stopped run from a message and unblocks the task like Reanudar', async () => {
+    const t = await setup();
+    t.runs.stop(t.chat.id, 'tarea bloqueada');
+    t.pilot.resumeByMessage(t.chat.id);
+    await t.pilot.drive(t.chat.id);
+    expect(t.kyro.unblocks).toEqual([{ work: 'demo-work', task: 'W7', revision: 12 }]);
+    expect(t.prompts).toHaveLength(1);
+  });
+
   it('does not unblock anything when the loop was not started by the user', async () => {
     const t = await setup();
     await t.pilot.drive(t.chat.id);

@@ -41,6 +41,11 @@ export interface RunParams {
    * for a project on the global GitHub login. They only live in the environment of the turn.
    */
   gitEnv?: Record<string, string>;
+  /**
+   * True for a turn a pilot step opens. Those sessions start without MCP servers, claude.ai
+   * connectors or plugins (they only spend tokens there); manual chats are unchanged.
+   */
+  pilot?: boolean;
   /** SDK session to continue; absent for the first turn. */
   resumeSessionId?: string;
   signal: AbortSignal;
