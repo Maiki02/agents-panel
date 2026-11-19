@@ -1,0 +1,421 @@
+{
+  "schemaVersion": 1,
+  "kind": "organic-work",
+  "id": "limpieza-worktrees-mergeados",
+  "title": "Borrar solo el worktree de los trabajos mergeados, sin perder la card",
+  "objective": "Los worktrees de NovaGent y Agents Panel ocupan más de 10 GB en `~/wt` y la mayoría son de trabajos cuya PR ya se mergeó: no se van a volver a usar. Hay que liberar ese espacio sin perder la información de la card (tiempos, rama, estado, Timeline, uso, PR) ni el historial del chat.",
+  "brief": {
+    "path": "brief.md",
+    "digest": "6f3aae5ac687ba0d7d5534549a03d01cda03316e1f3625381c7570c4d60cbce1",
+    "sourceIdea": null
+  },
+  "state": "closed",
+  "revision": 12,
+  "createdAt": "2026-11-19T04:18:10.523Z",
+  "updatedAt": "2026-11-19T09:13:35.135Z",
+  "handoff": {
+    "nextAction": "done",
+    "nextTaskId": null,
+    "blockedReason": null
+  },
+  "tasks": [
+    {
+      "id": "W1",
+      "title": "Guardar el momento del merge de cada trabajo",
+      "description": "Migración nueva que suma a chats la columna merged_at (TEXT, nula). La consulta del estado de una PR del proveedor (prStateOf de github-cli con gh pr view --json state,mergedAt; GitLab con merged_at) devuelve también el momento del merge. Cuando PrWatcher pasa un trabajo a mergeada, guarda en merged_at el merge más reciente de sus PR o, si el proveedor no lo informa, el momento de la detección. merge-phase.ts, que también deja mergeada, guarda el momento en que lo hace. La migración completa merged_at de los trabajos que ya están en mergeada con el since de su worktree_state.",
+      "context": "Brief decisión A1. Estado mergeada: apps/api/src/pilot/pr-watcher.ts (~159-167, prStateOf en ~173) y apps/api/src/pilot/merge-phase.ts (~150). Proveedores: apps/api/src/forge/provider.ts, apps/api/src/pilot/github-cli.ts (~106), apps/api/src/forge/gitlab-api.ts (~112). Migraciones en apps/api/src/db/migrations.ts (última 26): nunca editar una existente. Sin node_modules en el worktree: correr npm ci antes de validar.",
+      "filesToTouch": [
+        "apps/api/src/db/migrations.ts",
+        "apps/api/src/chats/repo.ts",
+        "apps/api/src/pilot/github-cli.ts",
+        "apps/api/src/forge/provider.ts",
+        "apps/api/src/forge/gitlab-api.ts",
+        "apps/api/src/pilot/pr-watcher.ts",
+        "apps/api/src/pilot/merge-phase.ts",
+        "packages/shared/src/index.ts",
+        "apps/api/test/pr-watcher.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "La migración es nueva, agrega chats.merged_at nula y corre sobre una base con trabajos viejos",
+        "Los trabajos que ya están en mergeada quedan con merged_at igual al since de su worktree_state",
+        "Al pasar a mergeada por PrWatcher, merged_at guarda el merge más reciente de sus PR según GitHub o GitLab, o el momento de la detección si el proveedor no lo informa",
+        "Al pasar a mergeada por la fase de merge, merged_at guarda ese momento",
+        "El tipo compartido del chat expone mergedAt y la API lo devuelve",
+        "Tests de API cubren GitHub, GitLab, el fallback a la detección y la migración"
+      ],
+      "dependsOn": [],
+      "definitionRevision": 1,
+      "status": "verified",
+      "blocker": null,
+      "evidence": {
+        "summary": "merged_at guardado: migración 27 (con relleno desde since), prStateOf de GitHub y GitLab devuelve { state, mergedAt }, PrWatcher guarda el merge más reciente o el momento de la detección, la fase de merge guarda el momento al dejar mergeada, Chat.mergedAt expuesto en el tipo compartido y en la API.",
+        "validations": [
+          {
+            "command": "npm run test --workspace @agents-panel/api -- test/db.test.ts test/pr-watcher.test.ts test/gitlab-api.test.ts",
+            "result": "passed",
+            "note": "55 tests pasan. La corrida completa previa solo falló por las listas de versiones de db.test.ts y mi test de migración, ya corregidos."
+          },
+          {
+            "command": "npm run typecheck",
+            "result": "passed",
+            "note": "api y web sin errores. packages/shared falla en test/planning.test.ts (sprintTotal opcional), ajeno a este cambio."
+          },
+          {
+            "command": "npm run lint",
+            "result": "passed",
+            "note": "sin errores"
+          }
+        ],
+        "filesChanged": [
+          "apps/api/src/db/migrations.ts",
+          "apps/api/src/chats/repo.ts",
+          "apps/api/src/pilot/github-cli.ts",
+          "apps/api/src/forge/provider.ts",
+          "apps/api/src/forge/gitlab-api.ts",
+          "apps/api/src/pilot/pr-watcher.ts",
+          "apps/api/src/pilot/merge-phase.ts",
+          "apps/api/src/pilot/autopilot.ts",
+          "packages/shared/src/index.ts",
+          "apps/api/test/pr-watcher.test.ts",
+          "apps/api/test/db.test.ts",
+          "apps/api/test/gitlab-api.test.ts",
+          "apps/api/test/fake-gitlab.ts"
+        ],
+        "notes": "merged_at es TEXT en ISO 8601 UTC; la migración convierte el since (ms) de worktree_state. autopilot.ts se tocó para cablear el callback merged de merge-phase a ChatRepository.setMergedAt. La API devuelve mergedAt porque toChat lo incluye en todas las rutas de chats.",
+        "by": "maker-agent",
+        "recordedAt": "2026-11-19T04:27:15.075Z",
+        "definitionRevision": 1,
+        "materialDigest": "5bfcd30147352cfcbf022b31e7979b5661f020e901f91ca00a23f474f51d366b"
+      },
+      "verdict": {
+        "result": "pass",
+        "checkedCriteria": [
+          "La migración es nueva, agrega chats.merged_at nula y corre sobre una base con trabajos viejos",
+          "Los trabajos que ya están en mergeada quedan con merged_at igual al since de su worktree_state",
+          "Al pasar a mergeada por PrWatcher, merged_at guarda el merge más reciente de sus PR según GitHub o GitLab, o el momento de la detección si el proveedor no lo informa",
+          "Al pasar a mergeada por la fase de merge, merged_at guarda ese momento",
+          "El tipo compartido del chat expone mergedAt y la API lo devuelve",
+          "Tests de API cubren GitHub, GitLab, el fallback a la detección y la migración"
+        ],
+        "findings": [],
+        "by": "checker-agent",
+        "reviewedAt": "2026-11-19T04:27:25.214Z",
+        "definitionRevision": 1,
+        "evidenceDigest": "6a6dcaa644487ef06e69254b50ea1a5d0c47edbc15ad564bae5d6f915a28c761",
+        "reviewedMaterialDigest": "5bfcd30147352cfcbf022b31e7979b5661f020e901f91ca00a23f474f51d366b"
+      },
+      "disposition": null
+    },
+    {
+      "id": "W2",
+      "title": "Limpiador automático del worktree 24 horas después del merge",
+      "description": "Servicio nuevo de la API (por ejemplo apps/api/src/worktrees/cleaner.ts) que corre una vez al arrancar y después cada cierto intervalo. Busca trabajos en mergeada con merged_at de hace más de PANEL_CLEANUP_AFTER_MERGE_HOURS (24 por defecto; 0 apaga el servicio). Para cada uno llama a WorktreeOps.deletePreview: si algún repo tiene archivos sin commitear o commits sin pushear, no borra y pasa el trabajo a revisar con el detalle (actor pilot, en el Timeline). Si no, llama a WorktreeOps.deleteWork(chatId, true, 'pilot'), que borra ramas remotas y locales y la carpeta y deja la card en archivado. Si la operación responde 409 (agente corriendo, mantenimiento de Kyro, piloto activo) lo saltea y lo reintenta en la próxima vuelta; otro error queda en revisar como hoy. Los trabajos se limpian de a uno. delete_work pasa a automatic: 'pilot' en PARITY_CATALOG. Al terminar avisa al DiskMonitor (ya lo hace removeWorktree).",
+      "context": "Brief decisiones 1, 2, 3 y A2-A4. deleteWork y deletePreview en apps/api/src/worktrees/ops.ts (~569-654); guarded aplica los 409. Arranque de servicios con intervalo: PrWatcher en apps/api/src/app.ts (~590-607) y apps/api/src/pilot/pr-watcher.ts (~45-50). Config en apps/api/src/config.ts (PILOT_PR_POLL_MINUTES ~178 como modelo). El test de paridad de PARITY_CATALOG (packages/shared/src/index.ts ~1201) tiene que seguir pasando. Depende de W1 (merged_at).",
+      "filesToTouch": [
+        "apps/api/src/worktrees/cleaner.ts",
+        "apps/api/src/app.ts",
+        "apps/api/src/config.ts",
+        "apps/api/.env.example",
+        "packages/shared/src/index.ts",
+        "apps/api/test/cleaner.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "Al arrancar y en cada vuelta, un trabajo en mergeada con merged_at de hace más de 24 horas queda en archivado con la carpeta, la rama local y la rama remota borradas, y la fila del chat, sus eventos, Timeline, sesiones y uso intactos",
+        "Un trabajo en mergeada con merged_at de hace menos de 24 horas no se toca",
+        "Un trabajo con archivos sin commitear o commits sin pushear no se borra y pasa a revisar con el detalle",
+        "Un trabajo ocupado (409) se saltea sin cambiar su estado y se reintenta en la próxima vuelta",
+        "El Timeline registra la limpieza con actor pilot",
+        "PANEL_CLEANUP_AFTER_MERGE_HOURS configura las horas, 0 apaga el servicio, y está en apps/api/.env.example con su valor por defecto",
+        "delete_work figura con automatic: 'pilot' en PARITY_CATALOG y el test de paridad pasa",
+        "Tests de API cubren cada caso anterior"
+      ],
+      "dependsOn": [
+        "W1"
+      ],
+      "definitionRevision": 1,
+      "status": "verified",
+      "blocker": null,
+      "evidence": {
+        "summary": "WorktreeCleaner nuevo (corre al arrancar y cada 15 min; PANEL_CLEANUP_AFTER_MERGE_HOURS, 24 por defecto, 0 lo apaga). Para cada trabajo en mergeada con merged_at vencido llama a deletePreview: si hay archivos sin commitear o commits sin pushear pasa a revisar con el detalle (actor pilot); si no, deleteWork(chatId, true, 'pilot'). 409 se saltea y se reintenta; otro error queda en revisar. Se limpian de a uno. delete_work pasa a automatic: 'pilot'.",
+        "validations": [
+          {
+            "command": "npm run test --workspace @agents-panel/api",
+            "result": "passed",
+            "note": "92 archivos, 1490 tests pasan, incluido cleaner.test.ts (fakes y git real: archivado, ramas borradas, revisar, 409, 0 horas, config) y el test de paridad."
+          },
+          {
+            "command": "npm run typecheck",
+            "result": "passed",
+            "note": "api y web sin errores. packages/shared falla en test/planning.test.ts (sprintTotal opcional), ajeno a este cambio."
+          },
+          {
+            "command": "npm run lint",
+            "result": "passed",
+            "note": "sin errores"
+          },
+          {
+            "command": "npm run format:check",
+            "result": "passed",
+            "note": "solo avisa de sdk-runner.ts y work-info-panel.ts, que no se tocaron."
+          }
+        ],
+        "filesChanged": [
+          "apps/api/src/worktrees/cleaner.ts",
+          "apps/api/src/app.ts",
+          "apps/api/src/config.ts",
+          "apps/api/.env.example",
+          "packages/shared/src/index.ts",
+          "apps/api/test/cleaner.test.ts"
+        ],
+        "notes": "Con actor pilot el servicio no aplica las guardas de ocupado, por eso el limpiador llama a ops.assertIdle antes. Se acomodó la constante CLEANUP_POLL_MS fuera del bloque de imports de app.ts.",
+        "by": "maker-agent",
+        "recordedAt": "2026-11-19T09:06:02.872Z",
+        "definitionRevision": 1,
+        "materialDigest": "0e36c2db2fe5e6cc2a3476ea5dce60ceb2e57ef0602ebfd65d8a333d63fe9f75"
+      },
+      "verdict": {
+        "result": "pass",
+        "checkedCriteria": [
+          "Al arrancar y en cada vuelta, un trabajo en mergeada con merged_at de hace más de 24 horas queda en archivado con la carpeta, la rama local y la rama remota borradas, y la fila del chat, sus eventos, Timeline, sesiones y uso intactos",
+          "Un trabajo en mergeada con merged_at de hace menos de 24 horas no se toca",
+          "Un trabajo con archivos sin commitear o commits sin pushear no se borra y pasa a revisar con el detalle",
+          "Un trabajo ocupado (409) se saltea sin cambiar su estado y se reintenta en la próxima vuelta",
+          "El Timeline registra la limpieza con actor pilot",
+          "PANEL_CLEANUP_AFTER_MERGE_HOURS configura las horas, 0 apaga el servicio, y está en apps/api/.env.example con su valor por defecto",
+          "delete_work figura con automatic: 'pilot' en PARITY_CATALOG y el test de paridad pasa",
+          "Tests de API cubren cada caso anterior"
+        ],
+        "findings": [],
+        "by": "checker-agent",
+        "reviewedAt": "2026-11-19T09:06:08.150Z",
+        "definitionRevision": 1,
+        "evidenceDigest": "ccc1dd4da63d094eed99aa7f5ea51042d02e70bff399b2b5dd08bae187bc76f9",
+        "reviewedMaterialDigest": "0e36c2db2fe5e6cc2a3476ea5dce60ceb2e57ef0602ebfd65d8a333d63fe9f75"
+      },
+      "disposition": null
+    },
+    {
+      "id": "W3",
+      "title": "La card avisa cuándo se borra el worktree y docs",
+      "description": "La card y la cabecera del chat de un trabajo en mergeada muestran cuándo se borra su worktree (merged_at + horas configuradas; la API expone las horas o el momento calculado). Un trabajo en archivado sigue mostrando rama, tiempos, PR, Timeline, uso y chat, con un texto que aclara que el worktree se borró. Actualizar docs/estados.md (mergeada → limpiando → archivado automático, ya no 'etapas 5 y 6'), docs/plan.md (limpieza automática, decisiones del brief) y docs/panel-desarrollo.md (variable PANEL_CLEANUP_AFTER_MERGE_HOURS). Correr el chequeo agregado del repo (typecheck, lint, format:check y tests de API y web).",
+      "context": "Brief decisión A5. Card: apps/web/src/app/chats/chat-card.ts; estados en apps/web/src/app/chats/phase-logic.ts; pestaña Git en solo lectura en apps/web/src/app/chats/git/git-logic.ts (~39) y chat.page.ts (~290). docs/estados.md ~82, ~114 y ~243 hablan de la limpieza después de mergeada. Depende de W2.",
+      "filesToTouch": [
+        "apps/web/src/app/chats/chat-card.ts",
+        "apps/web/src/app/chats/phase-logic.ts",
+        "apps/web/src/app/chats/phase-logic.spec.ts",
+        "apps/web/src/app/chats/chat.page.ts",
+        "apps/api/src/chats/routes.ts",
+        "docs/estados.md",
+        "docs/plan.md",
+        "docs/panel-desarrollo.md"
+      ],
+      "acceptanceCriteria": [
+        "Una card en mergeada muestra la fecha y hora en que se borra su worktree, y nada si la limpieza está apagada",
+        "Una card en archivado muestra rama, tiempos, PR, Timeline, uso y chat, y aclara que el worktree se borró",
+        "docs/estados.md, docs/plan.md y docs/panel-desarrollo.md describen la limpieza automática, sus 24 horas configurables, el borrado de la rama remota y el caso revisar",
+        "Tests de la web cubren el texto de la card en mergeada (con y sin limpieza) y en archivado",
+        "npm run typecheck, npm run lint, npm run format:check y los tests de API y web pasan"
+      ],
+      "dependsOn": [
+        "W2"
+      ],
+      "definitionRevision": 1,
+      "status": "verified",
+      "blocker": null,
+      "evidence": {
+        "summary": "La API suma Chat.worktreeDeletesAt (mergedAt + PANEL_CLEANUP_AFTER_MERGE_HOURS, solo en mergeada y con la limpieza prendida; null si no) en registerChatRoutes. La web usa worktreeNotice (phase-logic.ts): en mergeada dice 'El worktree se borra el <fecha> a las <hora>', sin limpieza no dice nada, y en archivado aclara que el worktree se borró (rama, tiempos, PR, Timeline, uso y chat siguen). Se muestra en la card (chat-card.ts) y en la cabecera del chat (chat.page.ts), y el compositor archivado aclara lo mismo. docs/estados.md, docs/plan.md y docs/panel-desarrollo.md describen la limpieza automática, las 24 h configurables, el borrado de ramas remotas y el caso revisar.",
+        "validations": [
+          {
+            "command": "npm run typecheck",
+            "result": "passed",
+            "note": "shared, api y web sin errores; se corrigió planning.test.ts de shared (sprintTotal), que ya fallaba en HEAD"
+          },
+          {
+            "command": "npm run lint",
+            "result": "passed",
+            "note": "eslint sin hallazgos"
+          },
+          {
+            "command": "npm run format:check",
+            "result": "passed",
+            "note": "prettier --write dejó formateados también sdk-runner.ts y work-info-panel.ts, que ya estaban fuera de formato en HEAD"
+          },
+          {
+            "command": "npm test",
+            "result": "passed",
+            "note": "shared 14 tests; api 92 archivos, 1490 tests; web 43 archivos, 430 tests; phase-logic.spec.ts cubre worktreeNotice en mergeada con y sin limpieza, en archivado y en otros estados"
+          }
+        ],
+        "filesChanged": [
+          "apps/web/src/app/chats/chat-card.ts",
+          "apps/web/src/app/chats/phase-logic.ts",
+          "apps/web/src/app/chats/phase-logic.spec.ts",
+          "apps/web/src/app/chats/chat.page.ts",
+          "apps/api/src/chats/routes.ts",
+          "apps/api/src/app.ts",
+          "packages/shared/src/index.ts",
+          "packages/shared/test/planning.test.ts",
+          "docs/estados.md",
+          "docs/plan.md",
+          "docs/panel-desarrollo.md"
+        ],
+        "notes": "Chequeo agregado completo corrido una vez al final (typecheck, lint, format:check y tests de shared, API y web). Nada que validar solo desplegado.",
+        "by": "maker-agent",
+        "recordedAt": "2026-11-19T09:13:15.356Z",
+        "definitionRevision": 1,
+        "materialDigest": "09347f8dc0e2345bf3ffd1eb3dcec9e684381bc2fb40d1995658e7801b9b109d"
+      },
+      "verdict": {
+        "result": "pass",
+        "checkedCriteria": [
+          "Una card en mergeada muestra la fecha y hora en que se borra su worktree, y nada si la limpieza está apagada",
+          "Una card en archivado muestra rama, tiempos, PR, Timeline, uso y chat, y aclara que el worktree se borró",
+          "docs/estados.md, docs/plan.md y docs/panel-desarrollo.md describen la limpieza automática, sus 24 horas configurables, el borrado de la rama remota y el caso revisar",
+          "Tests de la web cubren el texto de la card en mergeada (con y sin limpieza) y en archivado",
+          "npm run typecheck, npm run lint, npm run format:check y los tests de API y web pasan"
+        ],
+        "findings": [
+          {
+            "severity": "suggestion",
+            "detail": "La API calcula worktreeDeletesAt en registerChatRoutes pero no hay un test de ruta que lo verifique (solo la lógica de la web está cubierta); el cálculo es una suma simple de mergedAt y las horas."
+          },
+          {
+            "severity": "suggestion",
+            "detail": "Se tocaron planning.test.ts, sdk-runner.ts y work-info-panel.ts solo para que typecheck y format:check pasen (ya fallaban en HEAD); está anotado en la evidencia."
+          }
+        ],
+        "by": "checker-agent",
+        "reviewedAt": "2026-11-19T09:13:26.596Z",
+        "definitionRevision": 1,
+        "evidenceDigest": "e4f7229557829049e439d266ce0907723bf7397bd08dcf9d7b7063ab12ea9f20",
+        "reviewedMaterialDigest": "09347f8dc0e2345bf3ffd1eb3dcec9e684381bc2fb40d1995658e7801b9b109d"
+      },
+      "disposition": null
+    }
+  ],
+  "activity": [
+    {
+      "seq": 1,
+      "at": "2026-11-19T04:18:10.523Z",
+      "event": "created",
+      "taskId": null,
+      "by": "planner",
+      "reason": "Created through the Work CLI.",
+      "revision": 1
+    },
+    {
+      "seq": 2,
+      "at": "2026-11-19T04:18:53.479Z",
+      "event": "tasks_planned",
+      "taskId": null,
+      "by": "planner",
+      "reason": "Planned 3 Work tasks.",
+      "revision": 2
+    },
+    {
+      "seq": 3,
+      "at": "2026-11-19T04:19:20.847Z",
+      "event": "task_started",
+      "taskId": "W1",
+      "by": "cli",
+      "reason": "Task started through the Work CLI.",
+      "revision": 3
+    },
+    {
+      "seq": 4,
+      "at": "2026-11-19T04:27:15.075Z",
+      "event": "evidence_recorded",
+      "taskId": "W1",
+      "by": "maker-agent",
+      "reason": "Evidence recorded with 3 validation results.",
+      "revision": 4
+    },
+    {
+      "seq": 5,
+      "at": "2026-11-19T04:27:25.214Z",
+      "event": "review_recorded",
+      "taskId": "W1",
+      "by": "checker-agent",
+      "reason": "Task review recorded with pass.",
+      "revision": 5
+    },
+    {
+      "seq": 6,
+      "at": "2026-11-19T04:27:43.049Z",
+      "event": "task_started",
+      "taskId": "W2",
+      "by": "cli",
+      "reason": "Task started through the Work CLI.",
+      "revision": 6
+    },
+    {
+      "seq": 7,
+      "at": "2026-11-19T09:06:02.872Z",
+      "event": "evidence_recorded",
+      "taskId": "W2",
+      "by": "maker-agent",
+      "reason": "Evidence recorded with 4 validation results.",
+      "revision": 7
+    },
+    {
+      "seq": 8,
+      "at": "2026-11-19T09:06:08.150Z",
+      "event": "review_recorded",
+      "taskId": "W2",
+      "by": "checker-agent",
+      "reason": "Task review recorded with pass.",
+      "revision": 8
+    },
+    {
+      "seq": 9,
+      "at": "2026-11-19T09:06:28.686Z",
+      "event": "task_started",
+      "taskId": "W3",
+      "by": "cli",
+      "reason": "Task started through the Work CLI.",
+      "revision": 9
+    },
+    {
+      "seq": 10,
+      "at": "2026-11-19T09:13:15.356Z",
+      "event": "evidence_recorded",
+      "taskId": "W3",
+      "by": "maker-agent",
+      "reason": "Evidence recorded with 4 validation results.",
+      "revision": 10
+    },
+    {
+      "seq": 11,
+      "at": "2026-11-19T09:13:26.596Z",
+      "event": "review_recorded",
+      "taskId": "W3",
+      "by": "checker-agent",
+      "reason": "Task review recorded with pass.",
+      "revision": 11
+    },
+    {
+      "seq": 12,
+      "at": "2026-11-19T09:13:35.135Z",
+      "event": "work_closed",
+      "taskId": null,
+      "by": "pilot",
+      "reason": "Trabajo completado por el piloto",
+      "revision": 12
+    }
+  ],
+  "closure": {
+    "outcome": "completed",
+    "reason": "Trabajo completado por el piloto",
+    "by": "pilot",
+    "closedAt": "2026-11-19T09:13:35.135Z",
+    "briefDigest": "6f3aae5ac687ba0d7d5534549a03d01cda03316e1f3625381c7570c4d60cbce1",
+    "finalRevision": 12
+  },
+  "promotion": null,
+  "author": {
+    "name": "Maiki02",
+    "email": "miqueasdavidgentile@gmail.com",
+    "source": "git",
+    "capturedAt": "2026-11-19T04:18:10.523Z"
+  }
+}
