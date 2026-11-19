@@ -1,10 +1,18 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { KyroReader } from '../src/kyro/reader.js';
 import { parseWorkPrData, type PrData } from '../src/kyro/state.js';
-import { PR_BODY_MAX, PR_FOOTER, buildPrText } from '../src/pilot/pr-body.js';
+import {
+  PR_BODY_MAX,
+  PR_FOOTER,
+  buildPrText,
+  manualChecksPath,
+  parseManualChecks,
+  readManualChecks,
+  readPrText,
+} from '../src/pilot/pr-body.js';
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -135,6 +143,69 @@ describe('buildPrText: scope', () => {
     const { title, body } = buildPrText(await new KyroReader().scopePrData(cwd, 's'));
     expect(title).toBe('Scope s');
     expect(body.endsWith(PR_FOOTER)).toBe(true);
+  });
+});
+
+describe('verificación manual', () => {
+  const data = parseWorkPrData({ title: 't', objective: 'o', tasks: [] }, 'mi-work');
+
+  it('suma la sección con un checkbox por línea antes del pie', () => {
+    const { body } = buildPrText(data, ['Probar en la URL pública', 'Revisar el push']);
+    expect(body).toContain(
+      '## Verificación manual\n- [ ] Probar en la URL pública\n- [ ] Revisar el push',
+    );
+    expect(body.indexOf('## Verificación manual')).toBeLessThan(body.indexOf(PR_FOOTER));
+    expect(body.endsWith(PR_FOOTER)).toBe(true);
+  });
+
+  it('sin verificaciones la PR sale como siempre', () => {
+    expect(buildPrText(data, []).body).toBe(buildPrText(data).body);
+    expect(buildPrText(data).body).not.toContain('Verificación manual');
+  });
+
+  it('con un cuerpo gigante conserva la sección, el pie y el límite', () => {
+    const big = parseWorkPrData({ title: 't', objective: 'o'.repeat(80000), tasks: [] }, 'mi-work');
+    const { body } = buildPrText(big, ['Una verificación']);
+    expect(body.length).toBeLessThanOrEqual(PR_BODY_MAX);
+    expect(body).toContain('- [ ] Una verificación');
+    expect(body.endsWith(PR_FOOTER)).toBe(true);
+  });
+
+  it('parseManualChecks limpia viñetas, checkboxes, títulos y líneas vacías', () => {
+    expect(parseManualChecks('# Título\n\n- [ ] Uno\n* [x] Dos\r\n- Tres\nCuatro\n  \n')).toEqual([
+      'Uno',
+      'Dos',
+      'Tres',
+      'Cuatro',
+    ]);
+  });
+
+  it('readManualChecks devuelve [] si falta, está vacío o es un enlace', async () => {
+    const cwd = tmp();
+    expect(await readManualChecks(cwd, 'mi-work')).toEqual([]);
+    const file = join(cwd, manualChecksPath('mi-work'));
+    put(file, '   \n\n');
+    expect(await readManualChecks(cwd, 'mi-work')).toEqual([]);
+    put(file, 'Probar desplegado\nProbar el Funnel\n');
+    expect(await readManualChecks(cwd, 'mi-work')).toEqual([
+      'Probar desplegado',
+      'Probar el Funnel',
+    ]);
+    expect(await readManualChecks(cwd, '../x')).toEqual([]);
+    rmSync(file);
+    put(join(cwd, 'otro.md'), 'secreto');
+    symlinkSync(join(cwd, 'otro.md'), file);
+    expect(await readManualChecks(cwd, 'mi-work')).toEqual([]);
+  });
+
+  it('readPrText suma la sección leyendo el archivo del worktree', async () => {
+    const cwd = tmp();
+    put(join(cwd, manualChecksPath('mi-work')), 'Probar desplegado\n');
+    const reader = { workPrData: () => Promise.resolve(data) };
+    const text = await readPrText(reader, cwd, { kind: 'work', name: 'mi-work' });
+    expect(text?.body).toContain('- [ ] Probar desplegado');
+    const none = await readPrText(reader, tmp(), { kind: 'work', name: 'mi-work' });
+    expect(none?.body).not.toContain('Verificación manual');
   });
 });
 

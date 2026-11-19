@@ -16,6 +16,7 @@ import { AgentSessionRepository } from '../src/chats/sessions-repo.js';
 import { ChatRepository } from '../src/chats/repo.js';
 import { openDatabase, type Db } from '../src/db/index.js';
 import { EnvFileRepository } from '../src/env-files/repo.js';
+import { AutopilotRunRepository } from '../src/pilot/runs-repo.js';
 import { ProjectRepository } from '../src/projects/repo.js';
 import { FakeRunner } from './fake-runner.js';
 import { PASSWORD, TEST_ENV, makeApp, makeKyroRepo, mutatingHeaders } from './helpers.js';
@@ -736,5 +737,99 @@ describe('chat runtime', () => {
     db.prepare('UPDATE chats SET created_at = ? WHERE id = ?').run(marker.applied_at - MIN, old.id);
     expect(chats.findById(old.id)?.runtimeApprox).toBe(true);
     expect(chats.findById(old.id)?.runtimeMs).toBe(0);
+  });
+});
+
+describe('a message resumes a stopped pilot', () => {
+  async function setup(runStatus: 'stopped' | 'paused' | 'off' | null, fail = false) {
+    const db = openDatabase(':memory:');
+    const projects = new ProjectRepository(db);
+    const project = await projects.add({
+      name: 'demo',
+      repoPath: makeKyroRepo(),
+      baseBranch: 'main',
+    });
+    const chats = new ChatRepository(db);
+    const runner = new FakeRunner();
+    if (fail) {
+      runner.script = () => [
+        { type: 'system:init', payload: {}, sessionId: 's1' },
+        { type: 'result:error', payload: {} },
+      ];
+    }
+    const manager = new AgentManager(chats, runner, new ChatEventBus());
+    const runs = new AutopilotRunRepository(db);
+    const resumed: number[] = [];
+    const service = new ChatService({
+      chats,
+      projects,
+      manager,
+      questions: new QuestionRepository(db),
+      worktreesDir: mkdtempSync(join(tmpdir(), 'panel-msg-')),
+      envFiles: new EnvFileRepository(db, SECRET),
+      autopilot: runs,
+      onMessageResume: (id) => {
+        runs.resume(id);
+        resumed.push(id);
+      },
+    });
+    const chat = chats.create({
+      projectId: project.id,
+      kind: 'work',
+      slug: 'msg',
+      title: 'msg',
+      worktreePath: mkdtempSync(join(tmpdir(), 'panel-msg-wt-')),
+      branch: 'feature/msg',
+      status: 'idle',
+    });
+    if (runStatus !== null) {
+      runs.create(chat.id);
+      if (runStatus === 'stopped') runs.stop(chat.id, 'motivo');
+      if (runStatus === 'paused') runs.pause(chat.id);
+      if (runStatus === 'off') runs.turnOff(chat.id);
+    }
+    const settle = async () => {
+      await manager.waitForIdle(chat.id);
+      await new Promise((r) => setTimeout(r, 20));
+    };
+    return { service, runs, resumed, chat, runner, settle };
+  }
+
+  it('resumes the run when the turn ends well', async () => {
+    const t = await setup('stopped');
+    t.service.sendMessage(t.chat.id, 'ya lo resolví');
+    await t.settle();
+    expect(t.resumed).toEqual([t.chat.id]);
+    expect(t.runs.get(t.chat.id)?.status).toBe('active');
+  });
+
+  it.each(['paused', 'off', null] as const)('does not resume a run that is %s', async (status) => {
+    const t = await setup(status);
+    t.service.sendMessage(t.chat.id, 'hola');
+    await t.settle();
+    expect(t.resumed).toEqual([]);
+    expect(t.runs.get(t.chat.id)?.status).toBe(status ?? undefined);
+  });
+
+  it('does not resume when the turn ends with an error', async () => {
+    const t = await setup('stopped', true);
+    t.service.sendMessage(t.chat.id, 'hola');
+    await t.settle();
+    expect(t.resumed).toEqual([]);
+    expect(t.runs.get(t.chat.id)?.status).toBe('stopped');
+  });
+
+  it('does not resume when the person cancels the turn', async () => {
+    const t = await setup('stopped');
+    let release: () => void = () => undefined;
+    t.runner.gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    t.service.sendMessage(t.chat.id, 'hola');
+    t.service.cancel(t.chat.id);
+    release();
+    await t.settle();
+    expect(t.resumed).toEqual([]);
+    expect(t.runs.get(t.chat.id)?.status).toBe('stopped');
   });
 });

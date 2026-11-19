@@ -19,6 +19,7 @@ import type {
   QuestionAnswer,
   WorktreeState,
   WorktreeTransition,
+  ChatUsage,
 } from '@agents-panel/shared';
 import { ChatStreamService, type StreamHandle } from './chat-stream.service';
 import { ChatsService, apiErrorMessage } from './chats.service';
@@ -46,8 +47,10 @@ import {
 } from './approval-logic';
 import { chatBadge, stateBadge } from './status';
 import { AutopilotBar } from './autopilot-bar';
+import { PILOT_MESSAGE_HINT, messageResumesPilot } from './autopilot-logic';
 import { WIDE_QUERY, WorkInfoPanel } from './work-info-panel';
 import { Timeline } from './timeline';
+import { UsagePanel } from './usage-panel';
 import { GitTab } from './git/git-tab';
 import { Tabs, type TabItem } from '../ui/tabs';
 import { Button } from '../ui/button';
@@ -65,6 +68,7 @@ import { ProjectContext } from '../projects/project-context';
     AutopilotBar,
     WorkInfoPanel,
     Timeline,
+    UsagePanel,
     GitTab,
     QuestionCard,
     IdeaApprovalCard,
@@ -109,17 +113,12 @@ import { ProjectContext } from '../projects/project-context';
                 [chatId]="c.id"
                 [kind]="c.kind"
                 [workState]="c.workState ?? null"
+                [refreshKey]="pilotTick()"
                 (changed)="refreshWorkState()"
               />
             }
             @if (chat()?.status === 'running') {
-              <button
-                appButton
-                class="shrink-0"
-                variant="danger"
-                type="button"
-                (click)="cancel()"
-              >
+              <button appButton class="shrink-0" variant="danger" type="button" (click)="cancel()">
                 Cancelar
               </button>
             }
@@ -182,6 +181,14 @@ import { ProjectContext } from '../projects/project-context';
         @if (tab() === 'timeline' && hasWork()) {
           <section class="chat-scroll" aria-label="Timeline">
             <app-timeline [transitions]="timeline()" />
+          </section>
+        } @else if (tab() === 'usage') {
+          <section class="chat-scroll" aria-label="Uso">
+            @if (usage(); as u) {
+              <app-usage [usage]="u" />
+            } @else {
+              <p class="hint">Cargando el uso…</p>
+            }
           </section>
         } @else if (tab() === 'git' && chat(); as g) {
           <app-git-tab
@@ -282,6 +289,8 @@ import { ProjectContext } from '../projects/project-context';
               <label for="message" class="sr-only">Mensaje</label>
               @if (c.workState === 'archivado') {
                 <p class="hint">El trabajo está archivado: es de solo lectura.</p>
+              } @else if (pilotStopped()) {
+                <p class="hint" data-testid="pilot-resume-hint">{{ pilotMessageHint }}</p>
               }
               <textarea
                 id="message"
@@ -344,6 +353,11 @@ export class ChatPage {
   protected readonly error = signal<string | null>(null);
   protected readonly connected = signal(true);
   protected readonly draft = signal('');
+  /** The pilot is stopped: a message that ends well resumes it. */
+  protected readonly pilotStopped = signal(false);
+  /** Bumped when the run may have changed without the work state moving; the bar reads it again. */
+  protected readonly pilotTick = signal(0);
+  protected readonly pilotMessageHint = PILOT_MESSAGE_HINT;
   protected readonly sending = signal(false);
   /** Questions whose answer was sent and is not confirmed by the stream yet. */
   protected readonly submitted = signal<number[]>([]);
@@ -380,6 +394,7 @@ export class ChatPage {
     return [
       { id: 'chat', label: 'Chat' },
       ...(this.hasWork() ? [{ id: 'timeline', label: 'Timeline' }] : []),
+      { id: 'usage', label: 'Uso' },
       ...(chat.worktreePath ? [{ id: 'git', label: 'Git' }] : []),
     ];
   });
@@ -392,8 +407,14 @@ export class ChatPage {
   protected readonly tab = signal('chat');
   protected readonly workState = signal<WorktreeState | null>(null);
   protected readonly timeline = signal<WorktreeTransition[]>([]);
+  protected readonly usage = signal<ChatUsage | null>(null);
 
   constructor() {
+    // The Uso tab reads again when it opens and when the turn ends (a result adds its usage).
+    effect(() => {
+      const status = this.chat()?.status;
+      if (this.tab() === 'usage' && status !== 'running') void this.loadUsage();
+    });
     inject(DestroyRef).onDestroy(() => {
       this.handle?.close();
     });
@@ -476,6 +497,16 @@ export class ChatPage {
     }
   }
 
+  private async loadUsage(): Promise<void> {
+    const id = this.current;
+    try {
+      const fresh = await this.service.usage(id);
+      if (id === this.current) this.usage.set(fresh);
+    } catch {
+      // A view: the next change of the tab or the status reads it again.
+    }
+  }
+
   protected text(event: Event): string {
     return (event.target as HTMLTextAreaElement).value;
   }
@@ -504,6 +535,7 @@ export class ChatPage {
     this.tab.set('chat');
     this.workState.set(null);
     this.timeline.set([]);
+    this.usage.set(null);
     if (!Number.isInteger(id) || id < 1) {
       this.error.set('Chat no encontrado.');
       return;
@@ -573,6 +605,14 @@ export class ChatPage {
         this.workState.set(state);
         this.timeline.set(timeline);
       }
+      if (fresh.kind === 'work' || fresh.kind === 'scope') {
+        const info = await this.service.autopilot(id);
+        if (id !== this.current) return;
+        this.pilotStopped.set(messageResumesPilot(info.run));
+        this.pilotTick.update((n) => n + 1);
+      } else {
+        this.pilotStopped.set(false);
+      }
       const card = approvalCard(fresh.kind, fresh.workState);
       if (card === 'debt') this.debt.set(debtFromTimeline(this.timeline()));
       if (card === 'pr') {
@@ -617,14 +657,30 @@ export class ChatPage {
     this.sending.set(true);
     this.error.set(null);
     this.follow = true;
+    const resumes = this.pilotStopped();
     try {
       await this.service.send(this.current, text);
       this.draft.set('');
       this.setStatus('running');
+      if (resumes) void this.watchPilotResume(this.current);
     } catch (cause) {
       this.error.set(apiErrorMessage(cause));
     } finally {
       this.sending.set(false);
+    }
+  }
+
+  /**
+   * The API resumes the pilot when the message's turn ends well, a moment after the last event:
+   * read the run again until the turn is over and the card and bar show the new state.
+   */
+  private async watchPilotResume(id: number): Promise<void> {
+    for (let attempt = 0; attempt < 30; attempt++) {
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      if (id !== this.current) return;
+      await this.refreshWorkState();
+      if (this.chat()?.status !== 'running' && !this.pilotStopped()) return;
+      if (this.chat()?.status !== 'running' && attempt > 3) return;
     }
   }
 

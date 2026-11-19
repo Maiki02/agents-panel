@@ -601,6 +601,18 @@ export const migrations: readonly Migration[] = [
     // Title of the current task as the Kyro CLI prints it; the web shows it in a tooltip.
     sql: `ALTER TABLE worktree_state ADD COLUMN task_title TEXT;`,
   },
+  {
+    version: 26,
+    name: 'agent_sessions_usage',
+    // Usage of the SDK result message; NULL when the session ended without one (old rows too).
+    sql: `
+      ALTER TABLE agent_sessions ADD COLUMN input_tokens INTEGER;
+      ALTER TABLE agent_sessions ADD COLUMN output_tokens INTEGER;
+      ALTER TABLE agent_sessions ADD COLUMN cache_read_tokens INTEGER;
+      ALTER TABLE agent_sessions ADD COLUMN cache_creation_tokens INTEGER;
+      ALTER TABLE agent_sessions ADD COLUMN cost_usd REAL;
+    `,
+  },
 ];
 
 /** Applies pending migrations in order, each in its own transaction. Safe to run repeatedly. */

@@ -5,7 +5,7 @@
  */
 
 /** Bump it when any clause changes: every pilot session records the version it ran with. */
-export const POLICY_VERSION = 4;
+export const POLICY_VERSION = 5;
 
 /**
  * The kinds of session the pilot opens: planning, execution of a sprint, and closing it; plus the
@@ -47,14 +47,14 @@ export const KNOWN_GATES = {
     decision: 'proceed',
     steps: ['execute'],
     clause:
-      'When nextAction is execute_task: implement only the task it routes, run its validations and record evidence with "kyro record-evidence". Do not ask which task to do or whether to continue.',
+      'When nextAction is execute_task: implement only the task it routes, run its validations and record evidence with "kyro record-evidence". Do not ask which task to do or whether to continue. Never start another task in this session.',
   },
   review_task: {
     keyword: 'review_task',
     decision: 'proceed',
     steps: ['execute'],
     clause:
-      'When nextAction is review_task: review it yourself in this session with "kyro review --verdict pass|fail --yes". The maker and the checker must be different actors: pass --by with a name different from the one used in "kyro record-evidence" (for example --by checker-agent). Never ask the user whether to review.',
+      'When nextAction is review_task: review it yourself in this session with "kyro review --verdict pass|fail --yes". The maker and the checker must be different actors: pass --by with a name different from the one used in "kyro record-evidence" (for example --by checker-agent). Never ask the user whether to review. Once the review passes (or the task ends blocked), end the session: the panel reads Kyro again and opens a new session for the next task.',
   },
   qa_or_close: {
     keyword: 'qa_or_close',
@@ -90,6 +90,20 @@ export const KNOWN_GATES = {
     steps: ['plan'],
     clause:
       'When nextAction is plan_sprint (planning session only): plan the next sprint with the kyro-forge skill and stop once it is planned. Do not execute tasks in the planning session.',
+  },
+  manual_checks_plan: {
+    keyword: 'manual-checks',
+    decision: 'proceed',
+    steps: ['plan'],
+    clause:
+      'Never plan a task whose only validation is trying something deployed or on the public URL: manual checks do not belong in the sprint. Write each one, one per line, in <worktree>/.agents/kyro/manual-checks/<scope-or-work>.md (the panel lists them as a checklist in the pull request).',
+  },
+  manual_checks_execute: {
+    keyword: 'manual-checks',
+    decision: 'proceed',
+    steps: ['execute'],
+    clause:
+      'If part of the task can only be validated deployed (public URL, production services), validate locally everything that can run locally, write the rest, one check per line, in <worktree>/.agents/kyro/manual-checks/<scope-or-work>.md (append; create the folder if needed) and close the task normally: never block it for that.',
   },
   global_rule: {
     keyword: 'global',
@@ -231,7 +245,8 @@ const COMMON_RULES = [
 
 const STEP_INTRO: Record<PolicyStep, string> = {
   plan: 'This is a planning session.',
-  execute: 'This is an execution session: it ends when Kyro routes qa_or_close.',
+  execute:
+    'This is an execution session for ONE task: it ends when the task Kyro routes is reviewed with pass (or is blocked), or when Kyro routes qa_or_close. Do not continue with the next task: the panel opens a new session for it.',
   close: 'This is a closing session: QA, debt, the commit and "kyro close-sprint".',
   merge_dev:
     "This is a merge session driven by the project's merge-dev skill: it ends when the branch is pushed and the pull requests are open.",

@@ -1,5 +1,8 @@
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { accountEnv, buildQueryOptions } from '../src/agent/sdk-runner.js';
+import { accountEnv, buildQueryOptions, enabledPluginIds } from '../src/agent/sdk-runner.js';
 import type { RunParams } from '../src/agent/runner.js';
 
 const params = (extra: Partial<RunParams> = {}): RunParams => ({
@@ -53,5 +56,57 @@ describe('buildQueryOptions', () => {
     const options = buildQueryOptions(params(), new AbortController());
     expect(options.env).toBeDefined();
     expect('CLAUDE_CONFIG_DIR' in (options.env ?? {})).toBe(false);
+  });
+
+  it('starts a pilot session without MCP servers, claude.ai connectors or plugins', () => {
+    const options = buildQueryOptions(params({ pilot: true }), new AbortController(), [
+      'a@m',
+      'b@m',
+    ]);
+    expect(options.mcpServers).toEqual({});
+    expect(options.strictMcpConfig).toBe(true);
+    expect(options.settings).toEqual({
+      disableClaudeAiConnectors: true,
+      enabledPlugins: { 'a@m': false, 'b@m': false },
+    });
+  });
+
+  it('keeps project config, permissions and hooks in a pilot session, with no bypass', () => {
+    const manual = buildQueryOptions(params(), new AbortController());
+    const pilot = buildQueryOptions(params({ pilot: true }), new AbortController());
+    expect(pilot.settingSources).toEqual(['project', 'user']);
+    expect(pilot.permissionMode).toBe('acceptEdits');
+    expect(pilot.allowedTools).toEqual(manual.allowedTools);
+    expect(pilot.hooks?.PreToolUse).toHaveLength(1);
+    expect(pilot.canUseTool).toBeTypeOf('function');
+    expect(JSON.stringify(pilot)).not.toContain('bypassPermissions');
+    expect(pilot.allowDangerouslySkipPermissions).toBeUndefined();
+  });
+
+  it('leaves a manual chat as it was', () => {
+    const options = buildQueryOptions(params(), new AbortController(), ['a@m']);
+    expect(options.settingSources).toEqual(['project', 'user']);
+    expect(options.mcpServers).toBeUndefined();
+    expect(options.strictMcpConfig).toBeUndefined();
+    expect(options.settings).toBeUndefined();
+  });
+});
+
+describe('enabledPluginIds', () => {
+  const dirWith = (settings: string | null): string => {
+    const dir = mkdtempSync(join(tmpdir(), 'sdk-runner-'));
+    if (settings !== null) writeFileSync(join(dir, 'settings.json'), settings);
+    return dir;
+  };
+
+  it('lists only the plugins the user settings enable', () => {
+    const dir = dirWith(JSON.stringify({ enabledPlugins: { 'a@m': true, 'b@m': false } }));
+    expect(enabledPluginIds(dir)).toEqual(['a@m']);
+  });
+
+  it('gives none when the settings are missing, malformed or have no plugins', () => {
+    expect(enabledPluginIds(dirWith(null))).toEqual([]);
+    expect(enabledPluginIds(dirWith('not json'))).toEqual([]);
+    expect(enabledPluginIds(dirWith('{}'))).toEqual([]);
   });
 });

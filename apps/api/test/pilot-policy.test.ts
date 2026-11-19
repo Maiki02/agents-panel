@@ -42,11 +42,30 @@ describe('gates policy', () => {
   });
 
   it('asks the closing session for the QA report before close-sprint (v2)', () => {
-    expect(POLICY_VERSION).toBe(4);
+    expect(POLICY_VERSION).toBe(5);
     const close = buildPolicy('close');
     expect(close).toContain('.agents/kyro/qa/<scope>/sprint-<n>.md');
     expect(close).toContain('"Verdict: <VERDICT>"');
     expect(close.indexOf('Verdict:')).toBeLessThan(close.indexOf('"kyro close-sprint --yes"'));
+  });
+
+  it('ends the execution session with the routed task, never with the next one (v5)', () => {
+    const execute = buildPolicy('execute');
+    expect(execute).toContain('execution session for ONE task');
+    expect(execute).toContain('reviewed with pass (or is blocked)');
+    expect(execute).toContain('Never start another task in this session');
+    expect(execute).toContain('opens a new session for the next task');
+  });
+
+  it('keeps manual checks out of the sprint and notes them in manual-checks (v5)', () => {
+    const plan = buildPolicy('plan');
+    expect(plan).toContain('Never plan a task whose only validation is trying something deployed');
+    expect(plan).toContain('.agents/kyro/manual-checks/<scope-or-work>.md');
+    const execute = buildPolicy('execute');
+    expect(execute).toContain('validate locally everything that can run locally');
+    expect(execute).toContain('.agents/kyro/manual-checks/<scope-or-work>.md');
+    expect(execute).toContain('never block it for that');
+    expect(buildPolicy('close')).not.toContain('manual-checks');
   });
 
   it('gives the idea session its own block: kyro-idea, no scope and no sprint flow', () => {

@@ -92,6 +92,44 @@ describe('AgentManager', () => {
     expect(sessions.listByChat(chat.id).every((r) => r.endedAt !== null)).toBe(true);
   });
 
+  it('stores the usage of the result message in the session row', async () => {
+    const { runner, manager, newChat, sessions } = await setup();
+    const chat = newChat('a');
+    runner.script = () => [
+      { type: 'system:init', payload: {}, sessionId: 'sess-1' },
+      {
+        type: 'result:success',
+        payload: {
+          total_cost_usd: 0.42,
+          usage: {
+            input_tokens: 10,
+            output_tokens: 20,
+            cache_read_input_tokens: 300,
+            cache_creation_input_tokens: 40,
+          },
+        },
+      },
+    ];
+    manager.start(chat.id, 'go');
+    await manager.waitForIdle(chat.id);
+    expect(sessions.listByChat(chat.id)[0]?.usage).toEqual({
+      inputTokens: 10,
+      outputTokens: 20,
+      cacheReadTokens: 300,
+      cacheCreationTokens: 40,
+      costUsd: 0.42,
+    });
+  });
+
+  it('leaves the usage null when the session ends without a result message', async () => {
+    const { runner, manager, newChat, sessions } = await setup();
+    const chat = newChat('a');
+    runner.script = () => [{ type: 'system:init', payload: {}, sessionId: 'sess-1' }];
+    manager.start(chat.id, 'go');
+    await manager.waitForIdle(chat.id);
+    expect(sessions.listByChat(chat.id)[0]).toMatchObject({ result: 'idle', usage: null });
+  });
+
   it("loads the project's Bash policy on every turn and records the denial otherwise", async () => {
     let extras = { commands: [] as string[], hosts: [] as string[] };
     const { chats, runner, newChat, bus, sessions, questions } = await setup();

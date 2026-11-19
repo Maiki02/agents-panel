@@ -993,6 +993,11 @@ describe('loop guards, capabilities, queue and usage limit', () => {
       'close',
     ]);
     expect(t.runs.get(t.chat.id)).toMatchObject({ status: 'finished' });
+    // v5: one clean session per task, never a resumed one, each recorded with the policy version.
+    const executions = t.runner.calls.filter((c) => c.prompt.includes('Execute the next task'));
+    expect(executions.length).toBeGreaterThanOrEqual(5);
+    expect(t.runner.calls.every((c) => c.resumeSessionId === undefined)).toBe(true);
+    expect(executions.every((c) => c.prompt.includes('Autopilot policy v5'))).toBe(true);
   });
 
   it('a sprint that used the whole cap and closed does not stop the next one from being planned', async () => {
