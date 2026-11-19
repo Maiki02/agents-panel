@@ -91,7 +91,9 @@ export function enabledPluginIds(configDir: string | null | undefined): string[]
  * turns off the claude.ai connectors; enabledPlugins overrides every enabled plugin to false.
  * settingSources stays ['project','user'], so CLAUDE.md, .claude/settings.json and the skills load.
  */
-function pilotLeanOptions(pluginIds: readonly string[]): Pick<Options, 'mcpServers' | 'strictMcpConfig' | 'settings'> {
+function pilotLeanOptions(
+  pluginIds: readonly string[],
+): Pick<Options, 'mcpServers' | 'strictMcpConfig' | 'settings'> {
   return {
     mcpServers: {},
     strictMcpConfig: true,

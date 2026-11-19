@@ -48,7 +48,7 @@ describe('migrations', () => {
     ).run('novagent', '/home/ubuntu/proyectos/novagent', 'dev', 'bash scripts/panel-setup.sh', 1);
     expect(runMigrations(db, migrations.slice(0, 4))).toEqual([4]);
     expect(runMigrations(db)).toEqual([
-      5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26,
+      5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27,
     ]);
     const row = db.prepare('SELECT * FROM projects').get();
     expect(row).toMatchObject({
@@ -75,7 +75,7 @@ describe('migrations', () => {
     insert.run('c', '/c', 'dev', 'https://github.com/o/c');
     insert.run('d', '/d', 'dev', 'https://github.com/o/d');
     expect(runMigrations(db)).toEqual([
-      5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26,
+      5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27,
     ]);
     expect(runMigrations(db)).toEqual([]);
     expect(() => insert.run('e', '/e', 'dev', 'https://github.com/O/C')).toThrow(/UNIQUE/);
@@ -96,7 +96,7 @@ describe('migrations', () => {
       "INSERT INTO chat_events (chat_id, seq, type, payload, created_at) VALUES (1, 1, 'x', '{}', 1)",
     ).run();
     expect(runMigrations(db)).toEqual([
-      6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26,
+      6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27,
     ]);
     expect(db.prepare('SELECT kind, slug FROM chats').all()).toEqual([{ kind: 'work', slug: 's' }]);
     expect(db.prepare('SELECT count(*) AS n FROM chat_events').get()).toEqual({ n: 1 });
@@ -126,7 +126,7 @@ describe('migrations', () => {
       "INSERT INTO chats (project_id, kind, slug, title, worktree_path, branch, status, created_at, updated_at) VALUES (1, 'work', 's', 't', '/w', 'b', 'idle', 1, 1)",
     ).run();
     expect(runMigrations(db)).toEqual([
-      7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26,
+      7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27,
     ]);
     expect(db.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
     expect(db.prepare('SELECT count(*) AS n FROM chats').get()).toEqual({ n: 1 });
@@ -150,7 +150,7 @@ describe('migrations', () => {
       "INSERT INTO chats (project_id, kind, slug, title, worktree_path, branch, status, created_at, updated_at) VALUES (1, 'work', 's', 't', '/w', 'b', 'idle', 1, 1)",
     ).run();
     expect(runMigrations(db)).toEqual([
-      8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26,
+      8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27,
     ]);
     expect(db.prepare('SELECT provider, thinker_model, executor_model FROM chats').get()).toEqual({
       provider: 'claude',
@@ -174,7 +174,7 @@ describe('migrations', () => {
       "INSERT INTO chats (project_id, kind, slug, title, worktree_path, branch, status, created_at, updated_at) VALUES (1, 'work', 's', 't', '/w', 'b', 'idle', 1, 1)",
     ).run();
     expect(runMigrations(db)).toEqual([
-      10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26,
+      10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27,
     ]);
     expect(db.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
     db.prepare(
@@ -202,7 +202,7 @@ describe('migrations', () => {
       "INSERT INTO projects (name, repo_path, base_branch, created_at) VALUES ('p', '/x', 'dev', 1)",
     ).run();
     expect(runMigrations(db)).toEqual([
-      11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26,
+      11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27,
     ]);
     expect(db.prepare('SELECT allowed_commands, allowed_hosts FROM projects').get()).toEqual({
       allowed_commands: '[]',
@@ -223,7 +223,9 @@ describe('migrations', () => {
     db.prepare(
       "INSERT INTO agent_sessions (chat_id, role, provider, model, started_at) VALUES (1, 'executor', 'claude', 'm', 1)",
     ).run();
-    expect(runMigrations(db)).toEqual([12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26]);
+    expect(runMigrations(db)).toEqual([
+      12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27,
+    ]);
     expect(db.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
     expect(db.prepare('SELECT step, policy_version FROM agent_sessions').get()).toEqual({
       step: 'manual',
@@ -296,7 +298,7 @@ describe('migrations', () => {
         )
         .run(),
     ).toThrow(/CHECK/);
-    expect(runMigrations(db)).toEqual([13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26]);
+    expect(runMigrations(db)).toEqual([13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27]);
     expect(db.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
     expect(db.prepare('SELECT id, kind, thinker_model FROM chats ORDER BY id').all()).toEqual([
       { id: 1, kind: 'scope', thinker_model: 'modelo-x' },
@@ -323,7 +325,7 @@ describe('migrations', () => {
     db.prepare(
       "INSERT INTO projects (name, repo_path, base_branch, created_at) VALUES ('p', '/x', 'dev', 1)",
     ).run();
-    expect(runMigrations(db)).toEqual([20, 21, 22, 23, 24, 25, 26]);
+    expect(runMigrations(db)).toEqual([20, 21, 22, 23, 24, 25, 26, 27]);
     expect(db.prepare('SELECT count(*) AS n FROM projects').get()).toEqual({ n: 1 });
     expect(db.prepare('SELECT project_id, path, base_branch FROM project_repos').all()).toEqual([
       { project_id: 1, path: '.', base_branch: 'dev' },
@@ -344,7 +346,7 @@ describe('migrations', () => {
     db.prepare(
       "INSERT INTO projects (name, repo_path, base_branch, created_at) VALUES ('p', '/x', 'dev', 1)",
     ).run();
-    expect(runMigrations(db)).toEqual([21, 22, 23, 24, 25, 26]);
+    expect(runMigrations(db)).toEqual([21, 22, 23, 24, 25, 26, 27]);
     expect(db.prepare('SELECT count(*) AS n FROM projects').get()).toEqual({ n: 1 });
     expect(db.prepare('SELECT count(*) AS n FROM claude_accounts').get()).toEqual({ n: 1 });
     const insert = db.prepare(
@@ -367,7 +369,7 @@ describe('migrations', () => {
     db.prepare(
       "INSERT INTO agent_sessions (chat_id, role, provider, model, started_at) VALUES (1, 'executor', 'claude', 'm', 1)",
     ).run();
-    expect(runMigrations(db)).toEqual([26]);
+    expect(runMigrations(db)).toEqual([26, 27]);
     expect(
       db
         .prepare(
@@ -390,7 +392,7 @@ describe('migrations', () => {
     db.prepare(
       "INSERT INTO projects (name, repo_path, base_branch, created_at) VALUES ('p', '/x', 'dev', 1)",
     ).run();
-    expect(runMigrations(db)).toEqual([24, 25, 26]);
+    expect(runMigrations(db)).toEqual([24, 25, 26, 27]);
     expect(db.prepare('SELECT count(*) AS n FROM git_accounts').get()).toEqual({ n: 0 });
     expect(db.prepare('SELECT git_provider, git_account_id FROM projects').all()).toEqual([
       { git_provider: 'github', git_account_id: null },

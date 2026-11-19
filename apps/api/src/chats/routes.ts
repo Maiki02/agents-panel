@@ -97,17 +97,29 @@ export function registerChatRoutes(
     ideas: IdeaScanner;
     ideaActions: IdeaActions;
     sessions?: AgentSessionRepository;
+    /** Hours after the merge when the cleanup deletes the worktree; 0 or absent: cleanup off. */
+    cleanupAfterMergeHours?: number;
   },
 ): void {
   const { chats, service, worktreeState, ideas, ideaActions, sessions } = deps;
+  const cleanupHours = deps.cleanupAfterMergeHours ?? 0;
+  /** `mergedAt` + the configured hours, only for a merged work with the cleanup on. */
+  const deletesAt = (chat: Chat, state: string | null): string | null => {
+    if (state !== 'mergeada' || cleanupHours <= 0 || chat.mergedAt === null) return null;
+    const merged = Date.parse(chat.mergedAt);
+    return Number.isNaN(merged) ? null : new Date(merged + cleanupHours * 3_600_000).toISOString();
+  };
   /** The list and the sidebar show the fine state of a work next to the chat. */
   const withState = (chat: Chat): Chat => {
-    if (chat.kind === 'direct') return { ...chat, workState: null, planning: null };
+    if (chat.kind === 'direct') {
+      return { ...chat, workState: null, planning: null, worktreeDeletesAt: null };
+    }
     const state = worktreeState.get(chat.id);
     return {
       ...chat,
       workState: state?.state ?? null,
       planning: planningTarget(chat.kind, state),
+      worktreeDeletesAt: deletesAt(chat, state?.state ?? null),
     };
   };
 

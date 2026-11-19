@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import type { PrState } from '../pilot/github-cli.js';
+import { isoOrNull, type PrState, type PrStatus } from '../pilot/github-cli.js';
 import { clipPrBody, MR_BODY_MAX } from '../pilot/pr-body.js';
 import type { ForgeProvider } from './provider.js';
 
@@ -27,6 +27,7 @@ export class GitlabApiError extends Error {
 interface MergeRequestJson {
   iid?: unknown;
   state?: unknown;
+  merged_at?: unknown;
   web_url?: unknown;
 }
 
@@ -109,7 +110,7 @@ export class GitlabForge implements ForgeProvider {
     return url;
   }
 
-  async prStateOf(_cwd: string, url: string): Promise<PrState> {
+  async prStateOf(_cwd: string, url: string): Promise<PrStatus> {
     const mr = parseMrUrl(url, this.target.host);
     if (mr === null)
       throw new Error(`No es la URL de una MR de GitLab (${this.target.host}): ${url}`);
@@ -120,7 +121,7 @@ export class GitlabForge implements ForgeProvider {
     const state = mapMrState(found?.state);
     if (state === null)
       throw new GitlabApiError(`GitLab devolvió un estado desconocido para ${url}`);
-    return state;
+    return { state, mergedAt: state === 'MERGED' ? isoOrNull(found?.merged_at) : null };
   }
 
   private base(): string {

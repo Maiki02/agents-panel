@@ -613,6 +613,19 @@ export const migrations: readonly Migration[] = [
       ALTER TABLE agent_sessions ADD COLUMN cost_usd REAL;
     `,
   },
+  {
+    version: 27,
+    name: 'chats_merged_at',
+    // Moment the work was merged (ISO 8601, UTC); NULL while it is not merged. Works already in
+    // mergeada take the since of their state (the best date there is).
+    sql: `
+      ALTER TABLE chats ADD COLUMN merged_at TEXT;
+      UPDATE chats SET merged_at = (
+        SELECT strftime('%Y-%m-%dT%H:%M:%fZ', ws.since / 1000.0, 'unixepoch')
+        FROM worktree_state ws WHERE ws.chat_id = chats.id AND ws.state = 'mergeada'
+      ) WHERE id IN (SELECT chat_id FROM worktree_state WHERE state = 'mergeada');
+    `,
+  },
 ];
 
 /** Applies pending migrations in order, each in its own transaction. Safe to run repeatedly. */

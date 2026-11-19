@@ -5,17 +5,17 @@ import type { ChatRepository } from '../chats/repo.js';
 import type { ProjectRepository } from '../projects/repo.js';
 import type { WorktreeStateRepository } from '../worktrees/state-repo.js';
 import { forgeOf, type ForgeResolver } from '../forge/provider.js';
-import type { PrState } from './github-cli.js';
+import type { PrState, PrStatus } from './github-cli.js';
 import type { PrLookup } from './pr-lookup.js';
 
 /** State of one PR in GitHub; injectable so tests never call GitHub. */
-export type PrStateReader = (cwd: string, url: string) => Promise<PrState>;
+export type PrStateReader = (cwd: string, url: string) => Promise<PrState | PrStatus>;
 
 /** States in which a work waits for its PRs to be merged in GitHub. */
 export const WATCHED_STATES: readonly WorktreeStateId[] = ['pr_lista', 'terminado'];
 
 export interface PrWatcherDeps {
-  chats: Pick<ChatRepository, 'findById'>;
+  chats: Pick<ChatRepository, 'findById' | 'setMergedAt'>;
   states: Pick<WorktreeStateRepository, 'get' | 'transition' | 'chatIdsIn'>;
   projects: Pick<ProjectRepository, 'findById'>;
   prs: Pick<PrLookup, 'urls'>;
@@ -107,11 +107,16 @@ export class PrWatcher {
     const urls = known ?? (await this.deps.prs.urls(chat));
     if (urls.length === 0) return 'none';
     const cwd = this.cwdOf(chat);
-    let found: { url: string; state: PrState }[];
+    let found: { url: string; state: PrState; mergedAt: string | null }[];
     try {
       // In parallel: a work with child repos must not make the chat slow to open.
       found = await Promise.all(
-        urls.map(async (url) => ({ url, state: await this.readState(chat, cwd, url) })),
+        urls.map(async (url) => {
+          const read = await this.readState(chat, cwd, url);
+          return typeof read === 'string'
+            ? { url, state: read, mergedAt: null }
+            : { url, state: read.state, mergedAt: read.mergedAt };
+        }),
       );
     } catch (error) {
       this.deps.log?.(
@@ -156,6 +161,12 @@ export class PrWatcher {
       });
       return 'closed';
     }
+    // The latest merge of its PRs; the moment of the detection when the provider reports none.
+    const mergedAt = found
+      .map((pr) => pr.mergedAt)
+      .filter((at): at is string => at !== null)
+      .sort()
+      .at(-1);
     states.transition(chat.id, {
       ...progress,
       state: 'mergeada',
@@ -164,10 +175,11 @@ export class PrWatcher {
       detail: urls.join(', '),
       data: { prUrls: urls },
     });
+    this.deps.chats.setMergedAt(chat.id, mergedAt ?? new Date().toISOString());
     return 'merged';
   }
 
-  private readState(chat: Chat, cwd: string, url: string): Promise<PrState> {
+  private readState(chat: Chat, cwd: string, url: string): Promise<PrState | PrStatus> {
     const read: PrStateReader =
       this.deps.prState ??
       ((dir, pr) => forgeOf(this.deps.forge, chat.projectId).prStateOf(dir, pr));

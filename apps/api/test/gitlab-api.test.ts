@@ -73,15 +73,21 @@ describe('GitlabForge', () => {
       title: 't',
       bodyFile: bodyFile(''),
     });
-    expect(await provider.prStateOf('/x', url)).toBe('OPEN');
+    expect(await provider.prStateOf('/x', url)).toEqual({ state: 'OPEN', mergedAt: null });
     const mr = mrs[0];
     if (!mr) throw new Error('no mr');
     mr.state = 'locked';
-    expect(await provider.prStateOf('/x', url)).toBe('OPEN');
+    expect((await provider.prStateOf('/x', url)).state).toBe('OPEN');
     mr.state = 'merged';
-    expect(await provider.prStateOf('/x', url)).toBe('MERGED');
+    mr.merged_at = '2026-11-01T10:00:00.000+02:00';
+    expect(await provider.prStateOf('/x', url)).toEqual({
+      state: 'MERGED',
+      mergedAt: '2026-11-01T08:00:00.000Z',
+    });
+    mr.merged_at = null;
+    expect(await provider.prStateOf('/x', url)).toEqual({ state: 'MERGED', mergedAt: null });
     mr.state = 'closed';
-    expect(await provider.prStateOf('/x', url)).toBe('CLOSED');
+    expect((await provider.prStateOf('/x', url)).state).toBe('CLOSED');
     expect(mapMrState('whatever')).toBeNull();
   });
 

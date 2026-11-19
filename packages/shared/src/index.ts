@@ -274,6 +274,13 @@ export interface Chat {
   runtimeMs: number;
   /** True when the chat predates the measure (no panel steps timed): `runtimeMs` is a lower bound. */
   runtimeApprox: boolean;
+  /** When the work was merged (ISO 8601); `null` while it is not merged. */
+  mergedAt: string | null;
+  /**
+   * When the automatic cleanup deletes the worktree (ISO 8601): `mergedAt` + the configured hours.
+   * `null` unless the work is `mergeada` and the cleanup is on.
+   */
+  worktreeDeletesAt?: string | null;
   createdAt: number;
   updatedAt: number;
 }
@@ -1201,8 +1208,10 @@ export const PARITY_CATALOG: readonly ParityAction[] = [
   {
     id: 'delete_work',
     label: 'Borrar el trabajo',
-    automatic: null,
+    automatic: 'pilot',
     kind: 'deterministic',
+    // The worktree cleaner (24 h after the merge) calls it; not the pilot's loop.
+    service: 'deleteWork',
     manual: route('POST', '/api/chats/:id/work/delete'),
   },
   {

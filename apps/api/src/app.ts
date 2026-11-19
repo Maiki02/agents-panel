@@ -53,6 +53,7 @@ import { PrWatcher, type PrStateReader } from './pilot/pr-watcher.js';
 import { registerChatRoutes } from './chats/routes.js';
 import { registerChatGitRoutes } from './chats/git-routes.js';
 import { registerStepRoutes, StepService } from './chats/step-routes.js';
+import { WorktreeCleaner } from './worktrees/cleaner.js';
 import { WorktreeOps } from './worktrees/ops.js';
 import { registerStreamRoute } from './chats/stream.js';
 import { ChatService } from './chats/service.js';
@@ -169,6 +170,9 @@ export interface AppDeps {
   /** Reads the plan usage with a short SDK session; tests inject fixtures instead of a process. */
   usageReader?: UsageReader;
 }
+
+/** How often the cleaner looks for merged works that are due (the wait itself is in hours). */
+const CLEANUP_POLL_MS = 15 * 60 * 1000;
 
 const COMPRESS_THRESHOLD_BYTES = 1024;
 /** JSON, text (except event-stream), JS/CSS/HTML/SVG of the web; images and fonts are already packed. */
@@ -562,6 +566,7 @@ export function buildApp(deps: AppDeps, options: FastifyServerOptions = {}): Fas
     ideas: ideaScanner,
     ideaActions,
     sessions: agentSessions,
+    cleanupAfterMergeHours: deps.config.cleanupAfterMergeHours,
   });
   // A plugin: its own error handler maps the git operation errors without touching the others.
   void app.register((instance) => {
@@ -598,12 +603,24 @@ export function buildApp(deps: AppDeps, options: FastifyServerOptions = {}): Fas
       app.log.warn(message);
     },
   });
+  // Deletes the worktree of a work a day after its merge (never one with unsaved changes).
+  const worktreeCleaner = new WorktreeCleaner({
+    chats,
+    states: worktreeState,
+    ops: worktreeOps,
+    afterMergeHours: deps.config.cleanupAfterMergeHours,
+    log: (message) => {
+      app.log.warn(message);
+    },
+  });
   app.addHook('onReady', () => {
     prWatcher.start(deps.config.pilotPrPollMs);
+    worktreeCleaner.start(CLEANUP_POLL_MS);
     return Promise.resolve();
   });
   app.addHook('onClose', () => {
     prWatcher.stop();
+    worktreeCleaner.stop();
   });
   registerAutopilotRoutes(app, {
     service: chatService,

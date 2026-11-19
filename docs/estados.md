@@ -79,8 +79,8 @@ Si el setup o la escritura de los `.env` fallan, el worktree no llega a existir:
 
 | id | Etiqueta | Actor | Se detecta por | Sale a |
 |---|---|---|---|---|
-| `mergeada` | PRs mergeadas | S | Todas las PRs del scope en estado `merged` | `limpiando` |
-| `limpiando` | Borrando worktree | S | `git worktree remove` + borrado de ramas locales | `archivado`, `revisar` |
+| `mergeada` | PRs mergeadas | S | Todas las PRs del scope en estado `merged`; a las 24 h (configurable) pasa sola a `limpiando` | `limpiando`, `revisar` |
+| `limpiando` | Borrando worktree | S | `git worktree remove` + borrado de ramas locales y remotas | `archivado`, `revisar` |
 | `archivado` | Archivado | — | Worktree borrado; chat en solo lectura | (final) |
 
 ### Transversales
@@ -240,7 +240,7 @@ El lector de Kyro deja `kyro_bloqueado` y `tarea_bloqueada`; el piloto del sprin
 - **Builds y tests** (`en_cola_build`, `buildeando`, `probando`, `corrigiendo`, `registrando_evidencia`): necesitan los hooks `PreToolUse`/`PostToolUse` y el semáforo de builds. Llegan con la etapa 5.
 - **Permisos** (`esperando_permiso`): hoy solo se registra `permission_denied`; aprobar con botones es de la etapa 5.
 - **PR después de abierta** (`en_cola_merge_raiz`, `mergeando_raiz`, `pr_checks_fallidos`, `pr_cambios_pedidos`): mergear la PR no es del panel y el sondeo de PRs todavía no mira checks ni reviews (etapa 5). El resto de la fase de merge (`trayendo_dev`, `resolviendo_conflictos`, `validando_post_merge`, `abriendo_pr`, `pr_lista`) ya lo escribe el piloto.
-- **Cierre**: `mergeada` y `revisar` (PR cerrada) ya los escribe el sondeo de PRs (ver abajo); `limpiando` y `archivado` solo llegan con **Borrar trabajo** (D28). La limpieza automática después de `mergeada` es de las etapas 5 y 6.
+- **Cierre**: `mergeada` y `revisar` (PR cerrada) ya los escribe el sondeo de PRs (ver abajo); `limpiando` y `archivado` llegan con **Borrar trabajo** (D28) o, desde `mergeada`, con la limpieza automática (ver abajo).
 - **Aviso push** de `sin_cupo_de_uso`: todavía no avisa (ver más abajo). La hora de reinicio del límite (`resetsAt`) **ya se usa** para retomar (scope `operaciones-worktree`, sprint 3): el piloto reintenta a `resetsAt + 60 s` y, sin un `resetsAt` futuro, cada 15 minutos.
 - **Idea** (`madurando_idea`, `esperando_aprobacion_plan`): chat de tipo Idea, sprint 4; ya se escriben ambos: el primer turno la deja con actor `user` y el fin del turno no cambia el estado (T2.1); `esperando_aprobacion_plan` se escribe cuando git muestra exactamente un documento nuevo o cambiado de `kyro-idea` y no hay pregunta pendiente (T2.2); con varios queda `bloqueado` (`otro`) y con ninguno sigue en `madurando_idea`. Las decisiones sobre el plan (T2.3): aprobar como scope o work pasa a `planificando` (actor `user`, con la ruta y el usuario en el Timeline) y pedir cambios vuelve a `madurando_idea`; si `kyro work create` falla queda `bloqueado` (`kyro_bloqueado`).
 
@@ -274,7 +274,9 @@ Las operaciones git manuales de un trabajo (commit, traer base, traer la propia 
 
 **Borrado manual (D28).** Borrar trabajo (`POST /api/chats/:id/work/delete`) es la salida manual de la fase Cierre sin pasar por `mergeada`: el trabajo va a `limpiando` (actor `user`, motivo «Borrar trabajo», con `op: 'delete'` y `deleteRemote` en `data`), se apaga la fila del piloto, se borra el worktree y las ramas locales (y las remotas solo si se pidió) y termina en `archivado`. Si algo falla a mitad pasa a `revisar` con lo que ya se hizo en el detalle y la ruta responde 422. Se rechaza con 409 si el agente corre o el piloto está ocupado, igual que las demás acciones manuales.
 
-**Chat archivado en solo lectura.** En `archivado` el worktree ya no existe: el chat se puede leer (mensajes y Timeline), pero todo lo que escribe responde 409 «El trabajo está archivado: es de solo lectura» (enviar mensajes, las operaciones git, Crear PR, descartar, borrar y los pasos del agente). Las lecturas que dependen del worktree (git, diff) responden el mismo 409.
+**Limpieza automática (work `limpieza-worktrees-mergeados`).** `mergeada` → `limpiando` → `archivado` sin que nadie lo pida. Al pasar a `mergeada` se guarda `chats.merged_at`; `WorktreeCleaner` (`apps/api/src/worktrees/cleaner.ts`, cada 15 minutos) actúa cuando pasaron `PANEL_CLEANUP_AFTER_MERGE_HOURS` horas (24 por defecto; 0 la apaga). Con archivos sin commitear o commits sin pushear, o si el borrado falla a mitad, el trabajo pasa a `revisar` (actor `pilot`, `data.op = 'cleanup'`, detalle con lo que falta) y no se borra nada. Si está limpio, borra el worktree y las ramas locales y remotas (nunca la base) como actor `pilot` y termina en `archivado`. Un 409 (agente corriendo, mantenimiento, piloto ocupado) reintenta en la vuelta siguiente. Mientras espera, la card y la cabecera del chat dicen cuándo se borra (`worktreeDeletesAt`).
+
+**Chat archivado en solo lectura.** Conserva rama, tiempos, PR, Timeline, uso y chat; la card y la cabecera aclaran que el worktree se borró. En `archivado` el worktree ya no existe: el chat se puede leer (mensajes y Timeline), pero todo lo que escribe responde 409 «El trabajo está archivado: es de solo lectura» (enviar mensajes, las operaciones git, Crear PR, descartar, borrar y los pasos del agente). Las lecturas que dependen del worktree (git, diff) responden el mismo 409.
 
 ### Cómo se lee Kyro
 

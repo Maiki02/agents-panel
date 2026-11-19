@@ -39,6 +39,8 @@ export interface Config {
   readonly pilotValidateTimeoutMs: number;
   /** How often the PRs of the finished works are checked in GitHub; 0 turns the polling off. */
   readonly pilotPrPollMs: number;
+  /** Hours a merged work waits before its worktree is deleted; 0 turns the cleaner off. */
+  readonly cleanupAfterMergeHours: number;
   /** Folder with the compiled web the API serves; null serves nothing (PANEL_WEB_DIR). */
   readonly webDir: string | null;
   /** null when the VAPID keys are not set: Web Push stays off and nothing is sent. */
@@ -176,6 +178,7 @@ export function loadConfig(env: Env = process.env): Config {
     pilotMaxSessionsPerSprint: positiveInt(env, 'PILOT_MAX_SESSIONS_PER_SPRINT', 6),
     pilotValidateTimeoutMs: positiveInt(env, 'PILOT_VALIDATE_TIMEOUT_MINUTES', 15) * 60 * 1000,
     pilotPrPollMs: nonNegativeInt(env, 'PILOT_PR_POLL_MINUTES', 5) * 60 * 1000,
+    cleanupAfterMergeHours: nonNegativeInt(env, 'PANEL_CLEANUP_AFTER_MERGE_HOURS', 24),
     pushVapid: loadVapid(env),
   };
 }

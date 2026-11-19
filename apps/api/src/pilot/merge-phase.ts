@@ -29,6 +29,8 @@ export interface MergePhaseDeps {
   gh: PilotGh;
   mark: (state: WorktreeStateId, reason: string, extra?: MergeMark) => void;
   record: (type: string, payload: Record<string, unknown>) => void;
+  /** Stores the moment (ISO 8601) the phase left the work in `mergeada`. */
+  merged?: (mergedAt: string) => void;
   /** Opens the executor session of a step; 'exit' when the loop must stop (limit, cancel, queue). */
   session: (step: 'merge' | 'merge_dev', prompt: string) => Promise<'done' | 'exit'>;
   /** Prompt of the `merge` session over the conflicts. */
@@ -151,6 +153,7 @@ async function runMergeDev(
       urls.length > 0 ? 'Las PR están listas para revisar' : `La rama ya está en ${input.base}`,
       { data: { prUrls: urls }, detail: urls.join(', ') || null },
     );
+    if (urls.length === 0) deps.merged?.(new Date().toISOString());
     return { kind: 'done', prUrls: urls, merged };
   } catch (error) {
     return stop('git', error instanceof Error ? error.message : 'No se pudo comprobar el merge');
