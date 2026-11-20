@@ -17,7 +17,7 @@ import { currentTaskView } from './phase-logic';
 import { PhaseStepper } from './phase-stepper';
 
 /** Same breakpoint as Tailwind's `lg`: from here the panel is a fixed column next to the chat. */
-export const WIDE_QUERY ='(min-width: 1024px)';
+export const WIDE_QUERY = '(min-width: 1024px)';
 
 /**
  * Lines of the current task card: the id on top when there is one; without an id (the Plan phase)

@@ -270,6 +270,8 @@ Recorrido del sprint 3 de `autopiloto-kyro`. Se puede seguir por la API, con la 
 7. El tope de sesiones sale de `PILOT_MAX_SESSIONS_PER_SPRINT` en el `.env` de la API (6 por defecto) y cuenta las sesiones seguidas del sprint **sin cerrar una tarea**: cada ejecución que cierra una tarea reinicia la cuenta, así un sprint largo no frena; un bucle de correcciones o de reinicios sí.
 8. **Después de la PR:** el panel no mergea. Al mergear la PR en GitHub, el trabajo pasa solo a `mergeada` en la vuelta siguiente del sondeo (`PILOT_PR_POLL_MINUTES` en el `.env` de la API, 5 por defecto; 0 lo apaga) o al abrir el chat en la web. Si la PR se cierra sin mergear, pasa a `revisar`.
 
+   **Limpieza automática:** pasadas `PANEL_CLEANUP_AFTER_MERGE_HOURS` horas desde el merge (24 por defecto; 0 la apaga; va en el `.env` de la API, ver `.env.example`) el panel borra el worktree, las ramas locales y las remotas, y el trabajo queda `archivado` (solo lectura). La card dice cuándo se borra. Si hay algo sin commitear o sin pushear, no borra nada y pasa a `revisar`: se resuelve a mano.
+
 **Importante:** hasta tener el servicio systemd (etapa 6), cerrar la terminal donde corre la API la corta y con ella el piloto. Levantala dentro de `tmux` (`tmux new -s panel`, y desconectate con `Ctrl-b d`) para que sobreviva a cerrar la conexión SSH; si la VM se reinicia, al levantar la API los pilotos activos se retoman solos.
 
 ### Probar una Idea, su aprobación y el cierre con merge
@@ -289,7 +291,7 @@ Recorrido del sprint 4 de `autopiloto-kyro`. **Usá siempre un repo de prueba** 
 7. **Merge:** para probar un conflicto, adelantá la base del remoto con un cambio sobre el mismo archivo que tocó la rama: aparece `trayendo_dev` → `resolviendo_conflictos` (sesión `merge` del ejecutor) → `validando_post_merge` → `abriendo_pr` → `pr_lista`. La URL queda en el Timeline y en `autopilot_runs.pr_urls`. Si el work terminó con una PR que abrió el agente por su cuenta, al abrir el chat el panel la busca con `gh` por la rama y muestra la tarjeta igual. Si el repo de prueba tiene `.claude/skills/merge-dev/SKILL.md`, el piloto usa esa skill (sesión `merge_dev`).
 8. **Frenos para forzar:** un `validate_command` que falla → `build_roto` (sin PR); un `.env` o un token de mentira en el diff → `secretos` (el Timeline lista archivo y tipo, nunca el valor); un worktree sin `origin` → `git`; un informe de QA sin `Verdict:` → `qa_sin_aprobar`. Cada uno se resuelve y se retoma con `resume`.
 9. **Reinicio en la fase de merge:** con el piloto en `trayendo_dev`, matá la API y levantala: lee `autopilot_runs.phase = 'merge'` y retoma el merge (el pull, el push y la PR son idempotentes: una PR abierta de la rama se reusa).
-10. **Limpieza:** el panel no borra nada solo. Cerrá la PR de prueba a mano y borrá la rama del remoto y el worktree de prueba.
+10. **Limpieza:** el panel no borra nada hasta que la PR se mergea (después, la limpieza automática). Cerrá la PR de prueba a mano y borrá la rama del remoto y el worktree de prueba.
 
 ### Probar el piloto desde la web
 

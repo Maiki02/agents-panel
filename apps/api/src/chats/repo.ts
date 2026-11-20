@@ -25,6 +25,7 @@ interface ChatRow {
   provider: ModelProvider;
   thinker_model: string;
   executor_model: string;
+  merged_at: string | null;
   created_at: number;
   updated_at: number;
 }
@@ -54,6 +55,7 @@ function toChat(row: ChatRow): Omit<Chat, 'runtimeMs' | 'runtimeApprox'> {
     sdkSessionId: row.sdk_session_id,
     status: row.status,
     models: { provider: row.provider, thinker: row.thinker_model, executor: row.executor_model },
+    mergedAt: row.merged_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -113,6 +115,11 @@ export class ChatRepository {
     const chat = this.findById(Number(result.lastInsertRowid));
     if (!chat) throw new Error('Chat insert failed');
     return chat;
+  }
+
+  /** Stores when the work was merged (ISO 8601); `null` clears it. */
+  setMergedAt(id: number, mergedAt: string | null): void {
+    this.db.prepare('UPDATE chats SET merged_at = ? WHERE id = ?').run(mergedAt, id);
   }
 
   findById(id: number): Chat | undefined {

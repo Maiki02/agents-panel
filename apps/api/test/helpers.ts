@@ -15,6 +15,8 @@ export const TEST_ENV = {
   PANEL_DATA_DIR: '/tmp/unused',
   // Tests never poll GitHub: the PR checks run only when a test asks for them.
   PILOT_PR_POLL_MINUTES: '0',
+  // Nor does a test delete worktrees on its own: the cleaner runs only when a test builds it.
+  PANEL_CLEANUP_AFTER_MERGE_HOURS: '0',
 };
 
 export function makeApp(

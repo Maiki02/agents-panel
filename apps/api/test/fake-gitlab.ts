@@ -8,6 +8,7 @@ export interface FakeMr {
   state: 'opened' | 'merged' | 'closed' | 'locked';
   title: string;
   description: string;
+  merged_at?: string | null;
 }
 
 export interface FakeCall {
@@ -28,6 +29,7 @@ export function fakeGitlab(host: string, token: string) {
   const view = (mr: FakeMr) => ({
     iid: mr.iid,
     state: mr.state,
+    merged_at: mr.merged_at ?? null,
     title: mr.title,
     description: mr.description,
     web_url: `https://${host}/${mr.project}/-/merge_requests/${String(mr.iid)}`,

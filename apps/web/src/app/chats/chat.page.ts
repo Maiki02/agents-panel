@@ -46,6 +46,7 @@ import {
   type DebtView,
 } from './approval-logic';
 import { chatBadge, stateBadge } from './status';
+import { worktreeNotice } from './phase-logic';
 import { AutopilotBar } from './autopilot-bar';
 import { PILOT_MESSAGE_HINT, messageResumesPilot } from './autopilot-logic';
 import { WIDE_QUERY, WorkInfoPanel } from './work-info-panel';
@@ -131,6 +132,9 @@ import { ProjectContext } from '../projects/project-context';
                 [active]="tab()"
                 (selected)="tab.set($event)"
               />
+            }
+            @if (notice(c); as notice) {
+              <p class="hint" data-testid="worktree-notice">{{ notice }}</p>
             }
             @if (c.status === 'interrupted') {
               <p class="banner">
@@ -288,7 +292,9 @@ import { ProjectContext } from '../projects/project-context';
             <form class="composer" (submit)="send($event)">
               <label for="message" class="sr-only">Mensaje</label>
               @if (c.workState === 'archivado') {
-                <p class="hint">El trabajo está archivado: es de solo lectura.</p>
+                <p class="hint">
+                  El trabajo está archivado: es de solo lectura y su worktree se borró.
+                </p>
               } @else if (pilotStopped()) {
                 <p class="hint" data-testid="pilot-resume-hint">{{ pilotMessageHint }}</p>
               }
@@ -342,6 +348,7 @@ export class ChatPage {
   private handle: StreamHandle | undefined;
 
   protected readonly chat = signal<Chat | null>(null);
+  protected readonly notice = worktreeNotice;
   protected readonly rows = signal<FeedRow[]>([]);
   private readonly items = computed(() => this.rows().map((row) => row.item));
   /** Earlier messages: the cursor for the next window, whether any is left, and the one in flight. */

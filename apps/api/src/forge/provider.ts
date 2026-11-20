@@ -1,6 +1,6 @@
 import type { Project } from '@agents-panel/shared';
 import type { GitCredentialLookup } from '../git-accounts/credentials.js';
-import { allPrsOf, prStateOf, realGh, type PilotGh, type PrState } from '../pilot/github-cli.js';
+import { allPrsOf, prStateOf, realGh, type PilotGh, type PrStatus } from '../pilot/github-cli.js';
 import type { ProjectRepository } from '../projects/repo.js';
 import { GitlabForge, type FetchLike } from './gitlab-api.js';
 
@@ -9,7 +9,7 @@ export interface ForgeProvider extends PilotGh {
   /** URLs of every PR/MR of the branch, open, merged or closed. */
   allPrsOf(cwd: string, head: string): Promise<string[]>;
   /** State of one PR/MR by its URL; rejects a URL that is not one of this provider's. */
-  prStateOf(cwd: string, url: string): Promise<PrState>;
+  prStateOf(cwd: string, url: string): Promise<PrStatus>;
 }
 
 /** GitHub through `gh` (with the project's `GH_TOKEN` when it has an account). */

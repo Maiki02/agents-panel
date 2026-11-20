@@ -652,6 +652,9 @@ export class Autopilot {
         record: (type, payload) => {
           chats.appendEvent(chat.id, type, payload);
         },
+        merged: (mergedAt) => {
+          chats.setMergedAt(chat.id, mergedAt);
+        },
         push: async () => {
           const outcome = await this.actions.pushBranch(chat.id, 'pilot');
           if (outcome.result !== 'ok') throw new Error(outcome.output);

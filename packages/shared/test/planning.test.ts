@@ -5,6 +5,7 @@ const planning = (over: Partial<Parameters<typeof planningTarget>[1] & object> =
   state: 'planificando' as const,
   sprintCurrent: null,
   sprintClosed: null,
+  sprintTotal: null,
   ...over,
 });
 

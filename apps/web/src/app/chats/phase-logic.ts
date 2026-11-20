@@ -127,6 +127,36 @@ export function stepperView(
   };
 }
 
+/** Text under a work whose automatic worktree cleanup already ran. */
+export const WORKTREE_DELETED_NOTICE =
+  'El worktree se borró: quedan la rama, los tiempos, la PR, el Timeline, el uso y el chat, en solo lectura.';
+
+/**
+ * What a card or chat header says about the worktree after the merge: when it is deleted
+ * («mergeada», cleanup on) or that it was already deleted («archivado»). Null otherwise,
+ * and for a merged work whose cleanup is off or whose date is unknown.
+ */
+export function worktreeNotice(chat: {
+  workState?: WorktreeStateId | null;
+  worktreeDeletesAt?: string | null;
+}): string | null {
+  if (chat.workState === 'archivado') return WORKTREE_DELETED_NOTICE;
+  if (chat.workState !== 'mergeada' || !chat.worktreeDeletesAt) return null;
+  const at = new Date(chat.worktreeDeletesAt);
+  if (Number.isNaN(at.getTime())) return null;
+  const date = at.toLocaleDateString('es-AR', {
+    day: 'numeric',
+    month: 'numeric',
+    year: '2-digit',
+  });
+  const time = at.toLocaleTimeString('es-AR', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+  return `El worktree se borra el ${date} a las ${time}`;
+}
+
 export type TaskTone = 'neutral' | 'warn' | 'danger';
 
 export interface CurrentTaskView {

@@ -12,7 +12,9 @@ import { ConfigError, loadConfig } from '../src/config.js';
 import { openDatabase } from '../src/db/index.js';
 import type { FetchLike } from '../src/forge/gitlab-api.js';
 import { ForgeRegistry } from '../src/forge/provider.js';
-import { prStateOf, type PrState } from '../src/pilot/github-cli.js';
+import { prStateOf, type PrState, type PrStatus } from '../src/pilot/github-cli.js';
+import { migrations, runMigrations } from '../src/db/migrations.js';
+import { DatabaseSync } from 'node:sqlite';
 import { PrLookup } from '../src/pilot/pr-lookup.js';
 import { fakeGitlab } from './fake-gitlab.js';
 import { PrWatcher } from '../src/pilot/pr-watcher.js';
@@ -24,7 +26,7 @@ import { PASSWORD, TEST_ENV, makeApp, makeKyroRepo } from './helpers.js';
 const ROOT = 'https://github.com/acme/demo/pull/7';
 const CHILD = 'https://github.com/acme/demo-fe/pull/3';
 
-async function setup(answers: Record<string, PrState | Error>, urls: string[] = [ROOT]) {
+async function setup(answers: Record<string, PrState | PrStatus | Error>, urls: string[] = [ROOT]) {
   const db = openDatabase(':memory:');
   const chats = new ChatRepository(db);
   const states = new WorktreeStateRepository(db, chats, new ChatEventBus());
@@ -74,7 +76,7 @@ async function setup(answers: Record<string, PrState | Error>, urls: string[] = 
     });
     return chat;
   };
-  return { watcher, states, newChat, asked, logs };
+  return { watcher, states, newChat, asked, logs, chats };
 }
 
 describe('PrWatcher', () => {
@@ -184,6 +186,73 @@ describe('PrWatcher', () => {
     await expect(watcher.checkAll()).resolves.toBeUndefined();
     expect(logs[0]).toContain('database is locked');
     expect(states.get(ready.id)?.state).toBe('mergeada');
+  });
+
+  it('stores the latest merge of its PRs in merged_at (GitHub)', async () => {
+    const { watcher, newChat, chats } = await setup(
+      {
+        [ROOT]: { state: 'MERGED', mergedAt: '2026-11-01T10:00:00.000Z' },
+        [CHILD]: { state: 'MERGED', mergedAt: '2026-11-03T09:30:00.000Z' },
+      },
+      [ROOT, CHILD],
+    );
+    const chat = newChat('ma', 'pr_lista');
+    expect(chats.findById(chat.id)?.mergedAt).toBeNull();
+    expect(await watcher.check(chat)).toBe('merged');
+    expect(chats.findById(chat.id)?.mergedAt).toBe('2026-11-03T09:30:00.000Z');
+  });
+
+  it('falls back to the moment of the detection when the provider reports no merge date', async () => {
+    const { watcher, newChat, chats } = await setup({
+      [ROOT]: { state: 'MERGED', mergedAt: null },
+    });
+    const chat = newChat('mb', 'pr_lista');
+    const before = Date.now();
+    expect(await watcher.check(chat)).toBe('merged');
+    const stored = chats.findById(chat.id)?.mergedAt;
+    expect(stored).toBeTypeOf('string');
+    expect(Date.parse(stored ?? '')).toBeGreaterThanOrEqual(before);
+    expect(Date.parse(stored ?? '')).toBeLessThanOrEqual(Date.now());
+  });
+
+  it('leaves merged_at empty while the work is not merged', async () => {
+    const { watcher, newChat, chats } = await setup({ [ROOT]: 'OPEN' });
+    const chat = newChat('mc', 'pr_lista');
+    expect(await watcher.check(chat)).toBe('open');
+    expect(chats.findById(chat.id)?.mergedAt).toBeNull();
+  });
+
+  it('migration 27 adds merged_at and fills it with the since of the works already merged', () => {
+    const db = new DatabaseSync(':memory:');
+    db.exec('PRAGMA foreign_keys = ON');
+    runMigrations(
+      db,
+      migrations.filter((m) => m.version <= 26),
+    );
+    db.prepare(
+      "INSERT INTO projects (name, repo_path, base_branch, created_at) VALUES ('p', '/r', 'main', 1)",
+    ).run();
+    const insertChat = (slug: string) =>
+      Number(
+        db
+          .prepare(
+            "INSERT INTO chats (project_id, kind, slug, title, worktree_path, branch, status, created_at, updated_at) VALUES (1, 'work', ?, ?, '/w', ?, 'idle', 1, 1)",
+          )
+          .run(slug, slug, slug).lastInsertRowid,
+      );
+    const merged = insertChat('merged');
+    const open = insertChat('open');
+    const insertState = db.prepare(
+      "INSERT INTO worktree_state (chat_id, state, actor, since) VALUES (?, ?, 'pilot', ?)",
+    );
+    insertState.run(merged, 'mergeada', Date.parse('2026-10-05T12:00:00.000Z'));
+    insertState.run(open, 'pr_lista', Date.parse('2026-10-06T12:00:00.000Z'));
+    expect(runMigrations(db)).toEqual([27]);
+    const rows = db.prepare('SELECT id, merged_at FROM chats ORDER BY id').all();
+    expect(rows).toEqual([
+      { id: merged, merged_at: '2026-10-05T12:00:00.000Z' },
+      { id: open, merged_at: null },
+    ]);
   });
 
   it('prStateOf only takes the URL of a GitHub PR', async () => {
@@ -323,7 +392,7 @@ describe('PrWatcher in a GitLab project', () => {
       });
       return chat;
     };
-    return { watcher, states, newChat, logs };
+    return { watcher, states, newChat, logs, chats, gitlab };
   }
 
   it('takes the work to mergeada when the MR is merged, to revisar when closed, and waits while open', async () => {
@@ -337,6 +406,20 @@ describe('PrWatcher in a GitLab project', () => {
     expect(states.get(merged.id)?.state).toBe('mergeada');
     expect(states.get(closed.id)?.state).toBe('revisar');
     expect(states.get(open.id)?.state).toBe('pr_lista');
+  });
+
+  it('stores the merged_at of the MR in GitLab, or the detection when it reports none', async () => {
+    const { watcher, newChat, chats, gitlab } = gitlabSetup();
+    const dated = newChat('md', 'merged');
+    const undated = newChat('mu', 'merged');
+    const mr = gitlab.mrs[0];
+    if (!mr) throw new Error('no mr');
+    mr.merged_at = '2026-11-02T08:15:00.000Z';
+    const before = Date.now();
+    expect(await watcher.check(dated)).toBe('merged');
+    expect(await watcher.check(undated)).toBe('merged');
+    expect(chats.findById(dated.id)?.mergedAt).toBe('2026-11-02T08:15:00.000Z');
+    expect(Date.parse(chats.findById(undated.id)?.mergedAt ?? '')).toBeGreaterThanOrEqual(before);
   });
 
   it('a GitLab failure changes nothing and leaves no token in the log or the Timeline', async () => {

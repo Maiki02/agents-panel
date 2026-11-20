@@ -102,16 +102,32 @@ export async function allPrsOf(cwd: string, head: string): Promise<string[]> {
 /** What GitHub says about one PR. */
 export type PrState = 'OPEN' | 'MERGED' | 'CLOSED';
 
-/** State of a PR by its URL (`gh pr view <url> --json state`); `cwd` only hosts the process. */
-export async function prStateOf(cwd: string, url: string): Promise<PrState> {
+/** State of a PR plus the moment it was merged (ISO 8601; null when open, closed or not reported). */
+export interface PrStatus {
+  state: PrState;
+  mergedAt: string | null;
+}
+
+/** A valid ISO date as the provider wrote it; anything else counts as «not reported». */
+export function isoOrNull(value: unknown): string | null {
+  if (typeof value !== 'string' || value === '') return null;
+  const time = Date.parse(value);
+  return Number.isNaN(time) ? null : new Date(time).toISOString();
+}
+
+/** State of a PR by its URL (`gh pr view <url> --json state,mergedAt`); `cwd` only hosts the process. */
+export async function prStateOf(cwd: string, url: string): Promise<PrStatus> {
   // Only a PR URL reaches argv: never something gh could read as a flag.
   if (!/^https:\/\/github\.com\/[^/\s]+\/[^/\s]+\/pull\/\d+$/.test(url)) {
     throw new Error(`No es la URL de una PR de GitHub: ${url}`);
   }
-  const parsed = JSON.parse(await gh(cwd, ['pr', 'view', url, '--json', 'state'])) as {
+  const parsed = JSON.parse(await gh(cwd, ['pr', 'view', url, '--json', 'state,mergedAt'])) as {
     state?: unknown;
+    mergedAt?: unknown;
   };
   const state = parsed.state;
-  if (state === 'OPEN' || state === 'MERGED' || state === 'CLOSED') return state;
+  if (state === 'OPEN' || state === 'MERGED' || state === 'CLOSED') {
+    return { state, mergedAt: state === 'MERGED' ? isoOrNull(parsed.mergedAt) : null };
+  }
   throw new Error(`gh pr view devolvió un estado desconocido para ${url}`);
 }

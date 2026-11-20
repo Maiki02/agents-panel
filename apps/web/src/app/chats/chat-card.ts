@@ -3,6 +3,7 @@ import { RouterLink, RouterLinkActive } from '@angular/router';
 import type { Chat } from '@agents-panel/shared';
 import { Badge } from '../ui/badge';
 import { RUNTIME_APPROX_HELP, createdLabel, runtimeLabel } from './runtime-logic';
+import { worktreeNotice } from './phase-logic';
 import { chatSubtitle, kindChipLabel, sidebarBadge } from './status';
 
 /**
@@ -37,6 +38,11 @@ import { chatSubtitle, kindChipLabel, sidebarBadge } from './status';
           {{ runtime() }}
         </span>
       </span>
+      @if (notice(); as text) {
+        <span class="mt-0.5 block text-xs text-muted" data-testid="worktree-notice">{{
+          text
+        }}</span>
+      }
     </a>
   `,
 })
@@ -57,6 +63,9 @@ export class ChatCard {
   }
   protected kindLabel(): string {
     return kindChipLabel(this.chat().kind);
+  }
+  protected notice(): string | null {
+    return worktreeNotice(this.chat());
   }
   protected subtitle(): string {
     return chatSubtitle(this.chat());

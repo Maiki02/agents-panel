@@ -1,6 +1,42 @@
 import { describe, expect, it } from 'vitest';
 import { WORKTREE_STATE_IDS } from '@agents-panel/shared';
-import { PHASES, currentTaskView, phaseOf, sessionLabel, stepperView } from './phase-logic';
+import {
+  PHASES,
+  WORKTREE_DELETED_NOTICE,
+  currentTaskView,
+  phaseOf,
+  sessionLabel,
+  stepperView,
+  worktreeNotice,
+} from './phase-logic';
+
+describe('worktreeNotice', () => {
+  const at = new Date(2026, 10, 20, 9, 5).toISOString();
+
+  it('says when the worktree of a merged work is deleted', () => {
+    const text = worktreeNotice({ workState: 'mergeada', worktreeDeletesAt: at });
+    expect(text).toMatch(/^El worktree se borra el /);
+    expect(text).toMatch(/09:05$/);
+  });
+
+  it('says nothing for a merged work when the cleanup is off or the date is unknown', () => {
+    expect(worktreeNotice({ workState: 'mergeada', worktreeDeletesAt: null })).toBeNull();
+    expect(worktreeNotice({ workState: 'mergeada' })).toBeNull();
+    expect(worktreeNotice({ workState: 'mergeada', worktreeDeletesAt: 'nope' })).toBeNull();
+  });
+
+  it('says the worktree was deleted for an archived work', () => {
+    expect(worktreeNotice({ workState: 'archivado', worktreeDeletesAt: null })).toBe(
+      WORKTREE_DELETED_NOTICE,
+    );
+    expect(WORKTREE_DELETED_NOTICE).toMatch(/worktree se borró/);
+  });
+
+  it('says nothing in any other state', () => {
+    expect(worktreeNotice({ workState: 'pr_lista', worktreeDeletesAt: at })).toBeNull();
+    expect(worktreeNotice({ workState: null })).toBeNull();
+  });
+});
 
 const base = {
   previousState: null,
